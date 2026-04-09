@@ -1,0 +1,34 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - revive
+    - misspell
+    - unconvert
+    - unparam
+    - gosec
+    - gocritic
+
+linters-settings:
+  revive:
+    rules:
+      - name: exported
+        disabled: true
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance

@@ -1,0 +1,15 @@
+[tools]
+go = "1.26.2"
+golangci-lint = "2.11.4"
+
+[tasks.build]
+description = "Build the ci-snitch binary"
+run = "go build -o bin/ci-snitch ./cmd/ci-snitch"
+
+[tasks.test]
+description = "Run all tests"
+run = "go test ./..."
+
+[tasks.lint]
+description = "Run golangci-lint"
+run = "golangci-lint run ./..."
