@@ -1,41 +1,41 @@
 {
-    "total_count": 22,
-    "workflows": [
-        {
-            "id": 212842811,
-            "node_id": "W_kwDOGOJto84Mr7k7",
-            "name": "Auto Cherry-Pick",
-            "path": ".github/workflows/auto-cherry-pick.yml",
-            "state": "active",
-            "created_at": "2025-12-04T08:49:46.000+02:00",
-            "updated_at": "2025-12-04T08:49:46.000+02:00",
-            "url": "https://api.github.com/repos/hedera-dx/hedera-platform/actions/workflows/212842811",
-            "html_url": "https://github.com/hedera-dx/hedera-platform/blob/main/.github/workflows/auto-cherry-pick.yml",
-            "badge_url": "https://github.com/hedera-dx/hedera-platform/workflows/Auto%20Cherry-Pick/badge.svg"
-        },
-        {
-            "id": 210100984,
-            "node_id": "W_kwDOGOJto84MheL4",
-            "name": "Build and push container image",
-            "path": ".github/workflows/build-and-push.yml",
-            "state": "active",
-            "created_at": "2025-11-25T08:17:15.000+02:00",
-            "updated_at": "2025-11-25T08:17:15.000+02:00",
-            "url": "https://api.github.com/repos/hedera-dx/hedera-platform/actions/workflows/210100984",
-            "html_url": "https://github.com/hedera-dx/hedera-platform/blob/main/.github/workflows/build-and-push.yml",
-            "badge_url": "https://github.com/hedera-dx/hedera-platform/workflows/Build%20and%20push%20container%20image/badge.svg"
-        },
-        {
-            "id": 176252507,
-            "node_id": "W_kwDOGOJto84KgWZb",
-            "name": "Build and Test Serverless",
-            "path": ".github/workflows/build-and-test-serverless.yml",
-            "state": "active",
-            "created_at": "2025-07-22T14:47:38.000+03:00",
-            "updated_at": "2026-03-26T15:06:43.000+02:00",
-            "url": "https://api.github.com/repos/hedera-dx/hedera-platform/actions/workflows/176252507",
-            "html_url": "https://github.com/hedera-dx/hedera-platform/blob/main/.github/workflows/build-and-test-serverless.yml",
-            "badge_url": "https://github.com/hedera-dx/hedera-platform/workflows/Build%20and%20Test%20Serverless/badge.svg"
-        }
-    ]
+  "total_count": 22,
+  "workflows": [
+    {
+      "id": 100000,
+      "node_id": "W_fake_0",
+      "name": "CI",
+      "path": ".github/workflows/ci.yml",
+      "state": "active",
+      "created_at": "2025-12-04T08:49:46.000+02:00",
+      "updated_at": "2025-12-04T08:49:46.000+02:00",
+      "url": "https://api.github.com/repos/example-org/example-repo/actions/workflows/100000",
+      "html_url": "https://github.com/example-org/example-repo/blob/main/.github/workflows/ci.yml",
+      "badge_url": "https://github.com/example-org/example-repo/workflows/CI/badge.svg"
+    },
+    {
+      "id": 100001,
+      "node_id": "W_fake_1",
+      "name": "Deploy",
+      "path": ".github/workflows/deploy.yml",
+      "state": "active",
+      "created_at": "2025-11-25T08:17:15.000+02:00",
+      "updated_at": "2025-11-25T08:17:15.000+02:00",
+      "url": "https://api.github.com/repos/example-org/example-repo/actions/workflows/100001",
+      "html_url": "https://github.com/example-org/example-repo/blob/main/.github/workflows/deploy.yml",
+      "badge_url": "https://github.com/example-org/example-repo/workflows/Deploy/badge.svg"
+    },
+    {
+      "id": 100002,
+      "node_id": "W_fake_2",
+      "name": "Release",
+      "path": ".github/workflows/release.yml",
+      "state": "active",
+      "created_at": "2025-07-22T14:47:38.000+03:00",
+      "updated_at": "2026-03-26T15:06:43.000+02:00",
+      "url": "https://api.github.com/repos/example-org/example-repo/actions/workflows/100002",
+      "html_url": "https://github.com/example-org/example-repo/blob/main/.github/workflows/release.yml",
+      "badge_url": "https://github.com/example-org/example-repo/workflows/Release/badge.svg"
+    }
+  ]
 }

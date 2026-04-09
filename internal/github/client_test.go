@@ -57,7 +57,7 @@ func TestListWorkflows_GoldenFile(t *testing.T) {
 	workflows, err := c.ListWorkflows(context.Background())
 	require.NoError(t, err)
 	assert.Len(t, workflows, 3)
-	assert.Equal(t, "Auto Cherry-Pick", workflows[0].Name)
+	assert.Equal(t, "CI", workflows[0].Name)
 	assert.NotZero(t, workflows[0].ID)
 	assert.Contains(t, workflows[0].Path, ".github/workflows/")
 }
