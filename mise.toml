@@ -10,6 +10,14 @@ run = "go build -o bin/ci-snitch ./cmd/ci-snitch"
 description = "Run all tests"
 run = "go test ./..."
 
+[tasks.fmt]
+description = "Run goimports and gofmt on all Go files"
+run = "golangci-lint fmt ./..."
+
 [tasks.lint]
 description = "Run golangci-lint"
 run = "golangci-lint run ./..."
+
+[tasks.check]
+description = "Format, lint, and test"
+depends = ["fmt", "lint", "test"]

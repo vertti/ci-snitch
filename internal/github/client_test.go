@@ -5,12 +5,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
 	gh "github.com/google/go-github/v72/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vertti/ci-snitch/internal/model"
 )
 
 func testClient(t *testing.T, handler http.Handler) *Client {
@@ -128,6 +131,112 @@ func TestFetchRuns_BranchFilter(t *testing.T) {
 	_, err := c.FetchRuns(context.Background(), 1, since, "main")
 	require.NoError(t, err)
 	assert.Equal(t, "main", capturedBranch)
+}
+
+func TestFetchJobs_GoldenFile(t *testing.T) {
+	data, err := os.ReadFile("testdata/list_jobs.json")
+	require.NoError(t, err)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/test-owner/test-repo/actions/runs/200000/jobs", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(data)
+	})
+
+	c := testClient(t, mux)
+	jobs, err := c.FetchJobs(context.Background(), 200000)
+	require.NoError(t, err)
+	assert.Len(t, jobs, 2)
+
+	// First job: build
+	assert.Equal(t, "build", jobs[0].Name)
+	assert.Equal(t, "completed", jobs[0].Status)
+	assert.Equal(t, "success", jobs[0].Conclusion)
+	assert.Equal(t, 75*time.Second, jobs[0].Duration())
+	assert.Len(t, jobs[0].Steps, 4)
+
+	// Step timing
+	buildStep := jobs[0].Steps[2]
+	assert.Equal(t, "Build", buildStep.Name)
+	assert.Equal(t, 65*time.Second, buildStep.Duration())
+
+	// Second job: test matrix
+	assert.Equal(t, "test (ubuntu-latest, 20)", jobs[1].Name)
+	assert.Len(t, jobs[1].Steps, 4)
+}
+
+func TestFetchRunDetails_PartialFailure(t *testing.T) {
+	data, err := os.ReadFile("testdata/list_jobs.json")
+	require.NoError(t, err)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/test-owner/test-repo/actions/runs/200000/jobs", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(data)
+	})
+	mux.HandleFunc("GET /repos/test-owner/test-repo/actions/runs/999999/jobs", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message": "Not Found"}`))
+	})
+
+	c := testClient(t, mux)
+	runs := []model.WorkflowRun{
+		{ID: 200000, Status: "completed"},
+		{ID: 999999, Status: "completed"},
+	}
+
+	details, warnings := c.FetchRunDetails(context.Background(), runs)
+	assert.Len(t, details, 1, "should have 1 successful result")
+	assert.Len(t, warnings, 1, "should have 1 warning for failed run")
+	assert.Contains(t, warnings[0].Message, "999999")
+}
+
+func TestFetchRunDetails_Empty(t *testing.T) {
+	c := testClient(t, http.NewServeMux())
+	details, warnings := c.FetchRunDetails(context.Background(), nil)
+	assert.Empty(t, details)
+	assert.Empty(t, warnings)
+}
+
+func TestFetchRunDetails_ConcurrencyBounded(t *testing.T) {
+	var mu sync.Mutex
+	maxConcurrent := 0
+	current := 0
+
+	data, err := os.ReadFile("testdata/list_jobs.json")
+	require.NoError(t, err)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/test-owner/test-repo/actions/runs/", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		current++
+		if current > maxConcurrent {
+			maxConcurrent = current
+		}
+		mu.Unlock()
+
+		time.Sleep(10 * time.Millisecond) // simulate latency
+
+		mu.Lock()
+		current--
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(data)
+	})
+
+	c := testClient(t, mux)
+
+	// Create 20 runs to exercise concurrency
+	runs := make([]model.WorkflowRun, 20)
+	for i := range runs {
+		runs[i] = model.WorkflowRun{ID: int64(200000 + i), Status: "completed"}
+	}
+
+	details, warnings := c.FetchRunDetails(context.Background(), runs)
+	assert.Len(t, details, 20)
+	assert.Empty(t, warnings)
+	assert.LessOrEqual(t, maxConcurrent, defaultWorkers, "should not exceed worker pool size")
 }
 
 func TestFetchRuns_ContextCancellation(t *testing.T) {
