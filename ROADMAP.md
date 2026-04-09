@@ -6,7 +6,7 @@ CLI tool to analyze GitHub Actions CI workflow performance over time. Answers: "
 
 Core is real code (no LLM dependency), but output is structured for easy LLM consumption.
 
-**Test repo:** `hedera-dx/hedera-platform` (22 workflows, long history)
+**Test repo:** `<your-org/your-repo>` (22 workflows, long history)
 
 ## Tech Stack
 
@@ -86,7 +86,7 @@ mise.toml
 - Proactive rate limiting via `Response.Rate.Remaining`
 - `internal/github/testdata/` — golden file fixtures captured from real API responses
 - **Tests:** golden file parsing tests, sliding window logic, rate limit handling, error cases
-- **Verify:** manual call against `hedera-dx/hedera-platform`, print run count
+- **Verify:** manual call against `<your-org/your-repo>`, print run count
 
 ### PR 3: GitHub Client — Fetch Jobs & Steps
 - [ ] **Status: not started**
@@ -140,7 +140,7 @@ mise.toml
 - `cmd/ci-snitch/analyze.go` — `analyze` subcommand: `--repo`, `--branch`, `--since`, `--workflow`, wires fetch → store → preprocess → engine
 - Default output: JSON to stdout
 - **Tests:** canned `AnalysisContext` → verify summary stats; engine collects findings from multiple analyzers
-- **Verify:** `go run ./cmd/ci-snitch analyze --repo hedera-dx/hedera-platform` outputs JSON summary
+- **Verify:** `go run ./cmd/ci-snitch analyze --repo <your-org/your-repo>` outputs JSON summary
 
 ### PR 7: Outlier Detection
 - [ ] **Status: not started**
@@ -225,5 +225,5 @@ After each PR, run against real repo:
 mise install
 mise run test
 mise run lint
-go run ./cmd/ci-snitch analyze --repo hedera-dx/hedera-platform --format table --since 30d
+go run ./cmd/ci-snitch analyze --repo <your-org/your-repo> --format table --since 30d
 ```
