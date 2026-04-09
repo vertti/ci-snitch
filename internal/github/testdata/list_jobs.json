@@ -1,0 +1,111 @@
+{
+  "total_count": 2,
+  "jobs": [
+    {
+      "id": 300000,
+      "run_id": 200000,
+      "run_url": "https://api.github.com/repos/example-org/example-repo/actions/runs/200000",
+      "node_id": "J_fake_0",
+      "head_sha": "aabbccdd11223344",
+      "url": "https://api.github.com/repos/example-org/example-repo/actions/jobs/300000",
+      "html_url": "https://github.com/example-org/example-repo/actions/runs/200000/job/300000",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-04-09T10:07:25Z",
+      "started_at": "2026-04-09T10:07:30Z",
+      "completed_at": "2026-04-09T10:08:45Z",
+      "name": "build",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-04-09T10:07:30Z",
+          "completed_at": "2026-04-09T10:07:32Z"
+        },
+        {
+          "name": "Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-04-09T10:07:32Z",
+          "completed_at": "2026-04-09T10:07:35Z"
+        },
+        {
+          "name": "Build",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-04-09T10:07:35Z",
+          "completed_at": "2026-04-09T10:08:40Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-04-09T10:08:40Z",
+          "completed_at": "2026-04-09T10:08:45Z"
+        }
+      ],
+      "runner_id": 1,
+      "runner_name": "GitHub Actions 2",
+      "runner_group_id": 2,
+      "runner_group_name": "Default"
+    },
+    {
+      "id": 300001,
+      "run_id": 200000,
+      "run_url": "https://api.github.com/repos/example-org/example-repo/actions/runs/200000",
+      "node_id": "J_fake_1",
+      "head_sha": "aabbccdd11223344",
+      "url": "https://api.github.com/repos/example-org/example-repo/actions/jobs/300001",
+      "html_url": "https://github.com/example-org/example-repo/actions/runs/200000/job/300001",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-04-09T10:08:50Z",
+      "started_at": "2026-04-09T10:08:55Z",
+      "completed_at": "2026-04-09T10:11:30Z",
+      "name": "test (ubuntu-latest, 20)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-04-09T10:08:55Z",
+          "completed_at": "2026-04-09T10:08:57Z"
+        },
+        {
+          "name": "Run tests",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-04-09T10:08:57Z",
+          "completed_at": "2026-04-09T10:11:25Z"
+        },
+        {
+          "name": "Upload coverage",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-04-09T10:11:25Z",
+          "completed_at": "2026-04-09T10:11:28Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-04-09T10:11:28Z",
+          "completed_at": "2026-04-09T10:11:30Z"
+        }
+      ],
+      "runner_id": 3,
+      "runner_name": "GitHub Actions 4",
+      "runner_group_id": 2,
+      "runner_group_name": "Default"
+    }
+  ]
+}

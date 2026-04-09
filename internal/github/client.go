@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	gh "github.com/google/go-github/v72/github"
@@ -143,6 +144,137 @@ func (c *Client) fetchRunsWindow(ctx context.Context, workflowID int64, start, e
 	}
 
 	return all, nil
+}
+
+// Warning represents a non-fatal issue encountered during data fetching.
+type Warning struct {
+	Message string
+	Err     error
+}
+
+// defaultWorkers is the number of concurrent API requests for job fetching.
+const defaultWorkers = 10
+
+// FetchJobs fetches jobs and steps for a single workflow run.
+func (c *Client) FetchJobs(ctx context.Context, runID int64) ([]model.Job, error) {
+	var all []model.Job
+	opts := &gh.ListOptions{PerPage: 100}
+
+	for {
+		result, resp, err := c.gh.Actions.ListWorkflowJobs(ctx, c.owner, c.repo, runID, &gh.ListWorkflowJobsOptions{
+			Filter:      "latest",
+			ListOptions: *opts,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list jobs for run %d: %w", runID, err)
+		}
+
+		for _, j := range result.Jobs {
+			all = append(all, convertJob(j))
+		}
+
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+
+	return all, nil
+}
+
+// FetchRunDetails hydrates a slice of workflow runs with their jobs and steps.
+// Uses a worker pool for bounded concurrency. Returns partial results and
+// warnings for runs that failed to fetch.
+func (c *Client) FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) ([]model.RunDetail, []Warning) {
+	type result struct {
+		detail model.RunDetail
+		warn   *Warning
+	}
+
+	work := make(chan model.WorkflowRun, len(runs))
+	results := make(chan result, len(runs))
+
+	workers := defaultWorkers
+	if len(runs) < workers {
+		workers = len(runs)
+	}
+
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for run := range work {
+				jobs, err := c.FetchJobs(ctx, run.ID)
+				if err != nil {
+					results <- result{
+						warn: &Warning{
+							Message: fmt.Sprintf("failed to fetch jobs for run %d", run.ID),
+							Err:     err,
+						},
+					}
+					continue
+				}
+				results <- result{
+					detail: model.RunDetail{Run: run, Jobs: jobs},
+				}
+			}
+		}()
+	}
+
+	for _, run := range runs {
+		work <- run
+	}
+	close(work)
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	var details []model.RunDetail
+	var warnings []Warning
+	for r := range results {
+		if r.warn != nil {
+			warnings = append(warnings, *r.warn)
+		} else {
+			details = append(details, r.detail)
+		}
+	}
+
+	return details, warnings
+}
+
+func convertJob(j *gh.WorkflowJob) model.Job {
+	job := model.Job{
+		ID:         j.GetID(),
+		RunID:      j.GetRunID(),
+		Name:       j.GetName(),
+		Status:     j.GetStatus(),
+		Conclusion: j.GetConclusion(),
+		StartedAt:  j.GetStartedAt().Time,
+	}
+	if j.CompletedAt != nil {
+		job.CompletedAt = j.CompletedAt.Time
+	}
+
+	for _, s := range j.Steps {
+		step := model.Step{
+			Name:       s.GetName(),
+			Number:     int(s.GetNumber()),
+			Status:     s.GetStatus(),
+			Conclusion: s.GetConclusion(),
+		}
+		if s.StartedAt != nil {
+			step.StartedAt = s.StartedAt.Time
+		}
+		if s.CompletedAt != nil {
+			step.CompletedAt = s.CompletedAt.Time
+		}
+		job.Steps = append(job.Steps, step)
+	}
+
+	return job
 }
 
 func convertRun(r *gh.WorkflowRun) model.WorkflowRun {
