@@ -2,6 +2,7 @@
 package github
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -22,7 +23,7 @@ func ResolveToken() (string, error) {
 
 	token := strings.TrimSpace(string(out))
 	if token == "" {
-		return "", fmt.Errorf("gh auth token returned empty string")
+		return "", errors.New("gh auth token returned empty string")
 	}
 	return token, nil
 }

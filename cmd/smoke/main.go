@@ -42,7 +42,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer s.Close() //nolint:errcheck
+	defer s.Close() //nolint:errcheck // error on deferred close has no actionable caller
 	fmt.Printf("Store: %s\n", dbPath)
 
 	ctx := context.Background()
@@ -65,10 +65,7 @@ func run() error {
 	}
 	fmt.Printf("Workflow %q: %d runs in last 3 days\n", wf.Name, len(runs))
 
-	limit := 3
-	if len(runs) < limit {
-		limit = len(runs)
-	}
+	limit := min(3, len(runs))
 	if limit == 0 {
 		fmt.Println("No runs to hydrate")
 		return nil

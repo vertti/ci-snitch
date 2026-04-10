@@ -3,7 +3,7 @@ package analyze
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"time"
 )
 
@@ -81,7 +81,7 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 }
 
 func computeSummary(subject string, durations []time.Duration) SummaryDetail {
-	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
+	slices.Sort(durations)
 
 	n := len(durations)
 	var total time.Duration

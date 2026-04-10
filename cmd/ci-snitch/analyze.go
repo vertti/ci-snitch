@@ -88,7 +88,7 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 		if err != nil {
 			return err
 		}
-		defer s.Close() //nolint:errcheck
+		defer s.Close() //nolint:errcheck // error on deferred close has no actionable caller
 		_, _ = fmt.Fprintf(os.Stderr, "Cache: %s\n", dbPath)
 	}
 
