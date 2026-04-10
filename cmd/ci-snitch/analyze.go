@@ -24,6 +24,7 @@ func newAnalyzeCmd() *cobra.Command {
 		format          string
 		noCache         bool
 		includeFailures bool
+		verbose         bool
 	)
 
 	cmd := &cobra.Command{
@@ -39,6 +40,7 @@ func newAnalyzeCmd() *cobra.Command {
 				format:          format,
 				noCache:         noCache,
 				includeFailures: includeFailures,
+				verbose:         verbose,
 			})
 		},
 	}
@@ -50,6 +52,7 @@ func newAnalyzeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&format, "format", "table", "output format: table, json, markdown")
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "bypass local cache, fetch fresh data")
 	cmd.Flags().BoolVar(&includeFailures, "include-failures", false, "include failed runs in analysis")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "verbose output (show fetch details)")
 	_ = cmd.MarkFlagRequired("repo")
 
 	return cmd
@@ -63,9 +66,12 @@ type analyzeOpts struct {
 	format          string
 	noCache         bool
 	includeFailures bool
+	verbose         bool
 }
 
 func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
+	prog := output.NewProgress()
+
 	sinceTime, err := parseSince(opts.since)
 	if err != nil {
 		return fmt.Errorf("invalid --since value: %w", err)
@@ -93,47 +99,56 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 			return err
 		}
 		defer s.Close() //nolint:errcheck // error on deferred close has no actionable caller
-		_, _ = fmt.Fprintf(os.Stderr, "Cache: %s\n", dbPath)
+		if opts.verbose {
+			prog.Log("Cache: %s", dbPath)
+		}
 	}
 
 	ctx := cmd.Context()
 
 	// Fetch workflows
+	prog.Status("Discovering workflows...")
 	workflows, err := client.ListWorkflows(ctx)
 	if err != nil {
+		prog.Done()
 		return fmt.Errorf("list workflows: %w", err)
 	}
-	_, _ = fmt.Fprintf(os.Stderr, "Found %d workflows\n", len(workflows))
+	if opts.verbose {
+		prog.Log("Found %d workflows", len(workflows))
+	}
 
 	// Collect all run details
 	var allDetails []model.RunDetail
+	fetchedWorkflows := 0
 	for _, wf := range workflows {
 		if opts.workflow != "" && wf.Name != opts.workflow {
 			continue
 		}
+		fetchedWorkflows++
 
-		_, _ = fmt.Fprintf(os.Stderr, "Fetching runs for %q...\n", wf.Name)
+		prog.Status("Fetching %q...", wf.Name)
 		runs, err := client.FetchRuns(ctx, wf.ID, sinceTime, opts.branch)
 		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "WARNING: failed to fetch runs for %q: %v\n", wf.Name, err)
+			prog.Log("WARNING: failed to fetch runs for %q: %v", wf.Name, err)
 			continue
 		}
-		_, _ = fmt.Fprintf(os.Stderr, "  %d runs found, hydrating jobs...\n", len(runs))
 
+		prog.Status("Fetching %q — hydrating %d runs...", wf.Name, len(runs))
 		details, warnings := client.FetchRunDetails(ctx, runs)
 		for _, w := range warnings {
-			_, _ = fmt.Fprintf(os.Stderr, "  WARNING: %s\n", w.Message)
+			prog.Log("WARNING: %s", w.Message)
 		}
 
 		// Save to store
 		if s != nil {
 			if err := s.SaveRunDetails(details); err != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "WARNING: failed to cache: %v\n", err)
+				prog.Log("WARNING: failed to cache: %v", err)
 			}
 		}
 
 		allDetails = append(allDetails, details...)
 	}
+	prog.Done()
 
 	if len(allDetails) == 0 {
 		return fmt.Errorf("no runs found for %s since %s", opts.repo, sinceTime.Format("2006-01-02"))
@@ -145,14 +160,16 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 		IncludeFailures: opts.includeFailures,
 	})
 	for _, w := range ppWarnings {
-		_, _ = fmt.Fprintf(os.Stderr, "Preprocessing: %s\n", w.Message)
+		if opts.verbose {
+			prog.Log("Preprocessing: %s", w.Message)
+		}
 	}
 
 	if len(filtered) == 0 {
 		return fmt.Errorf("all %d runs were filtered out during preprocessing", len(allDetails))
 	}
 
-	_, _ = fmt.Fprintf(os.Stderr, "Analyzing %d runs...\n", len(filtered))
+	prog.Status("Analyzing %d runs...", len(filtered))
 
 	// Run analysis
 	engine := analyze.NewEngine(
@@ -161,10 +178,14 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 		analyze.ChangePointAnalyzer{},
 	)
 	result := engine.Run(ctx, filtered)
+	prog.Done()
 
 	for _, w := range result.Warnings {
-		_, _ = fmt.Fprintf(os.Stderr, "Analysis: %s\n", w.Message)
+		prog.Log("Analysis warning: %s", w.Message)
 	}
+
+	// Blank line before output
+	_, _ = fmt.Fprintln(os.Stderr)
 
 	// Output
 	formatter := output.Get(opts.format)
