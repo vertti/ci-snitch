@@ -1,4 +1,5 @@
 bin/
+dist/
 *.exe
 *.db
 .claude/settings.local.json
