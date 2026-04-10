@@ -1,0 +1,80 @@
+package analyze
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/vertti/ci-snitch/internal/model"
+)
+
+// Warning represents a non-fatal issue during analysis.
+type Warning struct {
+	Message string
+}
+
+// ResultMeta contains metadata about the analysis run.
+type ResultMeta struct {
+	TotalRuns   int
+	TimeRange   [2]time.Time // earliest, latest
+	WorkflowIDs []int64
+}
+
+// AnalysisResult is the output of the analysis engine.
+type AnalysisResult struct {
+	Findings []Finding
+	Warnings []Warning
+	Meta     ResultMeta
+}
+
+// Engine orchestrates running analyzers over a set of run details.
+type Engine struct {
+	analyzers []Analyzer
+}
+
+// NewEngine creates an engine with the given analyzers.
+func NewEngine(analyzers ...Analyzer) *Engine {
+	return &Engine{analyzers: analyzers}
+}
+
+// Run executes all analyzers sequentially and collects results.
+func (e *Engine) Run(ctx context.Context, details []model.RunDetail) AnalysisResult {
+	ac := &AnalysisContext{Details: details}
+
+	var result AnalysisResult
+	result.Meta = computeMeta(details)
+
+	for _, a := range e.analyzers {
+		findings, err := a.Analyze(ctx, ac)
+		if err != nil {
+			result.Warnings = append(result.Warnings, Warning{
+				Message: fmt.Sprintf("analyzer %q failed: %v", a.Name(), err),
+			})
+			continue
+		}
+		result.Findings = append(result.Findings, findings...)
+	}
+
+	return result
+}
+
+func computeMeta(details []model.RunDetail) ResultMeta {
+	meta := ResultMeta{TotalRuns: len(details)}
+	wfSet := make(map[int64]bool)
+
+	for _, d := range details {
+		wfSet[d.Run.WorkflowID] = true
+		t := d.Run.CreatedAt
+		if meta.TimeRange[0].IsZero() || t.Before(meta.TimeRange[0]) {
+			meta.TimeRange[0] = t
+		}
+		if t.After(meta.TimeRange[1]) {
+			meta.TimeRange[1] = t
+		}
+	}
+
+	for id := range wfSet {
+		meta.WorkflowIDs = append(meta.WorkflowIDs, id)
+	}
+	return meta
+}
