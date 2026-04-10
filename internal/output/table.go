@@ -10,10 +10,12 @@ import (
 )
 
 // TableFormatter outputs results as a human-readable table.
-type TableFormatter struct{}
+type TableFormatter struct {
+	Verbose bool
+}
 
 // Format implements Formatter.
-func (TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error {
+func (t TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error {
 	if len(result.Findings) == 0 {
 		_, err := fmt.Fprintln(w, "No findings.")
 		return err
@@ -45,7 +47,7 @@ func (TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error {
 	}
 
 	if len(changepoints) > 0 {
-		if err := writeChangePointTable(w, changepoints); err != nil {
+		if err := writeChangePointTable(w, changepoints, t.Verbose); err != nil {
 			return err
 		}
 	}
@@ -102,31 +104,31 @@ func writeOutlierTable(w io.Writer, findings []analyze.Finding) error {
 	return nil
 }
 
-func writeChangePointTable(w io.Writer, findings []analyze.Finding) error {
-	// Separate significant from noise
-	var significant, other []analyze.Finding
+func writeChangePointTable(w io.Writer, findings []analyze.Finding, verbose bool) error {
+	var notable, minor []analyze.Finding
 	for _, f := range findings {
-		d, ok := f.Detail.(analyze.ChangePointDetail)
-		if !ok {
-			continue
-		}
-		if d.PValue < 0.05 {
-			significant = append(significant, f)
+		if f.Severity == "info" {
+			minor = append(minor, f)
 		} else {
-			other = append(other, f)
+			notable = append(notable, f)
 		}
 	}
 
-	if len(significant) > 0 {
-		_, _ = fmt.Fprintf(w, "── Change Points (significant, p<0.05) (%d) ──\n", len(significant))
-		writeChangePointRows(w, significant)
+	if len(notable) > 0 {
+		_, _ = fmt.Fprintf(w, "── Change Points (%d) ──\n", len(notable))
+		writeChangePointRows(w, notable)
 		_, _ = fmt.Fprintln(w)
 	}
 
-	if len(other) > 0 {
-		_, _ = fmt.Fprintf(w, "── Change Points (insignificant) (%d) ──\n", len(other))
-		writeChangePointRows(w, other)
+	switch {
+	case verbose && len(minor) > 0:
+		_, _ = fmt.Fprintf(w, "── Change Points (minor, %d) ──\n", len(minor))
+		writeChangePointRows(w, minor)
 		_, _ = fmt.Fprintln(w)
+	case len(minor) > 0 && len(notable) > 0:
+		_, _ = fmt.Fprintf(w, "  (%d minor change points hidden, use -v to show)\n\n", len(minor))
+	case len(minor) > 0:
+		_, _ = fmt.Fprintf(w, "  (%d minor change points found, use -v to show)\n\n", len(minor))
 	}
 
 	return nil

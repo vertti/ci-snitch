@@ -102,13 +102,7 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 			after := js.durations[cp.Index:afterEnd]
 			_, pValue := stats.MannWhitneyU(before, after)
 
-			severity := "info"
-			if pValue < 0.05 {
-				severity = "warning"
-				if abs(cp.PctChange) > 30 {
-					severity = "critical"
-				}
-			}
+			severity := classifyChangePoint(pValue, cp.PctChange)
 
 			findings = append(findings, Finding{
 				Type:     "changepoint",
@@ -148,6 +142,23 @@ func truncSHA(sha string) string {
 		return sha[:8]
 	}
 	return sha
+}
+
+// classifyChangePoint determines severity based on both statistical significance and effect size.
+// Notable if p < 0.05 (significant) or abs(change) >= 15% (large effect).
+// Critical requires both.
+func classifyChangePoint(pValue, pctChange float64) string {
+	significant := pValue < 0.05
+	largeEffect := abs(pctChange) >= 15
+
+	switch {
+	case significant && largeEffect:
+		return "critical"
+	case significant || largeEffect:
+		return "warning"
+	default:
+		return "info"
+	}
 }
 
 func abs(f float64) float64 {

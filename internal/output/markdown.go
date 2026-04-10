@@ -8,7 +8,9 @@ import (
 )
 
 // MarkdownFormatter outputs results as a markdown report.
-type MarkdownFormatter struct{}
+type MarkdownFormatter struct {
+	Verbose bool
+}
 
 // Format implements Formatter.
 func (MarkdownFormatter) Format(w io.Writer, result analyze.AnalysisResult) error {
@@ -47,17 +49,16 @@ func (MarkdownFormatter) Format(w io.Writer, result analyze.AnalysisResult) erro
 	}
 
 	if len(changepoints) > 0 {
-		var significant []analyze.Finding
+		var notable []analyze.Finding
 		for _, f := range changepoints {
-			d, ok := f.Detail.(analyze.ChangePointDetail)
-			if ok && d.PValue < 0.05 {
-				significant = append(significant, f)
+			if f.Severity != "info" {
+				notable = append(notable, f)
 			}
 		}
 
-		if len(significant) > 0 {
-			_, _ = fmt.Fprintf(w, "## Significant Performance Changes (%d)\n", len(significant))
-			for _, f := range significant {
+		if len(notable) > 0 {
+			_, _ = fmt.Fprintf(w, "## Performance Changes (%d)\n", len(notable))
+			for _, f := range notable {
 				d, ok := f.Detail.(analyze.ChangePointDetail)
 				if !ok {
 					continue
