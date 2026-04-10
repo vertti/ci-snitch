@@ -1,4 +1,4 @@
-// Package main is a manual smoke test that exercises the GitHub client against a real repo.
+// Package main is a manual smoke test that exercises the GitHub client and store against a real repo.
 // Usage: go run ./cmd/smoke [owner/repo]
 // Defaults to cli/cli if no repo is specified.
 package main
@@ -8,12 +8,20 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/vertti/ci-snitch/internal/github"
+	"github.com/vertti/ci-snitch/internal/store"
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	repo := "cli/cli"
 	if len(os.Args) > 1 {
 		repo = os.Args[1]
@@ -21,31 +29,39 @@ func main() {
 
 	token, err := github.ResolveToken()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	c, err := github.NewClient(token, repo)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
+
+	dbPath := filepath.Join(os.TempDir(), "ci-snitch-smoke.db")
+	s, err := store.Open(dbPath)
+	if err != nil {
+		return err
+	}
+	defer s.Close() //nolint:errcheck
+	fmt.Printf("Store: %s\n", dbPath)
 
 	ctx := context.Background()
 
 	workflows, err := c.ListWorkflows(ctx)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	fmt.Printf("Found %d workflows\n", len(workflows))
 
 	if len(workflows) == 0 {
-		return
+		return nil
 	}
 
 	wf := workflows[0]
 	since := time.Now().AddDate(0, 0, -3)
 	runs, err := c.FetchRuns(ctx, wf.ID, since, "")
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	fmt.Printf("Workflow %q: %d runs in last 3 days\n", wf.Name, len(runs))
 
@@ -55,7 +71,7 @@ func main() {
 	}
 	if limit == 0 {
 		fmt.Println("No runs to hydrate")
-		return
+		return nil
 	}
 
 	details, warnings := c.FetchRunDetails(ctx, runs[:limit])
@@ -65,13 +81,35 @@ func main() {
 		fmt.Printf("  WARNING: %s: %v\n", w.Message, w.Err)
 	}
 
-	for _, d := range details {
+	// Save to store
+	if err := s.SaveRunDetails(details); err != nil {
+		return fmt.Errorf("save: %w", err)
+	}
+	fmt.Printf("Saved %d run details to store\n", len(details))
+
+	// Load back and verify
+	loaded, err := s.LoadRunDetails(wf.ID, since)
+	if err != nil {
+		return fmt.Errorf("load: %w", err)
+	}
+	fmt.Printf("Loaded %d run details from store\n", len(loaded))
+
+	for _, d := range loaded {
 		fmt.Printf("\nRun %d [%s] %s\n", d.Run.ID, d.Run.Conclusion, d.Run.Name)
 		for _, j := range d.Jobs {
 			fmt.Printf("  Job %q: %s (%d steps)\n", j.Name, j.Duration(), len(j.Steps))
-			for _, s := range j.Steps {
-				fmt.Printf("    Step %q: %s\n", s.Name, s.Duration())
+			for _, st := range j.Steps {
+				fmt.Printf("    Step %q: %s\n", st.Name, st.Duration())
 			}
 		}
 	}
+
+	// Check incomplete run tracking
+	incomplete, err := s.IncompleteRunIDs()
+	if err != nil {
+		return fmt.Errorf("check incomplete: %w", err)
+	}
+	fmt.Printf("\nIncomplete runs in store: %d\n", len(incomplete))
+
+	return nil
 }
