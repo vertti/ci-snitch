@@ -15,7 +15,7 @@ func TestLogIQROutliers_DetectsHighOutlier(t *testing.T) {
 		101, 98, 102, 100, 103, 99, 101, 100, 102, 98,
 		500} // outlier
 
-	outliers, _, upper := LogIQROutliers(data, 1.5)
+	outliers, upper := LogIQROutliers(data, 1.5)
 	require.NotEmpty(t, outliers, "should detect the 500 outlier")
 
 	found500 := false
@@ -33,18 +33,18 @@ func TestLogIQROutliers_NoOutliers(t *testing.T) {
 	// Uniform-ish data, no outliers
 	data := []float64{100, 102, 101, 103, 99, 100, 101, 102, 100, 101}
 
-	outliers, _, _ := LogIQROutliers(data, 1.5)
+	outliers, _ := LogIQROutliers(data, 1.5)
 	assert.Empty(t, outliers)
 }
 
 func TestLogIQROutliers_TooFewPoints(t *testing.T) {
-	outliers, _, _ := LogIQROutliers([]float64{1, 2, 3}, 1.5)
+	outliers, _ := LogIQROutliers([]float64{1, 2, 3}, 1.5)
 	assert.Nil(t, outliers)
 }
 
 func TestLogIQROutliers_IdenticalValues(t *testing.T) {
 	data := []float64{100, 100, 100, 100, 100, 100, 100}
-	outliers, _, _ := LogIQROutliers(data, 1.5)
+	outliers, _ := LogIQROutliers(data, 1.5)
 	assert.Empty(t, outliers)
 }
 
@@ -58,7 +58,7 @@ func TestLogIQROutliers_RightSkewed(t *testing.T) {
 	// Add some genuine outliers
 	data = append(data, 500, 600, 700)
 
-	outliers, _, _ := LogIQROutliers(data, 1.5)
+	outliers, _ := LogIQROutliers(data, 1.5)
 	// Should catch the planted outliers without flagging too many normal values
 	assert.GreaterOrEqual(t, len(outliers), 3, "should catch planted outliers")
 	assert.LessOrEqual(t, len(outliers), 15, "should not flag too many normal values")

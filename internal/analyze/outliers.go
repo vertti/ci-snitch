@@ -126,7 +126,7 @@ func (o OutlierAnalyzer) detect(data []float64) []stats.OutlierResult {
 	case "mad":
 		return stats.MADOutliers(data, 3.5)
 	default:
-		outliers, _, _ := stats.LogIQROutliers(data, 1.5)
+		outliers, _ := stats.LogIQROutliers(data, 1.5)
 		return outliers
 	}
 }
