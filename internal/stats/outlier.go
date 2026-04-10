@@ -13,13 +13,12 @@ type OutlierResult struct {
 	IsOutlier  bool
 }
 
-// LogIQROutliers detects outliers using the IQR method on log-transformed data.
-// CI durations are right-skewed, so log-transforming before IQR gives better results
-// than raw IQR. The multiplier controls sensitivity (standard: 1.5, conservative: 3.0).
-// Returns only the outliers, plus the computed fences (in original scale).
-func LogIQROutliers(data []float64, multiplier float64) (outliers []OutlierResult, lowerFence, upperFence float64) {
+// LogIQROutliers detects abnormally slow values using the IQR method on log-transformed data.
+// Only flags the upper tail — unusually fast runs are not interesting for CI analysis.
+// The multiplier controls sensitivity (standard: 1.5, conservative: 3.0).
+func LogIQROutliers(data []float64, multiplier float64) (outliers []OutlierResult, upperFence float64) {
 	if len(data) < 5 {
-		return nil, 0, 0
+		return nil, 0
 	}
 
 	// Log-transform (skip zero/negative values)
@@ -33,15 +32,13 @@ func LogIQROutliers(data []float64, multiplier float64) (outliers []OutlierResul
 	}
 
 	if len(logData) < 5 {
-		return nil, 0, 0
+		return nil, 0
 	}
 
-	q1, q3, iqr := IQR(logData)
-	logLower := q1 - multiplier*iqr
+	_, q3, iqr := IQR(logData)
 	logUpper := q3 + multiplier*iqr
 
-	// Back-transform fences to original scale
-	lowerFence = math.Exp(logLower)
+	// Back-transform fence to original scale
 	upperFence = math.Exp(logUpper)
 
 	// Compute percentile ranks for reporting
@@ -52,7 +49,7 @@ func LogIQROutliers(data []float64, multiplier float64) (outliers []OutlierResul
 	for i, idx := range validIdx {
 		v := data[idx]
 		logV := logData[i]
-		if logV < logLower || logV > logUpper {
+		if logV > logUpper {
 			outliers = append(outliers, OutlierResult{
 				Index:      idx,
 				Value:      v,
@@ -62,12 +59,11 @@ func LogIQROutliers(data []float64, multiplier float64) (outliers []OutlierResul
 		}
 	}
 
-	return outliers, lowerFence, upperFence
+	return outliers, upperFence
 }
 
-// MADOutliers detects outliers using Median Absolute Deviation.
-// The threshold is applied to the modified z-score (commonly 3.5).
-// MAD is more robust than IQR for heavy-tailed distributions.
+// MADOutliers detects abnormally slow values using Median Absolute Deviation.
+// Only flags the upper tail. The threshold is applied to the modified z-score (commonly 3.5).
 func MADOutliers(data []float64, threshold float64) (outliers []OutlierResult) {
 	if len(data) < 5 {
 		return nil
@@ -96,7 +92,7 @@ func MADOutliers(data []float64, threshold float64) (outliers []OutlierResult) {
 
 	for i, v := range data {
 		modifiedZ := (v - med) / (consistency * mad)
-		if math.Abs(modifiedZ) > threshold {
+		if modifiedZ > threshold {
 			outliers = append(outliers, OutlierResult{
 				Index:      i,
 				Value:      v,
