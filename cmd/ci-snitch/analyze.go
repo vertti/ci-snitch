@@ -154,6 +154,7 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 	engine := analyze.NewEngine(
 		analyze.SummaryAnalyzer{},
 		analyze.OutlierAnalyzer{},
+		analyze.ChangePointAnalyzer{},
 	)
 	result := engine.Run(ctx, filtered)
 
