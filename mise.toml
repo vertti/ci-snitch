@@ -4,7 +4,10 @@ golangci-lint = "2.11.4"
 
 [tasks.build]
 description = "Build the ci-snitch binary"
-run = "go build -o bin/ci-snitch ./cmd/ci-snitch"
+run = """
+VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+go build -ldflags "-s -w -X main.version=$VERSION" -o bin/ci-snitch ./cmd/ci-snitch
+"""
 
 [tasks.test]
 description = "Run all tests"
