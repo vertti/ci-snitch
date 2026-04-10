@@ -3,7 +3,6 @@ package output
 import (
 	"fmt"
 	"io"
-	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -194,10 +193,3 @@ func truncSHA(sha string) string {
 	}
 	return sha
 }
-
-func repeatStr(s string, n int) string {
-	return strings.Repeat(s, n)
-}
-
-// Ensure repeatStr is used (it's available for markdown separator lines).
-var _ = repeatStr
