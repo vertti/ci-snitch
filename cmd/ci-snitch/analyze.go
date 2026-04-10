@@ -151,7 +151,10 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 	_, _ = fmt.Fprintf(os.Stderr, "Analyzing %d runs...\n", len(filtered))
 
 	// Run analysis
-	engine := analyze.NewEngine(analyze.SummaryAnalyzer{})
+	engine := analyze.NewEngine(
+		analyze.SummaryAnalyzer{},
+		analyze.OutlierAnalyzer{},
+	)
 	result := engine.Run(ctx, filtered)
 
 	for _, w := range result.Warnings {
