@@ -14,7 +14,7 @@ Or with Go:
 go install github.com/vertti/ci-snitch/cmd/ci-snitch@latest
 ```
 
-Requires the [GitHub CLI](https://cli.github.com) (`gh`) for authentication, or set `GITHUB_TOKEN`.
+Authenticates via `GITHUB_TOKEN` env var. If not set, falls back to the [GitHub CLI](https://cli.github.com) (`gh auth token`).
 
 ## Usage
 
