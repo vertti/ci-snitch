@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/vertti/ci-snitch/internal/analyze"
 	"github.com/vertti/ci-snitch/internal/github"
 	"github.com/vertti/ci-snitch/internal/model"
+	"github.com/vertti/ci-snitch/internal/output"
 	"github.com/vertti/ci-snitch/internal/preprocess"
 	"github.com/vertti/ci-snitch/internal/store"
 )
@@ -21,6 +21,7 @@ func newAnalyzeCmd() *cobra.Command {
 		branch          string
 		since           string
 		workflow        string
+		format          string
 		noCache         bool
 		includeFailures bool
 	)
@@ -35,6 +36,7 @@ func newAnalyzeCmd() *cobra.Command {
 				branch:          branch,
 				since:           since,
 				workflow:        workflow,
+				format:          format,
 				noCache:         noCache,
 				includeFailures: includeFailures,
 			})
@@ -45,6 +47,7 @@ func newAnalyzeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&branch, "branch", "", "filter to this branch (default: all branches)")
 	cmd.Flags().StringVar(&since, "since", "60d", "how far back to analyze (e.g. 60d, 2026-01-01)")
 	cmd.Flags().StringVar(&workflow, "workflow", "", "filter to this workflow name")
+	cmd.Flags().StringVar(&format, "format", "table", "output format: table, json, markdown")
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "bypass local cache, fetch fresh data")
 	cmd.Flags().BoolVar(&includeFailures, "include-failures", false, "include failed runs in analysis")
 	_ = cmd.MarkFlagRequired("repo")
@@ -57,6 +60,7 @@ type analyzeOpts struct {
 	branch          string
 	since           string
 	workflow        string
+	format          string
 	noCache         bool
 	includeFailures bool
 }
@@ -162,10 +166,9 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 		_, _ = fmt.Fprintf(os.Stderr, "Analysis: %s\n", w.Message)
 	}
 
-	// Output as JSON
-	enc := json.NewEncoder(cmd.OutOrStdout())
-	enc.SetIndent("", "  ")
-	return enc.Encode(result)
+	// Output
+	formatter := output.Get(opts.format)
+	return formatter.Format(cmd.OutOrStdout(), result)
 }
 
 func parseSince(s string) (time.Time, error) {
