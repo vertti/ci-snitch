@@ -55,11 +55,12 @@ func testResult() analyze.AnalysisResult {
 }
 
 func TestGet(t *testing.T) {
-	assert.IsType(t, JSONFormatter{}, Get("json"))
-	assert.IsType(t, TableFormatter{}, Get("table"))
-	assert.IsType(t, MarkdownFormatter{}, Get("markdown"))
-	assert.IsType(t, MarkdownFormatter{}, Get("md"))
-	assert.IsType(t, TableFormatter{}, Get("unknown"))
+	opts := Options{}
+	assert.IsType(t, JSONFormatter{}, Get("json", opts))
+	assert.IsType(t, TableFormatter{}, Get("table", opts))
+	assert.IsType(t, MarkdownFormatter{}, Get("markdown", opts))
+	assert.IsType(t, MarkdownFormatter{}, Get("md", opts))
+	assert.IsType(t, TableFormatter{}, Get("unknown", opts))
 }
 
 func TestJSONFormatter(t *testing.T) {
@@ -107,7 +108,7 @@ func TestMarkdownFormatter(t *testing.T) {
 	assert.Contains(t, out, "**50 runs**")
 	assert.Contains(t, out, "## Summary")
 	assert.Contains(t, out, "| CI |")
-	assert.Contains(t, out, "## Significant Performance Changes")
+	assert.Contains(t, out, "## Performance Changes")
 	assert.Contains(t, out, "## Outliers")
 	// Markdown table headers
 	assert.Contains(t, out, "|---")

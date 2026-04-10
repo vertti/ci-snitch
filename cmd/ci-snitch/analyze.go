@@ -188,7 +188,7 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 	_, _ = fmt.Fprintln(os.Stderr)
 
 	// Output
-	formatter := output.Get(opts.format)
+	formatter := output.Get(opts.format, output.Options{Verbose: opts.verbose})
 	return formatter.Format(cmd.OutOrStdout(), result)
 }
 
