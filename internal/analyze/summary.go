@@ -7,9 +7,8 @@ import (
 	"time"
 )
 
-// SummaryDetail contains summary statistics for a workflow or job.
-type SummaryDetail struct {
-	Subject   string // workflow name or job name
+// SummaryStats holds statistical measures for a duration series.
+type SummaryStats struct {
 	TotalRuns int
 	Mean      time.Duration
 	Median    time.Duration
@@ -17,6 +16,20 @@ type SummaryDetail struct {
 	P99       time.Duration
 	Min       time.Duration
 	Max       time.Duration
+	TotalTime time.Duration // sum of all durations (for ranking)
+}
+
+// SummaryDetail contains summary statistics for a workflow and its jobs.
+type SummaryDetail struct {
+	Workflow string
+	Stats    SummaryStats
+	Jobs     []JobSummary // sorted by median duration descending
+}
+
+// JobSummary holds stats for a single job within a workflow.
+type JobSummary struct {
+	Name  string
+	Stats SummaryStats
 }
 
 // DetailType implements FindingDetail.
@@ -34,53 +47,79 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 		return nil, nil
 	}
 
-	var findings []Finding
-
-	// Per-workflow summary (using total run duration)
+	// Collect durations per workflow and per (workflow, job)
+	type jobKey struct{ wf, job string }
 	wfDurations := make(map[string][]time.Duration)
-	jobDurations := make(map[string][]time.Duration)
+	jobDurations := make(map[jobKey][]time.Duration)
 
 	for _, d := range ac.Details {
+		wfName := d.Run.WorkflowName
 		dur := d.Run.Duration()
 		if dur > 0 {
-			wfDurations[d.Run.WorkflowName] = append(wfDurations[d.Run.WorkflowName], dur)
+			wfDurations[wfName] = append(wfDurations[wfName], dur)
 		}
 		for _, j := range d.Jobs {
 			dur := j.Duration()
 			if dur > 0 {
-				jobDurations[j.Name] = append(jobDurations[j.Name], dur)
+				jobDurations[jobKey{wfName, j.Name}] = append(jobDurations[jobKey{wfName, j.Name}], dur)
 			}
 		}
 	}
 
-	for name, durations := range wfDurations {
-		detail := computeSummary(name, durations)
+	// Build per-workflow summaries with nested jobs
+	var findings []Finding
+	for wfName, durations := range wfDurations {
+		wfStats := computeStats(durations)
+
+		// Collect jobs for this workflow
+		var jobs []JobSummary
+		for key, jDurations := range jobDurations {
+			if key.wf == wfName {
+				jobs = append(jobs, JobSummary{
+					Name:  key.job,
+					Stats: computeStats(jDurations),
+				})
+			}
+		}
+
+		// Sort jobs by median descending (slowest first)
+		slices.SortFunc(jobs, func(a, b JobSummary) int {
+			return int(b.Stats.Median - a.Stats.Median)
+		})
+
+		detail := SummaryDetail{
+			Workflow: wfName,
+			Stats:    wfStats,
+			Jobs:     jobs,
+		}
+
 		findings = append(findings, Finding{
 			Type:     "summary",
 			Severity: "info",
-			Title:    fmt.Sprintf("Workflow %q summary", name),
-			Description: fmt.Sprintf("%d runs, median %s, p95 %s",
-				detail.TotalRuns, detail.Median.Round(time.Second), detail.P95.Round(time.Second)),
+			Title:    fmt.Sprintf("Workflow %q", wfName),
+			Description: fmt.Sprintf("%d runs, median %s, p95 %s, total CI time %s",
+				wfStats.TotalRuns,
+				wfStats.Median.Round(time.Second),
+				wfStats.P95.Round(time.Second),
+				wfStats.TotalTime.Round(time.Second)),
 			Detail: detail,
 		})
 	}
 
-	for name, durations := range jobDurations {
-		detail := computeSummary(name, durations)
-		findings = append(findings, Finding{
-			Type:     "summary",
-			Severity: "info",
-			Title:    fmt.Sprintf("Job %q summary", name),
-			Description: fmt.Sprintf("%d runs, median %s, p95 %s",
-				detail.TotalRuns, detail.Median.Round(time.Second), detail.P95.Round(time.Second)),
-			Detail: detail,
-		})
-	}
+	// Sort findings by total CI time descending (most expensive first)
+	slices.SortFunc(findings, func(a, b Finding) int {
+		ad, aOK := a.Detail.(SummaryDetail)
+		bd, bOK := b.Detail.(SummaryDetail)
+		if !aOK || !bOK {
+			return 0
+		}
+		return int(bd.Stats.TotalTime - ad.Stats.TotalTime)
+	})
 
 	return findings, nil
 }
 
-func computeSummary(subject string, durations []time.Duration) SummaryDetail {
+func computeStats(durations []time.Duration) SummaryStats {
 	slices.Sort(durations)
 
 	n := len(durations)
@@ -89,8 +128,7 @@ func computeSummary(subject string, durations []time.Duration) SummaryDetail {
 		total += d
 	}
 
-	return SummaryDetail{
-		Subject:   subject,
+	return SummaryStats{
 		TotalRuns: n,
 		Mean:      total / time.Duration(n),
 		Median:    percentile(durations, 50),
@@ -98,6 +136,7 @@ func computeSummary(subject string, durations []time.Duration) SummaryDetail {
 		P99:       percentile(durations, 99),
 		Min:       durations[0],
 		Max:       durations[n-1],
+		TotalTime: total,
 	}
 }
 
