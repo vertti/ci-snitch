@@ -100,7 +100,7 @@ func (s *Store) SaveRunDetail(d model.RunDetail) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback() //nolint:errcheck
+	defer tx.Rollback() //nolint:errcheck // error on deferred close has no actionable caller
 
 	r := d.Run
 	_, err = tx.Exec(`INSERT OR REPLACE INTO runs (id, workflow_id, workflow_name, name, status, conclusion, head_branch, head_sha, run_attempt, created_at, started_at, updated_at)
@@ -166,7 +166,7 @@ func (s *Store) RunsSince(workflowID int64, since time.Time) ([]model.WorkflowRu
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close() //nolint:errcheck
+	defer rows.Close() //nolint:errcheck // error on deferred close has no actionable caller
 
 	return scanRuns(rows)
 }
@@ -177,7 +177,7 @@ func (s *Store) IncompleteRunIDs() ([]int64, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close() //nolint:errcheck
+	defer rows.Close() //nolint:errcheck // error on deferred close has no actionable caller
 
 	var ids []int64
 	for rows.Next() {
@@ -205,7 +205,7 @@ func (s *Store) LoadRunDetail(runID int64) (*model.RunDetail, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer jobRows.Close() //nolint:errcheck
+	defer jobRows.Close() //nolint:errcheck // error on deferred close has no actionable caller
 
 	var jobs []model.Job
 	for jobRows.Next() {

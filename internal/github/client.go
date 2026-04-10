@@ -194,16 +194,11 @@ func (c *Client) FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) 
 	work := make(chan model.WorkflowRun, len(runs))
 	results := make(chan result, len(runs))
 
-	workers := defaultWorkers
-	if len(runs) < workers {
-		workers = len(runs)
-	}
+	workers := min(defaultWorkers, len(runs))
 
 	var wg sync.WaitGroup
 	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for run := range work {
 				jobs, err := c.FetchJobs(ctx, run.ID)
 				if err != nil {
@@ -219,7 +214,7 @@ func (c *Client) FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) 
 					detail: model.RunDetail{Run: run, Jobs: jobs},
 				}
 			}
-		}()
+		})
 	}
 
 	for _, run := range runs {

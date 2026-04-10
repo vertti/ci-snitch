@@ -12,23 +12,44 @@ linters:
   enable:
     - errcheck
     - govet
+    - ineffassign
     - staticcheck
     - unused
-    - ineffassign
-    - revive
     - misspell
     - unconvert
-    - unparam
-    - gosec
     - gocritic
+    - nolintlint
+    # Error handling
+    - errorlint
+    - nilerr
+    # Safety
+    - bodyclose
+    - forcetypeassert
+    - gosec
+    - nilnesserr
+    # Code quality
+    - predeclared
+    - dupword
+    # Modern Go idioms
+    - modernize
+    - perfsprint
+    - exhaustive
+    - intrange
+    - copyloopvar
+    # Consistency
+    - recvcheck
+    - nilnil
+    # Testing
+    - testifylint
 
 linters-settings:
-  revive:
-    rules:
-      - name: exported
-        disabled: true
   gocritic:
     enabled-tags:
       - diagnostic
       - style
       - performance
+  exhaustive:
+    default-signifies-exhaustive: true
+  nolintlint:
+    require-explanation: true
+    require-specific: true

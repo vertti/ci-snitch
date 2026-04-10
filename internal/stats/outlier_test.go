@@ -22,7 +22,7 @@ func TestLogIQROutliers_DetectsHighOutlier(t *testing.T) {
 	for _, o := range outliers {
 		if o.Value == 500 {
 			found500 = true
-			assert.True(t, o.Percentile > 90, "500 should be high percentile")
+			assert.Greater(t, o.Percentile, 90.0, "500 should be high percentile")
 		}
 	}
 	assert.True(t, found500, "should have found 500 as outlier")
@@ -50,7 +50,7 @@ func TestLogIQROutliers_IdenticalValues(t *testing.T) {
 
 func TestLogIQROutliers_RightSkewed(t *testing.T) {
 	// Simulate right-skewed CI durations (log-normal)
-	rng := rand.New(rand.NewSource(42)) //nolint:gosec
+	rng := rand.New(rand.NewSource(42)) //nolint:gosec // deterministic seed for reproducible tests
 	data := make([]float64, 100)
 	for i := range data {
 		data[i] = math.Exp(4.5 + 0.3*rng.NormFloat64()) // ~90s median
@@ -103,5 +103,5 @@ func TestPercentileRank(t *testing.T) {
 	assert.InDelta(t, 0.0, percentileRank(sorted, 1), 0.1)
 	assert.InDelta(t, 50.0, percentileRank(sorted, 6), 5)
 	assert.InDelta(t, 90.0, percentileRank(sorted, 10), 0.1)
-	assert.Equal(t, 0.0, percentileRank(nil, 5))
+	assert.InDelta(t, 0.0, percentileRank(nil, 5), 0.001)
 }

@@ -56,14 +56,14 @@ func TestIQR(t *testing.T) {
 
 func TestMean(t *testing.T) {
 	assert.InDelta(t, 3.0, Mean([]float64{1, 2, 3, 4, 5}), 0.001)
-	assert.Equal(t, 0.0, Mean(nil))
+	assert.InDelta(t, 0.0, Mean(nil), 0.001)
 }
 
 func TestStddev(t *testing.T) {
 	data := []float64{2, 4, 4, 4, 5, 5, 7, 9}
 	assert.InDelta(t, 2.0, Stddev(data), 0.2)
-	assert.Equal(t, 0.0, Stddev([]float64{5}))
-	assert.Equal(t, 0.0, Stddev(nil))
+	assert.InDelta(t, 0.0, Stddev([]float64{5}), 0.001)
+	assert.InDelta(t, 0.0, Stddev(nil), 0.001)
 }
 
 func TestStddev_Identical(t *testing.T) {

@@ -48,7 +48,8 @@ func TestSummaryAnalyzer_BasicStats(t *testing.T) {
 
 	var wfFinding, jobFinding Finding
 	for _, f := range findings {
-		detail := f.Detail.(SummaryDetail)
+		detail, ok := f.Detail.(SummaryDetail)
+		require.True(t, ok)
 		switch detail.Subject {
 		case "CI":
 			wfFinding = f
@@ -58,7 +59,8 @@ func TestSummaryAnalyzer_BasicStats(t *testing.T) {
 	}
 
 	// Workflow summary
-	wfDetail := wfFinding.Detail.(SummaryDetail)
+	wfDetail, ok := wfFinding.Detail.(SummaryDetail)
+	require.True(t, ok)
 	assert.Equal(t, 10, wfDetail.TotalRuns)
 	assert.Equal(t, 5*time.Minute, wfDetail.Mean)
 	assert.Equal(t, 5*time.Minute, wfDetail.Median)
@@ -66,7 +68,8 @@ func TestSummaryAnalyzer_BasicStats(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, wfDetail.Max)
 
 	// Job summary
-	jobDetail := jobFinding.Detail.(SummaryDetail)
+	jobDetail, ok := jobFinding.Detail.(SummaryDetail)
+	require.True(t, ok)
 	assert.Equal(t, 10, jobDetail.TotalRuns)
 	assert.Equal(t, 3*time.Minute, jobDetail.Mean)
 }
@@ -100,7 +103,8 @@ func TestSummaryAnalyzer_VariedDurations(t *testing.T) {
 
 	var wfDetail SummaryDetail
 	for _, f := range findings {
-		d := f.Detail.(SummaryDetail)
+		d, ok := f.Detail.(SummaryDetail)
+		require.True(t, ok)
 		if d.Subject == "CI" {
 			wfDetail = d
 		}

@@ -54,7 +54,8 @@ func TestOutlierAnalyzer_DetectsSlowRun(t *testing.T) {
 	// Should find the slow run as an outlier
 	foundSlow := false
 	for _, f := range findings {
-		detail := f.Detail.(OutlierDetail)
+		detail, ok := f.Detail.(OutlierDetail)
+		require.True(t, ok)
 		if detail.RunID == slow.Run.ID {
 			foundSlow = true
 			assert.Greater(t, detail.Percentile, 90.0)
@@ -111,7 +112,8 @@ func TestOutlierAnalyzer_DetectsSlowJob(t *testing.T) {
 
 	foundSlowJob := false
 	for _, f := range findings {
-		detail := f.Detail.(OutlierDetail)
+		detail, ok := f.Detail.(OutlierDetail)
+		require.True(t, ok)
 		if detail.JobName == "build" && detail.RunID == slow.Run.ID {
 			foundSlowJob = true
 		}
