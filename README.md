@@ -5,6 +5,12 @@ Analyze GitHub Actions CI workflow performance. Detect outliers, slowdowns, and 
 ## Install
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/vertti/ci-snitch/main/install.sh | sh
+```
+
+Or with Go:
+
+```bash
 go install github.com/vertti/ci-snitch/cmd/ci-snitch@latest
 ```
 
