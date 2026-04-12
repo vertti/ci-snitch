@@ -36,6 +36,7 @@ func (t TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error
 	}
 
 	if len(summaries) > 0 {
+		writeTriageHeader(w, summaries, changepoints)
 		if err := writeSummaryTable(w, summaries); err != nil {
 			return err
 		}
@@ -74,6 +75,72 @@ const (
 	cyan   = "\033[36m"
 	reset  = "\033[0m"
 )
+
+func writeTriageHeader(w io.Writer, summaries, changepoints []analyze.Finding) {
+	_, _ = fmt.Fprintf(w, "%s── Triage ──%s\n", dim, reset)
+
+	// Top 3 by total CI time (summaries are already sorted)
+	_, _ = fmt.Fprintf(w, "  %sTop CI time:%s  ", dim, reset)
+	count := min(3, len(summaries))
+	for i := range count {
+		d, ok := summaries[i].Detail.(analyze.SummaryDetail)
+		if !ok {
+			continue
+		}
+		if i > 0 {
+			_, _ = fmt.Fprint(w, "  ")
+		}
+		_, _ = fmt.Fprintf(w, "%s%s%s %s(%s)%s", bold, d.Workflow, reset, dim, fmtTotalTime(d.Stats.TotalTime), reset)
+	}
+	_, _ = fmt.Fprintln(w)
+
+	// Most volatile workflows
+	var volatile []string
+	for _, f := range summaries {
+		d, ok := f.Detail.(analyze.SummaryDetail)
+		if !ok {
+			continue
+		}
+		if d.Stats.VolatilityLabel == "volatile" || d.Stats.VolatilityLabel == "spiky" {
+			volatile = append(volatile, d.Workflow)
+		}
+	}
+	if len(volatile) > 0 {
+		_, _ = fmt.Fprintf(w, "  %sUnpredictable:%s  ", dim, reset)
+		for i, name := range volatile {
+			if i > 0 {
+				_, _ = fmt.Fprint(w, ", ")
+			}
+			_, _ = fmt.Fprintf(w, "%s%s%s", yellow, name, reset)
+		}
+		_, _ = fmt.Fprintln(w)
+	}
+
+	// Active regressions (persistent critical/warning change points)
+	var regressions []string
+	for _, f := range changepoints {
+		if f.Severity == "info" {
+			continue
+		}
+		d, ok := f.Detail.(analyze.ChangePointDetail)
+		if !ok || d.Direction != "slowdown" || d.Persistence == "transient" {
+			continue
+		}
+		regressions = append(regressions, fmt.Sprintf("%s %+.0f%%", d.JobName, d.PctChange))
+	}
+	if len(regressions) > 0 {
+		_, _ = fmt.Fprintf(w, "  %sRegressions:%s  ", dim, reset)
+		for i, r := range regressions {
+			if i > 0 {
+				_, _ = fmt.Fprint(w, ", ")
+			}
+			_, _ = fmt.Fprintf(w, "%s%s%s", red, r, reset)
+		}
+		_, _ = fmt.Fprintln(w)
+	}
+
+	_, _ = fmt.Fprintln(w)
+}
 
 func writeSummaryTable(w io.Writer, findings []analyze.Finding) error {
 	// Findings are already sorted by total CI time descending from the analyzer.
