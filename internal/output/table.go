@@ -3,6 +3,7 @@ package output
 import (
 	"fmt"
 	"io"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -53,8 +54,8 @@ func (t TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error
 	}
 
 	// Meta
-	_, err := fmt.Fprintf(w, "\n%d runs analyzed (%s to %s)\n",
-		result.Meta.TotalRuns,
+	_, err := fmt.Fprintf(w, "\n%s%d runs analyzed%s (%s to %s)\n",
+		dim, result.Meta.TotalRuns, reset,
 		result.Meta.TimeRange[0].Format("2006-01-02"),
 		result.Meta.TimeRange[1].Format("2006-01-02"))
 	return err
@@ -62,14 +63,20 @@ func (t TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error
 
 // ANSI color codes
 const (
-	bold  = "\033[1m"
-	dim   = "\033[2m"
-	red   = "\033[31m"
-	reset = "\033[0m"
+	bold   = "\033[1m"
+	dim    = "\033[2m"
+	red    = "\033[31m"
+	green  = "\033[32m"
+	yellow = "\033[33m"
+	cyan   = "\033[36m"
+	reset  = "\033[0m"
 )
 
 func writeSummaryTable(w io.Writer, findings []analyze.Finding) error {
-	// Findings are already sorted by total CI time descending from the analyzer
+	// Findings are already sorted by total CI time descending from the analyzer.
+	// Use tabwriter for the entire summary section so columns align across workflows.
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+
 	for i, f := range findings {
 		d, ok := f.Detail.(analyze.SummaryDetail)
 		if !ok {
@@ -77,48 +84,40 @@ func writeSummaryTable(w io.Writer, findings []analyze.Finding) error {
 		}
 
 		marker := ""
-		if i == 0 {
-			marker = red + " ← most CI time" + reset
+		if i == 0 && len(findings) > 1 {
+			marker = red + " << most CI time" + reset
 		}
 
 		volTag := fmtVolatility(d.Stats.VolatilityLabel)
 
-		if len(d.Jobs) <= 1 {
-			// Single-job workflow: one compact line
-			_, _ = fmt.Fprintf(w, "%s%s%s  %s%d runs, median %s, p95 %s, total %s%s%s%s\n",
-				bold, d.Workflow, reset,
-				dim, d.Stats.TotalRuns,
-				fmtDur(d.Stats.Median), fmtDur(d.Stats.P95),
-				fmtTotalTime(d.Stats.TotalTime), reset, volTag, marker)
-		} else {
-			// Multi-job workflow: header + tree
-			_, _ = fmt.Fprintf(w, "%s%s%s  %s%d runs, median %s, p95 %s, total %s%s%s%s\n",
-				bold, d.Workflow, reset,
-				dim, d.Stats.TotalRuns,
-				fmtDur(d.Stats.Median), fmtDur(d.Stats.P95),
-				fmtTotalTime(d.Stats.TotalTime), reset, volTag, marker)
+		_, _ = fmt.Fprintf(tw, "%s%s%s\t%d runs\tmedian %s%s%s\tp95 %s%s%s\ttotal %s%s%s%s%s\n",
+			bold, d.Workflow, reset,
+			d.Stats.TotalRuns,
+			cyan, fmtDur(d.Stats.Median), reset,
+			cyan, fmtDur(d.Stats.P95), reset,
+			bold, fmtTotalTime(d.Stats.TotalTime), reset,
+			volTag, marker)
 
-			tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		if len(d.Jobs) > 1 {
 			for j, job := range d.Jobs {
-				prefix := "├─"
+				prefix := "  |-"
 				if j == len(d.Jobs)-1 {
-					prefix = "└─"
+					prefix = "  `-"
 				}
-				highlight := ""
-				if job.Stats.Median > d.Stats.Median/2 {
-					highlight = bold
-				}
-				_, _ = fmt.Fprintf(tw, "  %s %s%s%s\t%d runs\tmedian %s\tp95 %s\tmin %s\tmax %s\n",
-					prefix, highlight, job.Name, reset,
+				jobVol := fmtVolatility(job.Stats.VolatilityLabel)
+				_, _ = fmt.Fprintf(tw, "%s%s %s%s\t%d runs\tmedian %s\tp95 %s\tmin %s  max %s%s\n",
+					dim, prefix, job.Name, reset,
 					job.Stats.TotalRuns,
 					fmtDur(job.Stats.Median), fmtDur(job.Stats.P95),
-					fmtDur(job.Stats.Min), fmtDur(job.Stats.Max))
+					fmtDur(job.Stats.Min), fmtDur(job.Stats.Max),
+					jobVol)
 			}
-			_ = tw.Flush()
 		}
-		_, _ = fmt.Fprintln(w)
+
+		_, _ = fmt.Fprintln(tw)
 	}
-	return nil
+
+	return tw.Flush()
 }
 
 func fmtVolatility(label string) string {
@@ -126,9 +125,9 @@ func fmtVolatility(label string) string {
 	case "volatile":
 		return " " + red + "[volatile]" + reset
 	case "spiky":
-		return " " + red + "[spiky]" + reset
+		return " " + yellow + "[spiky]" + reset
 	case "variable":
-		return " [variable]"
+		return " " + dim + "[variable]" + reset
 	default:
 		return ""
 	}
@@ -144,7 +143,7 @@ func fmtTotalTime(d time.Duration) string {
 }
 
 func writeOutlierTable(w io.Writer, findings []analyze.Finding) error {
-	_, _ = fmt.Fprintf(w, "── Outliers (%d) ──\n", len(findings))
+	_, _ = fmt.Fprintf(w, "%s── Outliers (%d) ──%s\n", dim, len(findings), reset)
 
 	// Build rows without ANSI so we can measure column widths
 	type outlierRow struct {
@@ -178,9 +177,15 @@ func writeOutlierTable(w io.Writer, findings []analyze.Finding) error {
 	}
 
 	for _, r := range rows {
-		_, _ = fmt.Fprintf(w, "  %s %-*s  %-8s %-4s  %s\n",
+		durColor := yellow
+		if r.severity == "critical" {
+			durColor = red
+		}
+		_, _ = fmt.Fprintf(w, "  %s %-*s  %s%-8s%s %s%-4s%s  %s%s%s\n",
 			severityDot(r.severity), maxSubject, r.subject,
-			r.duration, r.pct, r.commit)
+			durColor, r.duration, reset,
+			dim, r.pct, reset,
+			dim, r.commit, reset)
 	}
 	_, _ = fmt.Fprintln(w)
 	return nil
@@ -197,20 +202,20 @@ func writeChangePointTable(w io.Writer, findings []analyze.Finding, verbose bool
 	}
 
 	if len(notable) > 0 {
-		_, _ = fmt.Fprintf(w, "── Change Points (%d) ──\n", len(notable))
+		_, _ = fmt.Fprintf(w, "%s── Change Points (%d) ──%s\n", dim, len(notable), reset)
 		writeChangePointRows(w, notable)
 		_, _ = fmt.Fprintln(w)
 	}
 
 	switch {
 	case verbose && len(minor) > 0:
-		_, _ = fmt.Fprintf(w, "── Change Points (minor, %d) ──\n", len(minor))
+		_, _ = fmt.Fprintf(w, "%s── Change Points (minor, %d) ──%s\n", dim, len(minor), reset)
 		writeChangePointRows(w, minor)
 		_, _ = fmt.Fprintln(w)
 	case len(minor) > 0 && len(notable) > 0:
-		_, _ = fmt.Fprintf(w, "  (%d minor change points hidden, use -v to show)\n\n", len(minor))
+		_, _ = fmt.Fprintf(w, "  %s(%d minor change points hidden, use -v to show)%s\n\n", dim, len(minor), reset)
 	case len(minor) > 0:
-		_, _ = fmt.Fprintf(w, "  (%d minor change points found, use -v to show)\n\n", len(minor))
+		_, _ = fmt.Fprintf(w, "  %s(%d minor change points found, use -v to show)%s\n\n", dim, len(minor), reset)
 	}
 
 	return nil
@@ -218,33 +223,56 @@ func writeChangePointTable(w io.Writer, findings []analyze.Finding, verbose bool
 
 func writeChangePointRows(w io.Writer, findings []analyze.Finding) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "DIR\tJOB\tCHANGE\tBEFORE\tAFTER\tDATE\tCOMMIT\tP-VALUE\tSTATUS")
+	_, _ = fmt.Fprintf(tw, "  %sDir\tJob\tChange\tBefore\tAfter\tDate\tCommit\tp-value\tStatus%s\n",
+		dim, reset)
+	_, _ = fmt.Fprintf(tw, "  %s%s%s\n", dim, strings.Repeat("-", 90), reset)
 	for _, f := range findings {
 		d, ok := f.Detail.(analyze.ChangePointDetail)
 		if !ok {
 			continue
 		}
-		icon := red + "▲" + reset
+
+		var icon, changeColor string
 		if d.Direction == "speedup" {
-			icon = "\033[32m▼" + reset // green
+			icon = green + "v" + reset
+			changeColor = green
+		} else {
+			icon = red + "^" + reset
+			changeColor = red
 		}
+
 		status := formatPersistence(d)
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%+.0f%%\t%s\t%s\t%s\t%s\t%.4f\t%s\n",
-			icon, d.JobName, d.PctChange,
+
+		_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s%+.0f%%%s\t%s\t%s\t%s\t%s%s%s\t%s\t%s\n",
+			icon, d.JobName,
+			changeColor, d.PctChange, reset,
 			fmtDur(d.BeforeMean), fmtDur(d.AfterMean),
-			findDate(f), truncSHA(d.CommitSHA), d.PValue, status)
+			findDate(f),
+			dim, truncSHA(d.CommitSHA), reset,
+			fmtPValue(d.PValue),
+			status)
 	}
 	_ = tw.Flush()
+}
+
+func fmtPValue(p float64) string {
+	if p < 0.01 {
+		return fmt.Sprintf("%s%.4f%s", green, p, reset)
+	}
+	if p < 0.05 {
+		return fmt.Sprintf("%s%.4f%s", yellow, p, reset)
+	}
+	return fmt.Sprintf("%s%.4f%s", dim, p, reset)
 }
 
 func formatPersistence(d analyze.ChangePointDetail) string {
 	switch d.Persistence {
 	case "persistent":
-		return fmt.Sprintf("✓ %d runs", d.PostChangeRuns)
+		return fmt.Sprintf("%s%d runs%s", green, d.PostChangeRuns, reset)
 	case "transient":
-		return fmt.Sprintf("~ %d runs", d.PostChangeRuns)
+		return fmt.Sprintf("%stransient (%d runs)%s", yellow, d.PostChangeRuns, reset)
 	case "inconclusive":
-		return fmt.Sprintf("? %d runs", d.PostChangeRuns)
+		return fmt.Sprintf("%s? %d runs%s", dim, d.PostChangeRuns, reset)
 	default:
 		return ""
 	}
@@ -274,11 +302,7 @@ func fmtDur(d time.Duration) string {
 	return fmt.Sprintf("%dm%02ds", m, s)
 }
 
-const (
-	yellow = "\033[33m"
-)
-
-// severityDot returns a colored dot. Single visible char so tabwriter alignment is consistent.
+// severityDot returns a colored dot. Single visible char so alignment is consistent.
 func severityDot(severity string) string {
 	switch severity {
 	case "critical":
