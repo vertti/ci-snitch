@@ -46,7 +46,7 @@ _Focus: fix correctness bugs, reduce cognitive load, make the default output ans
 - Add compact evidence block to output: pre/post window sizes, run count, effect size
 - **Files:** `internal/analyze/changepoint.go`, all formatters
 
-### 1.4 Volatility scoring [S]
+### ~~1.4 Volatility scoring [S]~~ DONE
 - For each workflow/job, compute `p95/median` ratio as tail-heaviness indicator
 - Categorical label: **stable** (<1.3), **variable** (1.3-2.0), **spiky** (2.0-3.0), **volatile** (>3.0) — thresholds configurable
 - Add to `SummaryDetail` alongside existing stats

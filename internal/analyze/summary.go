@@ -9,14 +9,16 @@ import (
 
 // SummaryStats holds statistical measures for a duration series.
 type SummaryStats struct {
-	TotalRuns int
-	Mean      time.Duration
-	Median    time.Duration
-	P95       time.Duration
-	P99       time.Duration
-	Min       time.Duration
-	Max       time.Duration
-	TotalTime time.Duration // sum of all durations (for ranking)
+	TotalRuns       int
+	Mean            time.Duration
+	Median          time.Duration
+	P95             time.Duration
+	P99             time.Duration
+	Min             time.Duration
+	Max             time.Duration
+	TotalTime       time.Duration // sum of all durations (for ranking)
+	Volatility      float64       // p95/median ratio — higher means more unpredictable
+	VolatilityLabel string        // "stable", "variable", "spiky", or "volatile"
 }
 
 // SummaryDetail contains summary statistics for a workflow and its jobs.
@@ -128,15 +130,37 @@ func computeStats(durations []time.Duration) SummaryStats {
 		total += d
 	}
 
+	median := percentile(durations, 50)
+	p95 := percentile(durations, 95)
+	volatility := 0.0
+	if median > 0 {
+		volatility = float64(p95) / float64(median)
+	}
+
 	return SummaryStats{
-		TotalRuns: n,
-		Mean:      total / time.Duration(n),
-		Median:    percentile(durations, 50),
-		P95:       percentile(durations, 95),
-		P99:       percentile(durations, 99),
-		Min:       durations[0],
-		Max:       durations[n-1],
-		TotalTime: total,
+		TotalRuns:       n,
+		Mean:            total / time.Duration(n),
+		Median:          median,
+		P95:             p95,
+		P99:             percentile(durations, 99),
+		Min:             durations[0],
+		Max:             durations[n-1],
+		TotalTime:       total,
+		Volatility:      volatility,
+		VolatilityLabel: volatilityLabel(volatility),
+	}
+}
+
+func volatilityLabel(v float64) string {
+	switch {
+	case v >= 3.0:
+		return "volatile"
+	case v >= 2.0:
+		return "spiky"
+	case v >= 1.3:
+		return "variable"
+	default:
+		return "stable"
 	}
 }
 
