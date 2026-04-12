@@ -74,23 +74,36 @@ const (
 
 func writeSummaryTable(w io.Writer, findings []analyze.Finding) error {
 	// Findings are already sorted by total CI time descending from the analyzer.
-	// Use tabwriter for the entire summary section so columns align across workflows.
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-
+	// Split into multi-job and single-job workflows so each group gets its own
+	// tabwriter context -- prevents a long name in one group from blowing up
+	// column widths in the other.
+	var multiJob, singleJob []indexedFinding
 	for i, f := range findings {
 		d, ok := f.Detail.(analyze.SummaryDetail)
 		if !ok {
 			continue
 		}
-
-		marker := ""
-		if i == 0 && len(findings) > 1 {
-			marker = red + " << most CI time" + reset
+		if len(d.Jobs) > 1 {
+			multiJob = append(multiJob, indexedFinding{i, f})
+		} else {
+			singleJob = append(singleJob, indexedFinding{i, f})
 		}
+	}
 
+	firstIdx := 0
+	if len(multiJob) > 0 {
+		firstIdx = multiJob[0].idx
+	} else if len(singleJob) > 0 {
+		firstIdx = singleJob[0].idx
+	}
+
+	// Multi-job workflows: each gets its own tabwriter for the job tree.
+	for _, mf := range multiJob {
+		d, _ := mf.finding.Detail.(analyze.SummaryDetail)
+		marker := mostCITimeMarker(mf.idx, firstIdx, len(findings))
 		volTag := fmtVolatility(d.Stats.VolatilityLabel)
 
-		_, _ = fmt.Fprintf(tw, "%s%s%s\t%d runs\tmedian %s%s%s\tp95 %s%s%s\ttotal %s%s%s%s%s\n",
+		_, _ = fmt.Fprintf(w, "%s%s%s  %d runs, median %s%s%s, p95 %s%s%s, total %s%s%s%s%s\n",
 			bold, d.Workflow, reset,
 			d.Stats.TotalRuns,
 			cyan, fmtDur(d.Stats.Median), reset,
@@ -98,26 +111,57 @@ func writeSummaryTable(w io.Writer, findings []analyze.Finding) error {
 			bold, fmtTotalTime(d.Stats.TotalTime), reset,
 			volTag, marker)
 
-		if len(d.Jobs) > 1 {
-			for j, job := range d.Jobs {
-				prefix := "  |-"
-				if j == len(d.Jobs)-1 {
-					prefix = "  `-"
-				}
-				jobVol := fmtVolatility(job.Stats.VolatilityLabel)
-				_, _ = fmt.Fprintf(tw, "%s%s %s%s\t%d runs\tmedian %s\tp95 %s\tmin %s  max %s%s\n",
-					dim, prefix, job.Name, reset,
-					job.Stats.TotalRuns,
-					fmtDur(job.Stats.Median), fmtDur(job.Stats.P95),
-					fmtDur(job.Stats.Min), fmtDur(job.Stats.Max),
-					jobVol)
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		for j, job := range d.Jobs {
+			prefix := "  |-"
+			if j == len(d.Jobs)-1 {
+				prefix = "  `-"
 			}
+			jobVol := fmtVolatility(job.Stats.VolatilityLabel)
+			_, _ = fmt.Fprintf(tw, "%s%s%s %s\t%d runs\tmedian %s\tp95 %s\tmin %s\tmax %s%s\n",
+				dim, prefix, reset, job.Name,
+				job.Stats.TotalRuns,
+				fmtDur(job.Stats.Median), fmtDur(job.Stats.P95),
+				fmtDur(job.Stats.Min), fmtDur(job.Stats.Max),
+				jobVol)
 		}
-
-		_, _ = fmt.Fprintln(tw)
+		_ = tw.Flush()
+		_, _ = fmt.Fprintln(w)
 	}
 
-	return tw.Flush()
+	// Single-job workflows: aligned together in one tabwriter block.
+	if len(singleJob) > 0 {
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		for _, sf := range singleJob {
+			d, _ := sf.finding.Detail.(analyze.SummaryDetail)
+			marker := mostCITimeMarker(sf.idx, firstIdx, len(findings))
+			volTag := fmtVolatility(d.Stats.VolatilityLabel)
+
+			_, _ = fmt.Fprintf(tw, "%s%s%s\t%d runs\tmedian %s%s%s\tp95 %s%s%s\ttotal %s%s%s%s%s\n",
+				bold, d.Workflow, reset,
+				d.Stats.TotalRuns,
+				cyan, fmtDur(d.Stats.Median), reset,
+				cyan, fmtDur(d.Stats.P95), reset,
+				bold, fmtTotalTime(d.Stats.TotalTime), reset,
+				volTag, marker)
+		}
+		_ = tw.Flush()
+		_, _ = fmt.Fprintln(w)
+	}
+
+	return nil
+}
+
+type indexedFinding struct {
+	idx     int
+	finding analyze.Finding
+}
+
+func mostCITimeMarker(idx, firstIdx, total int) string {
+	if idx == firstIdx && total > 1 {
+		return red + " << most CI time" + reset
+	}
+	return ""
 }
 
 func fmtVolatility(label string) string {
