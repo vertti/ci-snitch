@@ -104,10 +104,11 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 			detailIdx := sorted[sortedIdx].idx
 			d := ac.Details[detailIdx]
 
-			// Significance test: compare segments before and after
+			// Significance test: compare segments before and after.
+			// Use all available post-change data (not just minSegment) so the
+			// Mann-Whitney test has enough samples for reliable p-values.
 			before := js.durations[:cp.Index]
-			afterEnd := min(cp.Index+minSeg, len(js.durations))
-			after := js.durations[cp.Index:afterEnd]
+			after := js.durations[cp.Index:]
 			_, pValue := stats.MannWhitneyU(before, after)
 
 			severity := classifyChangePoint(pValue, cp.PctChange)
