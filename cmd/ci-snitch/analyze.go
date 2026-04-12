@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -70,6 +71,7 @@ type analyzeOpts struct {
 }
 
 func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
+	totalStart := time.Now()
 	prog := output.NewProgress()
 
 	sinceTime, err := parseSince(opts.since)
@@ -117,37 +119,62 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 		prog.Log("Found %d workflows", len(workflows))
 	}
 
-	// Collect all run details
-	var allDetails []model.RunDetail
+	// Collect all run details (parallel across workflows)
+	var (
+		allDetails []model.RunDetail
+		mu         sync.Mutex
+		sem        = make(chan struct{}, 4) // max parallel workflows
+	)
 	fetchedWorkflows := 0
+
+	var wg sync.WaitGroup
 	for _, wf := range workflows {
 		if opts.workflow != "" && wf.Name != opts.workflow {
 			continue
 		}
 		fetchedWorkflows++
 
-		prog.Status("Fetching %q...", wf.Name)
-		runs, err := client.FetchRuns(ctx, wf.ID, sinceTime, opts.branch)
-		if err != nil {
-			prog.Log("WARNING: failed to fetch runs for %q: %v", wf.Name, err)
-			continue
-		}
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
-		prog.Status("Fetching %q — hydrating %d runs...", wf.Name, len(runs))
-		details, warnings := client.FetchRunDetails(ctx, runs)
-		for _, w := range warnings {
-			prog.Log("WARNING: %s", w.Message)
-		}
-
-		// Save to store
-		if s != nil {
-			if err := s.SaveRunDetails(details); err != nil {
-				prog.Log("WARNING: failed to cache: %v", err)
+			prog.Status("Fetching %q...", wf.Name)
+			fetchStart := time.Now()
+			runs, err := client.FetchRuns(ctx, wf.ID, sinceTime, opts.branch)
+			if err != nil {
+				prog.Log("WARNING: failed to fetch runs for %q: %v", wf.Name, err)
+				return
 			}
-		}
+			if opts.verbose {
+				prog.Log("  %q: fetched %d runs in %s", wf.Name, len(runs), time.Since(fetchStart))
+			}
 
-		allDetails = append(allDetails, details...)
+			prog.Status("Fetching %q — hydrating %d runs...", wf.Name, len(runs))
+			hydrateStart := time.Now()
+			details, warnings := client.FetchRunDetails(ctx, runs)
+			if opts.verbose {
+				prog.Log("  %q: hydrated %d runs in %s", wf.Name, len(details), time.Since(hydrateStart))
+			}
+			for _, w := range warnings {
+				prog.Log("WARNING: %s", w.Message)
+			}
+
+			if s != nil {
+				saveStart := time.Now()
+				if err := s.SaveRunDetails(details); err != nil {
+					prog.Log("WARNING: failed to cache %q: %v", wf.Name, err)
+				}
+				if opts.verbose {
+					prog.Log("  %q: saved to cache in %s", wf.Name, time.Since(saveStart))
+				}
+			}
+
+			mu.Lock()
+			allDetails = append(allDetails, details...)
+			mu.Unlock()
+		})
 	}
+	wg.Wait()
 	prog.Done()
 
 	if len(allDetails) == 0 {
@@ -155,10 +182,14 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 	}
 
 	// Preprocess
+	ppStart := time.Now()
 	filtered, ppWarnings := preprocess.Run(allDetails, preprocess.Options{
 		Branch:          opts.branch,
 		IncludeFailures: opts.includeFailures,
 	})
+	if opts.verbose {
+		prog.Log("Preprocess: %s", time.Since(ppStart))
+	}
 	for _, w := range ppWarnings {
 		if opts.verbose {
 			prog.Log("Preprocessing: %s", w.Message)
@@ -172,6 +203,7 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 	prog.Status("Analyzing %d runs...", len(filtered))
 
 	// Run analysis
+	analyzeStart := time.Now()
 	engine := analyze.NewEngine(
 		analyze.SummaryAnalyzer{},
 		analyze.OutlierAnalyzer{},
@@ -179,6 +211,9 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 	)
 	result := engine.Run(ctx, filtered)
 	prog.Done()
+	if opts.verbose {
+		prog.Log("Analyze: %s", time.Since(analyzeStart))
+	}
 
 	for _, w := range result.Warnings {
 		prog.Log("Analysis warning: %s", w.Message)
@@ -188,8 +223,14 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 	_, _ = fmt.Fprintln(os.Stderr)
 
 	// Output
+	formatStart := time.Now()
 	formatter := output.Get(opts.format, output.Options{Verbose: opts.verbose})
-	return formatter.Format(cmd.OutOrStdout(), result)
+	err = formatter.Format(cmd.OutOrStdout(), result)
+	if opts.verbose {
+		prog.Log("Format: %s", time.Since(formatStart))
+	}
+	prog.Log("Total: %s", time.Since(totalStart))
+	return err
 }
 
 func parseSince(s string) (time.Time, error) {

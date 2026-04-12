@@ -12,25 +12,43 @@ import (
 	"github.com/vertti/ci-snitch/internal/model"
 )
 
+const defaultMaxConcurrentJobs = 20
+
 // Client wraps the GitHub API for fetching Actions workflow data.
 type Client struct {
-	gh    *gh.Client
-	owner string
-	repo  string
+	gh     *gh.Client
+	owner  string
+	repo   string
+	jobSem chan struct{}
+}
+
+// ClientOption configures optional Client behaviour.
+type ClientOption func(*Client)
+
+// WithMaxConcurrentJobs sets the maximum number of concurrent job-fetch API calls.
+func WithMaxConcurrentJobs(n int) ClientOption {
+	return func(c *Client) {
+		c.jobSem = make(chan struct{}, n)
+	}
 }
 
 // NewClient creates a Client for the given owner/repo.
-func NewClient(token, ownerRepo string) (*Client, error) {
+func NewClient(token, ownerRepo string, opts ...ClientOption) (*Client, error) {
 	parts := strings.SplitN(ownerRepo, "/", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return nil, fmt.Errorf("invalid repo format %q, expected owner/repo", ownerRepo)
 	}
 
-	return &Client{
-		gh:    gh.NewClient(nil).WithAuthToken(token),
-		owner: parts[0],
-		repo:  parts[1],
-	}, nil
+	c := &Client{
+		gh:     gh.NewClient(nil).WithAuthToken(token),
+		owner:  parts[0],
+		repo:   parts[1],
+		jobSem: make(chan struct{}, defaultMaxConcurrentJobs),
+	}
+	for _, o := range opts {
+		o(c)
+	}
+	return c, nil
 }
 
 // ListWorkflows returns all workflows in the repository.
@@ -152,11 +170,20 @@ type Warning struct {
 	Err     error
 }
 
-// defaultWorkers is the number of concurrent API requests for job fetching.
-const defaultWorkers = 10
+// defaultWorkers is the number of goroutines dispatching job-fetch work.
+// Effective concurrency is bounded by the Client's jobSem semaphore.
+const defaultWorkers = 20
 
 // FetchJobs fetches jobs and steps for a single workflow run.
 func (c *Client) FetchJobs(ctx context.Context, runID int64) ([]model.Job, error) {
+	// Acquire semaphore slot to bound total concurrent API calls.
+	select {
+	case c.jobSem <- struct{}{}:
+		defer func() { <-c.jobSem }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
 	var all []model.Job
 	opts := &gh.ListOptions{PerPage: 100}
 
