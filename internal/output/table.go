@@ -54,11 +54,14 @@ func (t TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error
 	}
 
 	// Meta
-	_, err := fmt.Fprintf(w, "\n%s%d runs analyzed%s (%s to %s)\n",
+	_, _ = fmt.Fprintf(w, "\n%s%d runs analyzed%s (%s to %s)\n",
 		dim, result.Meta.TotalRuns, reset,
 		result.Meta.TimeRange[0].Format("2006-01-02"),
 		result.Meta.TimeRange[1].Format("2006-01-02"))
-	return err
+
+	// Legend: only show entries for sections that appeared
+	writeLegend(w, len(summaries) > 0, len(outliers) > 0, len(changepoints) > 0)
+	return nil
 }
 
 // ANSI color codes
@@ -363,4 +366,19 @@ func truncSHA(sha string) string {
 		return sha[:8]
 	}
 	return sha
+}
+
+func writeLegend(w io.Writer, hasSummary, hasOutliers, hasChangePoints bool) {
+	_, _ = fmt.Fprintf(w, "\n%s", dim)
+	if hasSummary {
+		_, _ = fmt.Fprint(w, "Volatility (p95/median): [variable] 1.3-2x  [spiky] 2-3x  [volatile] >3x\n")
+	}
+	if hasOutliers {
+		_, _ = fmt.Fprintf(w, "Outliers: %s●%s critical (p99+)  %s●%s warning (p95+)  %s●%s info\n",
+			red, dim, yellow, dim, dim, dim)
+	}
+	if hasChangePoints {
+		_, _ = fmt.Fprint(w, "Change points: ^ slowdown  v speedup | Status: N runs = persistent, transient = reverted, ? = too few runs\n")
+	}
+	_, _ = fmt.Fprintf(w, "%s", reset)
 }
