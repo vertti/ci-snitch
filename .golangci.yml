@@ -48,9 +48,25 @@ linters:
     # Bug detection
     - makezero
     - wastedassign
+    - durationcheck
+    - asasalint
+    - errchkjson
     # Code hygiene
     - goconst
     - usestdlibvars
+    - nakedret
+    - unparam
+    - musttag
+    - mirror
+    - exptostd
+    # Safety
+    - fatcontext
+    - reassign
+    - bidichk
+    - asciicheck
+    - gocheckcompilerdirectives
+    # Testing
+    - usetesting
 
 linters-settings:
   gocritic:

@@ -10,12 +10,12 @@ import (
 
 // OutlierDetail contains information about an outlier run or job.
 type OutlierDetail struct {
-	RunID        int64
-	CommitSHA    string
-	Duration     time.Duration
-	Percentile   float64 // e.g. 97 means slower than 97% of runs
-	WorkflowName string
-	JobName      string // empty for workflow-level outliers
+	RunID        int64         `json:"run_id"`
+	CommitSHA    string        `json:"commit_sha"`
+	Duration     time.Duration `json:"duration"`
+	Percentile   float64       `json:"percentile"`
+	WorkflowName string        `json:"workflow_name"`
+	JobName      string        `json:"job_name,omitempty"`
 }
 
 // DetailType implements FindingDetail.

@@ -81,7 +81,7 @@ func TestJSONFormatter(t *testing.T) {
 	err = json.Unmarshal(buf.Bytes(), &parsed)
 	require.NoError(t, err, "output should be valid JSON")
 
-	findings, ok := parsed["Findings"].([]any)
+	findings, ok := parsed["findings"].([]any)
 	require.True(t, ok)
 	assert.Len(t, findings, 3)
 }

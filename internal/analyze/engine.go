@@ -10,21 +10,21 @@ import (
 
 // Warning represents a non-fatal issue during analysis.
 type Warning struct {
-	Message string
+	Message string `json:"message"`
 }
 
 // ResultMeta contains metadata about the analysis run.
 type ResultMeta struct {
-	TotalRuns   int
-	TimeRange   [2]time.Time // earliest, latest
-	WorkflowIDs []int64
+	TotalRuns   int          `json:"total_runs"`
+	TimeRange   [2]time.Time `json:"time_range"`
+	WorkflowIDs []int64      `json:"workflow_ids"`
 }
 
 // AnalysisResult is the output of the analysis engine.
 type AnalysisResult struct {
-	Findings []Finding
-	Warnings []Warning
-	Meta     ResultMeta
+	Findings []Finding  `json:"findings"`
+	Warnings []Warning  `json:"warnings"`
+	Meta     ResultMeta `json:"meta"`
 }
 
 // Engine orchestrates running analyzers over a set of run details.

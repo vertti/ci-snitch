@@ -33,11 +33,11 @@ const (
 
 // Finding represents a single analysis result.
 type Finding struct {
-	Type        string
-	Severity    string
-	Title       string
-	Description string
-	Detail      FindingDetail
+	Type        string        `json:"type"`
+	Severity    string        `json:"severity"`
+	Title       string        `json:"title"`
+	Description string        `json:"description"`
+	Detail      FindingDetail `json:"detail"`
 }
 
 // FindingDetail is implemented by typed detail structs for each analyzer.

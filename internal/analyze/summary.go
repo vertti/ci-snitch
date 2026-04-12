@@ -9,29 +9,29 @@ import (
 
 // SummaryStats holds statistical measures for a duration series.
 type SummaryStats struct {
-	TotalRuns       int
-	Mean            time.Duration
-	Median          time.Duration
-	P95             time.Duration
-	P99             time.Duration
-	Min             time.Duration
-	Max             time.Duration
-	TotalTime       time.Duration // sum of all durations (for ranking)
-	Volatility      float64       // p95/median ratio — higher means more unpredictable
-	VolatilityLabel string        // "stable", "variable", "spiky", or "volatile"
+	TotalRuns       int           `json:"total_runs"`
+	Mean            time.Duration `json:"mean"`
+	Median          time.Duration `json:"median"`
+	P95             time.Duration `json:"p95"`
+	P99             time.Duration `json:"p99"`
+	Min             time.Duration `json:"min"`
+	Max             time.Duration `json:"max"`
+	TotalTime       time.Duration `json:"total_time"`
+	Volatility      float64       `json:"volatility"`
+	VolatilityLabel string        `json:"volatility_label"`
 }
 
 // SummaryDetail contains summary statistics for a workflow and its jobs.
 type SummaryDetail struct {
-	Workflow string
-	Stats    SummaryStats
-	Jobs     []JobSummary // sorted by median duration descending
+	Workflow string       `json:"workflow"`
+	Stats    SummaryStats `json:"stats"`
+	Jobs     []JobSummary `json:"jobs"`
 }
 
 // JobSummary holds stats for a single job within a workflow.
 type JobSummary struct {
-	Name  string
-	Stats SummaryStats
+	Name  string       `json:"name"`
+	Stats SummaryStats `json:"stats"`
 }
 
 // DetailType implements FindingDetail.
