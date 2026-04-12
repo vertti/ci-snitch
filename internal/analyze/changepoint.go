@@ -11,15 +11,18 @@ import (
 
 // ChangePointDetail contains information about a detected performance shift.
 type ChangePointDetail struct {
-	WorkflowName string
-	JobName      string
-	ChangeIdx    int
-	BeforeMean   time.Duration
-	AfterMean    time.Duration
-	PctChange    float64
-	Direction    string  // "slowdown" or "speedup"
-	PValue       float64 // Mann-Whitney U p-value (< 0.05 = significant)
-	CommitSHA    string  // commit at the change point
+	WorkflowName   string
+	JobName        string
+	ChangeIdx      int
+	BeforeMean     time.Duration
+	AfterMean      time.Duration
+	PctChange      float64
+	Direction      string  // "slowdown" or "speedup"
+	PValue         float64 // Mann-Whitney U p-value (< 0.05 = significant)
+	CommitSHA      string  // commit at the change point
+	PostChangeRuns int     // number of runs after the change point
+	PostChangeCV   float64 // coefficient of variation of post-change segment
+	Persistence    string  // "persistent", "transient", or "inconclusive"
 }
 
 // DetailType implements FindingDetail.
@@ -98,7 +101,7 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 		}
 
 		cps := stats.CUSUMDetect(js.durations, threshold, minSeg)
-		for _, cp := range cps {
+		for cpIdx, cp := range cps {
 			// Find the corresponding run for context
 			sortedIdx := js.refs[cp.Index]
 			detailIdx := sorted[sortedIdx].idx
@@ -110,6 +113,16 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 			before := js.durations[:cp.Index]
 			after := js.durations[cp.Index:]
 			_, pValue := stats.MannWhitneyU(before, after)
+
+			// Persistence: how many runs after the change, how stable, did it revert?
+			postChangeEnd := len(js.durations)
+			if cpIdx+1 < len(cps) {
+				postChangeEnd = cps[cpIdx+1].Index
+			}
+			postSegment := js.durations[cp.Index:postChangeEnd]
+			postChangeRuns := len(postSegment)
+			postChangeCV := coefficientOfVariation(postSegment)
+			persistence := classifyPersistence(postChangeRuns, minSeg, cps, cpIdx)
 
 			severity := classifyChangePoint(pValue, cp.PctChange)
 
@@ -125,15 +138,18 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 					(time.Duration(cp.AfterMean * float64(time.Second))).Round(time.Second),
 					pValue),
 				Detail: ChangePointDetail{
-					WorkflowName: jk.workflow,
-					JobName:      jk.job,
-					ChangeIdx:    cp.Index,
-					BeforeMean:   time.Duration(cp.BeforeMean * float64(time.Second)),
-					AfterMean:    time.Duration(cp.AfterMean * float64(time.Second)),
-					PctChange:    cp.PctChange,
-					Direction:    cp.Direction,
-					PValue:       pValue,
-					CommitSHA:    d.Run.HeadSHA,
+					WorkflowName:   jk.workflow,
+					JobName:        jk.job,
+					ChangeIdx:      cp.Index,
+					BeforeMean:     time.Duration(cp.BeforeMean * float64(time.Second)),
+					AfterMean:      time.Duration(cp.AfterMean * float64(time.Second)),
+					PctChange:      cp.PctChange,
+					Direction:      cp.Direction,
+					PValue:         pValue,
+					CommitSHA:      d.Run.HeadSHA,
+					PostChangeRuns: postChangeRuns,
+					PostChangeCV:   postChangeCV,
+					Persistence:    persistence,
 				},
 			})
 		}
@@ -152,6 +168,33 @@ func truncSHA(sha string) string {
 		return sha[:8]
 	}
 	return sha
+}
+
+func coefficientOfVariation(data []float64) float64 {
+	m := stats.Mean(data)
+	if m == 0 {
+		return 0
+	}
+	return stats.Stddev(data) / m
+}
+
+// classifyPersistence determines whether a change point is persistent, transient, or inconclusive.
+//   - persistent: enough post-change runs and no subsequent revert detected
+//   - transient: a subsequent change point reverses the direction
+//   - inconclusive: too few post-change runs to tell
+func classifyPersistence(postChangeRuns, minSeg int, cps []stats.ChangePoint, cpIdx int) string {
+	if postChangeRuns < 2*minSeg {
+		return "inconclusive"
+	}
+	// If there's a next change point that reverses direction, it's transient.
+	if cpIdx+1 < len(cps) {
+		current := cps[cpIdx]
+		next := cps[cpIdx+1]
+		if current.Direction != next.Direction {
+			return "transient"
+		}
+	}
+	return "persistent"
 }
 
 // classifyChangePoint determines severity based on both statistical significance and effect size.

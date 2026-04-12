@@ -73,9 +73,10 @@ func (MarkdownFormatter) Format(w io.Writer, result analyze.AnalysisResult) erro
 				if d.Direction == "speedup" {
 					icon = "speedup"
 				}
-				_, _ = fmt.Fprintf(w, "- **%s %+.0f%%** in `%s` at `%s` — %s -> %s (p=%.4f)\n",
+				_, _ = fmt.Fprintf(w, "- **%s %+.0f%%** in `%s` at `%s` — %s -> %s (p=%.4f, %s, %d runs after)\n",
 					icon, d.PctChange, d.JobName, truncSHA(d.CommitSHA),
-					fmtDur(d.BeforeMean), fmtDur(d.AfterMean), d.PValue)
+					fmtDur(d.BeforeMean), fmtDur(d.AfterMean), d.PValue,
+					d.Persistence, d.PostChangeRuns)
 			}
 			_, _ = fmt.Fprintln(w)
 		}
