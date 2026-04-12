@@ -121,6 +121,27 @@ func TestOutlierAnalyzer_DetectsSlowJob(t *testing.T) {
 	assert.True(t, foundSlowJob, "should detect the slow build job")
 }
 
+func TestOutlierAnalyzer_MinPercentileFilter(t *testing.T) {
+	details := makeOutlierDetails(100)
+	// Add several outliers of varying severity
+	for _, idx := range []int{90, 92, 95, 98} {
+		details[idx].Run.UpdatedAt = details[idx].Run.StartedAt.Add(time.Duration(30+idx) * time.Minute)
+		details[idx].Jobs[0].CompletedAt = details[idx].Jobs[0].StartedAt.Add(time.Duration(15+idx) * time.Minute)
+	}
+
+	// Default (MinPercentile=95): should filter out low-percentile outliers
+	analyzer := OutlierAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{Details: details})
+	require.NoError(t, err)
+
+	for _, f := range findings {
+		detail, ok := f.Detail.(OutlierDetail)
+		require.True(t, ok)
+		assert.GreaterOrEqual(t, detail.Percentile, 95.0,
+			"default should not report outliers below p95")
+	}
+}
+
 func TestOutlierDetail_Type(t *testing.T) {
 	d := OutlierDetail{}
 	assert.Equal(t, "outlier", d.DetailType())
