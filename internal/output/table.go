@@ -119,11 +119,11 @@ func writeTriageHeader(w io.Writer, summaries, changepoints []analyze.Finding) {
 	// Active regressions (persistent critical/warning change points)
 	var regressions []string
 	for _, f := range changepoints {
-		if f.Severity == "info" {
+		if f.Severity == analyze.SeverityInfo {
 			continue
 		}
 		d, ok := f.Detail.(analyze.ChangePointDetail)
-		if !ok || d.Direction != "slowdown" || d.Persistence == "transient" {
+		if !ok || d.Direction != analyze.DirectionSlowdown || d.Persistence == "transient" {
 			continue
 		}
 		regressions = append(regressions, fmt.Sprintf("%s %+.0f%%", d.JobName, d.PctChange))
@@ -292,7 +292,7 @@ func writeOutlierTable(w io.Writer, findings []analyze.Finding) error {
 
 	for _, r := range rows {
 		durColor := yellow
-		if r.severity == "critical" {
+		if r.severity == analyze.SeverityCritical {
 			durColor = red
 		}
 		_, _ = fmt.Fprintf(w, "  %s %-*s  %s%-8s%s %s%-4s%s  %s%s%s\n",
@@ -308,7 +308,7 @@ func writeOutlierTable(w io.Writer, findings []analyze.Finding) error {
 func writeChangePointTable(w io.Writer, findings []analyze.Finding, verbose bool) error {
 	var notable, minor []analyze.Finding
 	for _, f := range findings {
-		if f.Severity == "info" {
+		if f.Severity == analyze.SeverityInfo {
 			minor = append(minor, f)
 		} else {
 			notable = append(notable, f)
@@ -347,7 +347,7 @@ func writeChangePointRows(w io.Writer, findings []analyze.Finding) {
 		}
 
 		var icon, changeColor string
-		if d.Direction == "speedup" {
+		if d.Direction == analyze.DirectionSpeedup {
 			icon = green + "v" + reset
 			changeColor = green
 		} else {
@@ -408,9 +408,9 @@ func fmtDur(d time.Duration) string {
 // severityDot returns a colored dot. Single visible char so alignment is consistent.
 func severityDot(severity string) string {
 	switch severity {
-	case "critical":
+	case analyze.SeverityCritical:
 		return red + "●" + reset
-	case "warning":
+	case analyze.SeverityWarning:
 		return yellow + "●" + reset
 	default:
 		return dim + "●" + reset

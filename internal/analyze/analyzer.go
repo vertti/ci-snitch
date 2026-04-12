@@ -18,10 +18,23 @@ type AnalysisContext struct {
 	Details []model.RunDetail
 }
 
+// Severity levels for findings.
+const (
+	SeverityInfo     = "info"
+	SeverityWarning  = "warning"
+	SeverityCritical = "critical"
+)
+
+// Change point directions.
+const (
+	DirectionSlowdown = "slowdown"
+	DirectionSpeedup  = "speedup"
+)
+
 // Finding represents a single analysis result.
 type Finding struct {
 	Type        string
-	Severity    string // "info", "warning", "critical"
+	Severity    string
 	Title       string
 	Description string
 	Detail      FindingDetail

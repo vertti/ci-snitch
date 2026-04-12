@@ -149,10 +149,10 @@ func (o OutlierAnalyzer) detect(data []float64) []stats.OutlierResult {
 func severityFromPercentile(p float64) string {
 	switch {
 	case p >= 99:
-		return "critical"
+		return SeverityCritical
 	case p >= 95:
-		return "warning"
+		return SeverityWarning
 	default:
-		return "info"
+		return SeverityInfo
 	}
 }

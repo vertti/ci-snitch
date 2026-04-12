@@ -225,27 +225,11 @@ func (s *Store) LoadRunDetail(runID int64) (*model.RunDetail, error) {
 		j.StartedAt = parseTime(startStr)
 		j.CompletedAt = parseTime(compStr)
 
-		stepRows, err := s.db.Query(`SELECT name, number, status, conclusion, started_at, completed_at
-			FROM steps WHERE job_id = ? ORDER BY number ASC`, j.ID)
+		steps, err := s.loadSteps(j.ID)
 		if err != nil {
 			return nil, err
 		}
-
-		for stepRows.Next() {
-			var st model.Step
-			var sStart, sComp string
-			if err := stepRows.Scan(&st.Name, &st.Number, &st.Status, &st.Conclusion, &sStart, &sComp); err != nil {
-				_ = stepRows.Close()
-				return nil, err
-			}
-			st.StartedAt = parseTime(sStart)
-			st.CompletedAt = parseTime(sComp)
-			j.Steps = append(j.Steps, st)
-		}
-		_ = stepRows.Close()
-		if err := stepRows.Err(); err != nil {
-			return nil, err
-		}
+		j.Steps = steps
 
 		jobs = append(jobs, j)
 	}
@@ -254,6 +238,28 @@ func (s *Store) LoadRunDetail(runID int64) (*model.RunDetail, error) {
 	}
 
 	return &model.RunDetail{Run: run, Jobs: jobs}, nil
+}
+
+func (s *Store) loadSteps(jobID int64) ([]model.Step, error) {
+	rows, err := s.db.Query(`SELECT name, number, status, conclusion, started_at, completed_at
+		FROM steps WHERE job_id = ? ORDER BY number ASC`, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck // error on deferred close has no actionable caller
+
+	var steps []model.Step
+	for rows.Next() {
+		var st model.Step
+		var sStart, sComp string
+		if err := rows.Scan(&st.Name, &st.Number, &st.Status, &st.Conclusion, &sStart, &sComp); err != nil {
+			return nil, err
+		}
+		st.StartedAt = parseTime(sStart)
+		st.CompletedAt = parseTime(sComp)
+		steps = append(steps, st)
+	}
+	return steps, rows.Err()
 }
 
 // LoadRunDetails loads all completed run details for a workflow since the given time.

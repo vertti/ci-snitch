@@ -97,7 +97,7 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 
 		findings = append(findings, Finding{
 			Type:     "summary",
-			Severity: "info",
+			Severity: SeverityInfo,
 			Title:    fmt.Sprintf("Workflow %q", wfName),
 			Description: fmt.Sprintf("%d runs, median %s, p95 %s, total CI time %s",
 				wfStats.TotalRuns,

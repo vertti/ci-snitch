@@ -210,11 +210,11 @@ func classifyChangePoint(pValue, pctChange float64) string {
 
 	switch {
 	case pValue < 0.01 && largeEffect:
-		return "critical"
+		return SeverityCritical
 	case significant && meaningfulEffect:
-		return "warning"
+		return SeverityWarning
 	default:
-		return "info"
+		return SeverityInfo
 	}
 }
 
