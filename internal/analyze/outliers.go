@@ -10,12 +10,12 @@ import (
 
 // OutlierDetail contains information about an outlier run or job.
 type OutlierDetail struct {
-	RunID         int64
-	CommitSHA     string
-	Duration      time.Duration
-	ExpectedRange [2]time.Duration // [lower fence, upper fence]
-	Percentile    float64          // e.g. 97 means slower than 97% of runs
-	JobName       string           // empty for workflow-level outliers
+	RunID        int64
+	CommitSHA    string
+	Duration     time.Duration
+	Percentile   float64 // e.g. 97 means slower than 97% of runs
+	WorkflowName string
+	JobName      string // empty for workflow-level outliers
 }
 
 // DetailType implements FindingDetail.
@@ -62,11 +62,11 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 				Description: fmt.Sprintf("Run took %s (p%.0f — slower than %.0f%% of runs)",
 					d.Run.Duration().Round(time.Second), out.Percentile, out.Percentile),
 				Detail: OutlierDetail{
-					RunID:      d.Run.ID,
-					CommitSHA:  d.Run.HeadSHA,
-					Duration:   d.Run.Duration(),
-					Percentile: out.Percentile,
-					JobName:    "",
+					RunID:        d.Run.ID,
+					CommitSHA:    d.Run.HeadSHA,
+					Duration:     d.Run.Duration(),
+					Percentile:   out.Percentile,
+					WorkflowName: wfName,
 				},
 			})
 		}
@@ -108,11 +108,12 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 				Description: fmt.Sprintf("Job took %s (p%.0f — slower than %.0f%% of runs)",
 					job.Duration().Round(time.Second), out.Percentile, out.Percentile),
 				Detail: OutlierDetail{
-					RunID:      d.Run.ID,
-					CommitSHA:  d.Run.HeadSHA,
-					Duration:   job.Duration(),
-					Percentile: out.Percentile,
-					JobName:    job.Name,
+					RunID:        d.Run.ID,
+					CommitSHA:    d.Run.HeadSHA,
+					Duration:     job.Duration(),
+					Percentile:   out.Percentile,
+					WorkflowName: k.wf,
+					JobName:      job.Name,
 				},
 			})
 		}

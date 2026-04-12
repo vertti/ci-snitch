@@ -32,20 +32,26 @@ func (MarkdownFormatter) Format(w io.Writer, result analyze.AnalysisResult) erro
 		}
 	}
 
-	if len(summaries) > 0 {
-		_, _ = fmt.Fprintln(w, "## Summary")
-		_, _ = fmt.Fprintln(w, "| Subject | Runs | Median | P95 | Min | Max |")
-		_, _ = fmt.Fprintln(w, "|---------|------|--------|-----|-----|-----|")
-		for _, f := range summaries {
-			d, ok := f.Detail.(analyze.SummaryDetail)
-			if !ok {
-				continue
-			}
-			_, _ = fmt.Fprintf(w, "| %s | %d | %s | %s | %s | %s |\n",
-				d.Subject, d.TotalRuns,
-				fmtDur(d.Median), fmtDur(d.P95), fmtDur(d.Min), fmtDur(d.Max))
+	for _, f := range summaries {
+		d, ok := f.Detail.(analyze.SummaryDetail)
+		if !ok {
+			continue
 		}
-		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintf(w, "### %s\n", d.Workflow)
+		_, _ = fmt.Fprintf(w, "%d runs, median %s, p95 %s, total CI time %s\n\n",
+			d.Stats.TotalRuns, fmtDur(d.Stats.Median), fmtDur(d.Stats.P95), fmtTotalTime(d.Stats.TotalTime))
+
+		if len(d.Jobs) > 0 {
+			_, _ = fmt.Fprintln(w, "| Job | Runs | Median | P95 | Min | Max |")
+			_, _ = fmt.Fprintln(w, "|-----|------|--------|-----|-----|-----|")
+			for _, job := range d.Jobs {
+				_, _ = fmt.Fprintf(w, "| %s | %d | %s | %s | %s | %s |\n",
+					job.Name, job.Stats.TotalRuns,
+					fmtDur(job.Stats.Median), fmtDur(job.Stats.P95),
+					fmtDur(job.Stats.Min), fmtDur(job.Stats.Max))
+			}
+			_, _ = fmt.Fprintln(w)
+		}
 	}
 
 	if len(changepoints) > 0 {
@@ -84,9 +90,9 @@ func (MarkdownFormatter) Format(w io.Writer, result analyze.AnalysisResult) erro
 			if !ok {
 				continue
 			}
-			subject := "workflow"
+			subject := d.WorkflowName
 			if d.JobName != "" {
-				subject = d.JobName
+				subject += " / " + d.JobName
 			}
 			_, _ = fmt.Fprintf(w, "| %s | %s | %s | p%.0f | `%s` |\n",
 				f.Severity, subject, fmtDur(d.Duration), d.Percentile, truncSHA(d.CommitSHA))

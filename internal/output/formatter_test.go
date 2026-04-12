@@ -19,10 +19,17 @@ func testResult() analyze.AnalysisResult {
 				Type: "summary", Severity: "info",
 				Title: "Workflow \"CI\" summary",
 				Detail: analyze.SummaryDetail{
-					Subject: "CI", TotalRuns: 50,
-					Mean: 5 * time.Minute, Median: 5 * time.Minute,
-					P95: 7 * time.Minute, P99: 8 * time.Minute,
-					Min: 3 * time.Minute, Max: 10 * time.Minute,
+					Workflow: "CI",
+					Stats: analyze.SummaryStats{
+						TotalRuns: 50, Mean: 5 * time.Minute, Median: 5 * time.Minute,
+						P95: 7 * time.Minute, P99: 8 * time.Minute,
+						Min: 3 * time.Minute, Max: 10 * time.Minute,
+						TotalTime: 250 * time.Minute,
+					},
+					Jobs: []analyze.JobSummary{
+						{Name: "build", Stats: analyze.SummaryStats{TotalRuns: 50, Median: 3 * time.Minute, P95: 4 * time.Minute, Min: 2 * time.Minute, Max: 6 * time.Minute}},
+						{Name: "test", Stats: analyze.SummaryStats{TotalRuns: 50, Median: 2 * time.Minute, P95: 3 * time.Minute, Min: 1 * time.Minute, Max: 4 * time.Minute}},
+					},
 				},
 			},
 			{
@@ -32,6 +39,7 @@ func testResult() analyze.AnalysisResult {
 				Detail: analyze.OutlierDetail{
 					RunID: 123, CommitSHA: "aabbccdd11223344",
 					Duration: 10 * time.Minute, Percentile: 97,
+					WorkflowName: "CI",
 				},
 			},
 			{
@@ -83,9 +91,10 @@ func TestTableFormatter(t *testing.T) {
 	require.NoError(t, err)
 
 	out := buf.String()
-	assert.Contains(t, out, "Summary")
 	assert.Contains(t, out, "CI")
-	assert.Contains(t, out, "50")
+	assert.Contains(t, out, "50 runs")
+	assert.Contains(t, out, "build")
+	assert.Contains(t, out, "test")
 	assert.Contains(t, out, "Outliers")
 	assert.Contains(t, out, "Change Points")
 	assert.Contains(t, out, "50 runs analyzed")
@@ -106,8 +115,8 @@ func TestMarkdownFormatter(t *testing.T) {
 	out := buf.String()
 	assert.Contains(t, out, "# CI Performance Report")
 	assert.Contains(t, out, "**50 runs**")
-	assert.Contains(t, out, "## Summary")
-	assert.Contains(t, out, "| CI |")
+	assert.Contains(t, out, "### CI")
+	assert.Contains(t, out, "| build |")
 	assert.Contains(t, out, "## Performance Changes")
 	assert.Contains(t, out, "## Outliers")
 	// Markdown table headers

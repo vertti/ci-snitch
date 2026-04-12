@@ -60,45 +60,112 @@ func (t TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error
 	return err
 }
 
+// ANSI color codes
+const (
+	bold  = "\033[1m"
+	dim   = "\033[2m"
+	red   = "\033[31m"
+	reset = "\033[0m"
+)
+
 func writeSummaryTable(w io.Writer, findings []analyze.Finding) error {
-	_, _ = fmt.Fprintln(w, "── Summary ──")
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "SUBJECT\tRUNS\tMEDIAN\tP95\tMIN\tMAX")
-	for _, f := range findings {
+	// Findings are already sorted by total CI time descending from the analyzer
+	for i, f := range findings {
 		d, ok := f.Detail.(analyze.SummaryDetail)
 		if !ok {
 			continue
 		}
-		_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\n",
-			d.Subject, d.TotalRuns,
-			fmtDur(d.Median), fmtDur(d.P95), fmtDur(d.Min), fmtDur(d.Max))
+
+		marker := ""
+		if i == 0 {
+			marker = red + " ← most CI time" + reset
+		}
+
+		if len(d.Jobs) <= 1 {
+			// Single-job workflow: one compact line
+			_, _ = fmt.Fprintf(w, "%s%s%s  %s%d runs, median %s, p95 %s, total %s%s%s\n",
+				bold, d.Workflow, reset,
+				dim, d.Stats.TotalRuns,
+				fmtDur(d.Stats.Median), fmtDur(d.Stats.P95),
+				fmtTotalTime(d.Stats.TotalTime), reset, marker)
+		} else {
+			// Multi-job workflow: header + tree
+			_, _ = fmt.Fprintf(w, "%s%s%s  %s%d runs, median %s, p95 %s, total %s%s%s\n",
+				bold, d.Workflow, reset,
+				dim, d.Stats.TotalRuns,
+				fmtDur(d.Stats.Median), fmtDur(d.Stats.P95),
+				fmtTotalTime(d.Stats.TotalTime), reset, marker)
+
+			tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+			for j, job := range d.Jobs {
+				prefix := "├─"
+				if j == len(d.Jobs)-1 {
+					prefix = "└─"
+				}
+				highlight := ""
+				if job.Stats.Median > d.Stats.Median/2 {
+					highlight = bold
+				}
+				_, _ = fmt.Fprintf(tw, "  %s %s%s%s\t%d runs\tmedian %s\tp95 %s\tmin %s\tmax %s\n",
+					prefix, highlight, job.Name, reset,
+					job.Stats.TotalRuns,
+					fmtDur(job.Stats.Median), fmtDur(job.Stats.P95),
+					fmtDur(job.Stats.Min), fmtDur(job.Stats.Max))
+			}
+			_ = tw.Flush()
+		}
+		_, _ = fmt.Fprintln(w)
 	}
-	if err := tw.Flush(); err != nil {
-		return err
-	}
-	_, _ = fmt.Fprintln(w)
 	return nil
+}
+
+func fmtTotalTime(d time.Duration) string {
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%dh%dm", h, m)
+	}
+	return fmt.Sprintf("%dm", m)
 }
 
 func writeOutlierTable(w io.Writer, findings []analyze.Finding) error {
 	_, _ = fmt.Fprintf(w, "── Outliers (%d) ──\n", len(findings))
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "SEVERITY\tSUBJECT\tDURATION\tPERCENTILE\tCOMMIT")
+
+	// Build rows without ANSI so we can measure column widths
+	type outlierRow struct {
+		severity string
+		subject  string
+		duration string
+		pct      string
+		commit   string
+	}
+	rows := make([]outlierRow, 0, len(findings))
+	maxSubject := 0
 	for _, f := range findings {
 		d, ok := f.Detail.(analyze.OutlierDetail)
 		if !ok {
 			continue
 		}
-		subject := "workflow"
+		subject := d.WorkflowName
 		if d.JobName != "" {
-			subject = d.JobName
+			subject += " / " + d.JobName
 		}
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\tp%.0f\t%s\n",
-			severityIcon(f.Severity), subject,
-			fmtDur(d.Duration), d.Percentile, truncSHA(d.CommitSHA))
+		if len(subject) > maxSubject {
+			maxSubject = len(subject)
+		}
+		rows = append(rows, outlierRow{
+			severity: f.Severity,
+			subject:  subject,
+			duration: fmtDur(d.Duration),
+			pct:      fmt.Sprintf("p%.0f", d.Percentile),
+			commit:   truncSHA(d.CommitSHA),
+		})
 	}
-	if err := tw.Flush(); err != nil {
-		return err
+
+	for _, r := range rows {
+		_, _ = fmt.Fprintf(w, "  %s %-*s  %-8s %-4s  %s\n",
+			severityDot(r.severity), maxSubject, r.subject,
+			r.duration, r.pct, r.commit)
 	}
 	_, _ = fmt.Fprintln(w)
 	return nil
@@ -142,9 +209,9 @@ func writeChangePointRows(w io.Writer, findings []analyze.Finding) {
 		if !ok {
 			continue
 		}
-		icon := "▲"
+		icon := red + "▲" + reset
 		if d.Direction == "speedup" {
-			icon = "▼"
+			icon = "\033[32m▼" + reset // green
 		}
 		_, _ = fmt.Fprintf(tw, "%s\t%s\t%+.0f%%\t%s\t%s\t%s\t%s\t%.4f\n",
 			icon, d.JobName, d.PctChange,
@@ -178,14 +245,19 @@ func fmtDur(d time.Duration) string {
 	return fmt.Sprintf("%dm%02ds", m, s)
 }
 
-func severityIcon(severity string) string {
+const (
+	yellow = "\033[33m"
+)
+
+// severityDot returns a colored dot. Single visible char so tabwriter alignment is consistent.
+func severityDot(severity string) string {
 	switch severity {
 	case "critical":
-		return "!!!"
+		return red + "●" + reset
 	case "warning":
-		return "!!"
+		return yellow + "●" + reset
 	default:
-		return "!"
+		return dim + "●" + reset
 	}
 }
 
