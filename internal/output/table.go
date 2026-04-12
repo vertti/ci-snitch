@@ -81,20 +81,22 @@ func writeSummaryTable(w io.Writer, findings []analyze.Finding) error {
 			marker = red + " ← most CI time" + reset
 		}
 
+		volTag := fmtVolatility(d.Stats.VolatilityLabel)
+
 		if len(d.Jobs) <= 1 {
 			// Single-job workflow: one compact line
-			_, _ = fmt.Fprintf(w, "%s%s%s  %s%d runs, median %s, p95 %s, total %s%s%s\n",
+			_, _ = fmt.Fprintf(w, "%s%s%s  %s%d runs, median %s, p95 %s, total %s%s%s%s\n",
 				bold, d.Workflow, reset,
 				dim, d.Stats.TotalRuns,
 				fmtDur(d.Stats.Median), fmtDur(d.Stats.P95),
-				fmtTotalTime(d.Stats.TotalTime), reset, marker)
+				fmtTotalTime(d.Stats.TotalTime), reset, volTag, marker)
 		} else {
 			// Multi-job workflow: header + tree
-			_, _ = fmt.Fprintf(w, "%s%s%s  %s%d runs, median %s, p95 %s, total %s%s%s\n",
+			_, _ = fmt.Fprintf(w, "%s%s%s  %s%d runs, median %s, p95 %s, total %s%s%s%s\n",
 				bold, d.Workflow, reset,
 				dim, d.Stats.TotalRuns,
 				fmtDur(d.Stats.Median), fmtDur(d.Stats.P95),
-				fmtTotalTime(d.Stats.TotalTime), reset, marker)
+				fmtTotalTime(d.Stats.TotalTime), reset, volTag, marker)
 
 			tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 			for j, job := range d.Jobs {
@@ -117,6 +119,19 @@ func writeSummaryTable(w io.Writer, findings []analyze.Finding) error {
 		_, _ = fmt.Fprintln(w)
 	}
 	return nil
+}
+
+func fmtVolatility(label string) string {
+	switch label {
+	case "volatile":
+		return " " + red + "[volatile]" + reset
+	case "spiky":
+		return " " + red + "[spiky]" + reset
+	case "variable":
+		return " [variable]"
+	default:
+		return ""
+	}
 }
 
 func fmtTotalTime(d time.Duration) string {
