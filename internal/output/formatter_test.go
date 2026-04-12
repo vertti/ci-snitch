@@ -51,6 +51,7 @@ func testResult() analyze.AnalysisResult {
 					BeforeMean: 5 * time.Minute, AfterMean: 6*time.Minute + 15*time.Second,
 					PctChange: 25, Direction: "slowdown",
 					PValue: 0.03, CommitSHA: "aabbccdd11223344",
+					Date: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
 				},
 			},
 		},
