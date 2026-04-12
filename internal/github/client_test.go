@@ -25,9 +25,10 @@ func testClient(t *testing.T, handler http.Handler) *Client {
 	ghClient.BaseURL, _ = ghClient.BaseURL.Parse(srv.URL + "/")
 
 	return &Client{
-		gh:    ghClient,
-		owner: "test-owner",
-		repo:  "test-repo",
+		gh:     ghClient,
+		owner:  "test-owner",
+		repo:   "test-repo",
+		jobSem: make(chan struct{}, defaultMaxConcurrentJobs),
 	}
 }
 
@@ -236,7 +237,48 @@ func TestFetchRunDetails_ConcurrencyBounded(t *testing.T) {
 	details, warnings := c.FetchRunDetails(context.Background(), runs)
 	assert.Len(t, details, 20)
 	assert.Empty(t, warnings)
-	assert.LessOrEqual(t, maxConcurrent, defaultWorkers, "should not exceed worker pool size")
+	assert.LessOrEqual(t, maxConcurrent, defaultMaxConcurrentJobs, "should not exceed semaphore capacity")
+}
+
+func TestFetchRunDetails_SemaphoreBoundsConcurrency(t *testing.T) {
+	var mu sync.Mutex
+	maxConcurrent := 0
+	current := 0
+
+	data, err := os.ReadFile("testdata/list_jobs.json")
+	require.NoError(t, err)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/test-owner/test-repo/actions/runs/", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		current++
+		if current > maxConcurrent {
+			maxConcurrent = current
+		}
+		mu.Unlock()
+
+		time.Sleep(10 * time.Millisecond)
+
+		mu.Lock()
+		current--
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(data)
+	})
+
+	c := testClient(t, mux)
+	c.jobSem = make(chan struct{}, 3) // tight semaphore
+
+	runs := make([]model.WorkflowRun, 20)
+	for i := range runs {
+		runs[i] = model.WorkflowRun{ID: int64(200000 + i), Status: "completed"}
+	}
+
+	details, warnings := c.FetchRunDetails(context.Background(), runs)
+	assert.Len(t, details, 20)
+	assert.Empty(t, warnings)
+	assert.LessOrEqual(t, maxConcurrent, 3, "should not exceed semaphore capacity of 3")
 }
 
 func TestFetchRuns_ContextCancellation(t *testing.T) {
