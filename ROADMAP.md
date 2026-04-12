@@ -20,7 +20,7 @@ ci-snitch analyzes GitHub Actions CI performance: summary stats, outlier detecti
 
 _Focus: fix correctness bugs, reduce cognitive load, make the default output answer "what should I look at first?"_
 
-### 1.1 Fix change point job identity key [S] — **bug fix**
+### ~~1.1 Fix change point job identity key [S] — **bug fix**~~ DONE
 - `internal/analyze/changepoint.go:69` keys by `j.Name` alone
 - Two workflows with a job named "Unit tests" will have their distributions mixed
 - Fix: key by `(workflowName, jobName)` like outlier analyzer already does (outliers.go:76-78)
