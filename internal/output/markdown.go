@@ -57,7 +57,7 @@ func (MarkdownFormatter) Format(w io.Writer, result analyze.AnalysisResult) erro
 	if len(changepoints) > 0 {
 		var notable []analyze.Finding
 		for _, f := range changepoints {
-			if f.Severity != "info" {
+			if f.Severity != analyze.SeverityInfo {
 				notable = append(notable, f)
 			}
 		}
@@ -69,9 +69,9 @@ func (MarkdownFormatter) Format(w io.Writer, result analyze.AnalysisResult) erro
 				if !ok {
 					continue
 				}
-				icon := "slowdown"
-				if d.Direction == "speedup" {
-					icon = "speedup"
+				icon := analyze.DirectionSlowdown
+				if d.Direction == analyze.DirectionSpeedup {
+					icon = analyze.DirectionSpeedup
 				}
 				_, _ = fmt.Fprintf(w, "- **%s %+.0f%%** in `%s` at `%s` — %s -> %s (p=%.4f, %s, %d runs after)\n",
 					icon, d.PctChange, d.JobName, truncSHA(d.CommitSHA),

@@ -51,9 +51,9 @@ func TestLogIQROutliers_IdenticalValues(t *testing.T) {
 func TestLogIQROutliers_RightSkewed(t *testing.T) {
 	// Simulate right-skewed CI durations (log-normal)
 	rng := rand.New(rand.NewSource(42)) //nolint:gosec // deterministic seed for reproducible tests
-	data := make([]float64, 100)
-	for i := range data {
-		data[i] = math.Exp(4.5 + 0.3*rng.NormFloat64()) // ~90s median
+	data := make([]float64, 0, 103)
+	for range 100 {
+		data = append(data, math.Exp(4.5+0.3*rng.NormFloat64())) // ~90s median
 	}
 	// Add some genuine outliers
 	data = append(data, 500, 600, 700)

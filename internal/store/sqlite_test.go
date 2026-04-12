@@ -11,6 +11,8 @@ import (
 	"github.com/vertti/ci-snitch/internal/model"
 )
 
+const statusInProgress = "in_progress"
+
 func testStore(t *testing.T) *Store {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "test.db")
@@ -101,7 +103,7 @@ func TestSaveRunDetail_Upsert(t *testing.T) {
 	detail := testRunDetail()
 
 	// Save initially as in-progress
-	detail.Run.Status = "in_progress"
+	detail.Run.Status = statusInProgress
 	detail.Run.Conclusion = ""
 	require.NoError(t, s.SaveRunDetail(detail))
 
@@ -144,7 +146,7 @@ func TestRunsSince_ExcludesIncomplete(t *testing.T) {
 	s := testStore(t)
 
 	detail := testRunDetail()
-	detail.Run.Status = "in_progress"
+	detail.Run.Status = statusInProgress
 	detail.Run.Conclusion = ""
 	require.NoError(t, s.SaveRunDetail(detail))
 
@@ -162,7 +164,7 @@ func TestIncompleteRunIDs(t *testing.T) {
 
 	d2 := testRunDetail()
 	d2.Run.ID = 1002
-	d2.Run.Status = "in_progress"
+	d2.Run.Status = statusInProgress
 	d2.Run.Conclusion = ""
 	d2.Jobs[0].ID = 2002
 	require.NoError(t, s.SaveRunDetail(d2))

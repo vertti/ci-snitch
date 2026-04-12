@@ -11,19 +11,19 @@ import (
 
 // ChangePointDetail contains information about a detected performance shift.
 type ChangePointDetail struct {
-	WorkflowName   string
-	JobName        string
-	ChangeIdx      int
-	BeforeMean     time.Duration
-	AfterMean      time.Duration
-	PctChange      float64
-	Direction      string    // "slowdown" or "speedup"
-	PValue         float64   // Mann-Whitney U p-value (< 0.05 = significant)
-	CommitSHA      string    // commit at the change point
-	Date           time.Time // date of the change point run
-	PostChangeRuns int       // number of runs after the change point
-	PostChangeCV   float64   // coefficient of variation of post-change segment
-	Persistence    string    // "persistent", "transient", or "inconclusive"
+	WorkflowName   string        `json:"workflow_name"`
+	JobName        string        `json:"job_name"`
+	ChangeIdx      int           `json:"change_idx"`
+	BeforeMean     time.Duration `json:"before_mean"`
+	AfterMean      time.Duration `json:"after_mean"`
+	PctChange      float64       `json:"pct_change"`
+	Direction      string        `json:"direction"`
+	PValue         float64       `json:"p_value"`
+	CommitSHA      string        `json:"commit_sha"`
+	Date           time.Time     `json:"date"`
+	PostChangeRuns int           `json:"post_change_runs"`
+	PostChangeCV   float64       `json:"post_change_cv"`
+	Persistence    string        `json:"persistence"`
 }
 
 // DetailType implements FindingDetail.
@@ -210,11 +210,11 @@ func classifyChangePoint(pValue, pctChange float64) string {
 
 	switch {
 	case pValue < 0.01 && largeEffect:
-		return "critical"
+		return SeverityCritical
 	case significant && meaningfulEffect:
-		return "warning"
+		return SeverityWarning
 	default:
-		return "info"
+		return SeverityInfo
 	}
 }
 

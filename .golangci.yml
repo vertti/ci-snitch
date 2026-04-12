@@ -41,6 +41,32 @@ linters:
     - nilnil
     # Testing
     - testifylint
+    - thelper
+    # SQL safety
+    - sqlclosecheck
+    - rowserrcheck
+    # Bug detection
+    - makezero
+    - wastedassign
+    - durationcheck
+    - asasalint
+    - errchkjson
+    # Code hygiene
+    - goconst
+    - usestdlibvars
+    - nakedret
+    - unparam
+    - musttag
+    - mirror
+    - exptostd
+    # Safety
+    - fatcontext
+    - reassign
+    - bidichk
+    - asciicheck
+    - gocheckcompilerdirectives
+    # Testing
+    - usetesting
 
 linters-settings:
   gocritic:
@@ -50,6 +76,8 @@ linters-settings:
       - performance
   exhaustive:
     default-signifies-exhaustive: true
+  goconst:
+    min-occurrences: 3
   nolintlint:
     require-explanation: true
     require-specific: true

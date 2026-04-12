@@ -16,7 +16,7 @@ func testResult() analyze.AnalysisResult {
 	return analyze.AnalysisResult{
 		Findings: []analyze.Finding{
 			{
-				Type: "summary", Severity: "info",
+				Type: "summary", Severity: analyze.SeverityInfo,
 				Title: "Workflow \"CI\" summary",
 				Detail: analyze.SummaryDetail{
 					Workflow: "CI",
@@ -33,7 +33,7 @@ func testResult() analyze.AnalysisResult {
 				},
 			},
 			{
-				Type: "outlier", Severity: "warning",
+				Type: "outlier", Severity: analyze.SeverityWarning,
 				Title:       "Slow run in \"CI\"",
 				Description: "Run took 10m (p97)",
 				Detail: analyze.OutlierDetail{
@@ -43,13 +43,13 @@ func testResult() analyze.AnalysisResult {
 				},
 			},
 			{
-				Type: "changepoint", Severity: "warning",
+				Type: "changepoint", Severity: analyze.SeverityWarning,
 				Title:       "Performance slowdown in job \"build\"",
 				Description: "+25% change at 2026-04-01 (commit aabbccdd), before: 5m, after: 6m15s (p=0.0300)",
 				Detail: analyze.ChangePointDetail{
 					JobName: "build", ChangeIdx: 20,
 					BeforeMean: 5 * time.Minute, AfterMean: 6*time.Minute + 15*time.Second,
-					PctChange: 25, Direction: "slowdown",
+					PctChange: 25, Direction: analyze.DirectionSlowdown,
 					PValue: 0.03, CommitSHA: "aabbccdd11223344",
 					Date: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
 				},
@@ -81,7 +81,7 @@ func TestJSONFormatter(t *testing.T) {
 	err = json.Unmarshal(buf.Bytes(), &parsed)
 	require.NoError(t, err, "output should be valid JSON")
 
-	findings, ok := parsed["Findings"].([]any)
+	findings, ok := parsed["findings"].([]any)
 	require.True(t, ok)
 	assert.Len(t, findings, 3)
 }
