@@ -25,6 +25,9 @@ func (OutlierDetail) DetailType() string { return "outlier" }
 type OutlierAnalyzer struct {
 	// Method selects the outlier detection method: "log-iqr" (default) or "mad"
 	Method string
+	// MinPercentile is the minimum percentile to report (default: 95).
+	// Outliers below this threshold are detected but not emitted as findings.
+	MinPercentile float64
 }
 
 // Name implements Analyzer.
@@ -34,6 +37,11 @@ func (OutlierAnalyzer) Name() string { return "outlier" }
 func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, error) {
 	if len(ac.Details) < 5 {
 		return nil, nil
+	}
+
+	minPct := o.MinPercentile
+	if minPct == 0 {
+		minPct = 95
 	}
 
 	var findings []Finding
@@ -53,6 +61,9 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 		idxMap := wfRuns[wfName]
 		outliers := o.detect(durations)
 		for _, out := range outliers {
+			if out.Percentile < minPct {
+				continue
+			}
 			detailIdx := idxMap[out.Index]
 			d := ac.Details[detailIdx]
 			findings = append(findings, Finding{
@@ -98,6 +109,9 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 		refs := jobRefs[k]
 		outliers := o.detect(durations)
 		for _, out := range outliers {
+			if out.Percentile < minPct {
+				continue
+			}
 			ref := refs[out.Index]
 			d := ac.Details[ref.detailIdx]
 			job := d.Jobs[ref.jobIdx]

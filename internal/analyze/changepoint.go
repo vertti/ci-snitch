@@ -197,17 +197,19 @@ func classifyPersistence(postChangeRuns, minSeg int, cps []stats.ChangePoint, cp
 	return "persistent"
 }
 
-// classifyChangePoint determines severity based on both statistical significance and effect size.
-// Notable if p < 0.05 (significant) or abs(change) >= 15% (large effect).
-// Critical requires both.
+// classifyChangePoint determines severity based on statistical significance and effect size.
+// Critical: p < 0.01 and abs(change) >= 20%.
+// Warning (notable): p < 0.05 and abs(change) >= 10%.
+// Info (minor): everything else -- shown only in verbose mode.
 func classifyChangePoint(pValue, pctChange float64) string {
 	significant := pValue < 0.05
-	largeEffect := abs(pctChange) >= 15
+	largeEffect := abs(pctChange) >= 20
+	meaningfulEffect := abs(pctChange) >= 10
 
 	switch {
-	case significant && largeEffect:
+	case pValue < 0.01 && largeEffect:
 		return "critical"
-	case significant || largeEffect:
+	case significant && meaningfulEffect:
 		return "warning"
 	default:
 		return "info"
