@@ -235,9 +235,13 @@ _Depends on Releases 1-3 for data richness. A TUI over today's data would be und
 | `cmd/ci-snitch/compare.go` | New subcommand | 3.3 |
 | `internal/tui/` | New package (bubbletea) | 4.x |
 
+## Versioning
+
+Tag a new minor version after each PR merge to main. Every PR delivers value, so every merge is a release. Semver: bump minor for new features/analyzers, patch for bug fixes.
+
 ## Verification
 
-Each release PR:
+Each PR:
 1. `mise run check` (fmt + lint + test)
 2. `go run ./cmd/smoke` — update smoke test to exercise new features
 3. `./bin/ci-snitch analyze --repo cli/cli --since 7d` — verify output
