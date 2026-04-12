@@ -26,7 +26,7 @@ _Focus: fix correctness bugs, reduce cognitive load, make the default output ans
 - Fix: key by `(workflowName, jobName)` like outlier analyzer already does (outliers.go:76-78)
 - **Files:** `internal/analyze/changepoint.go`
 
-### 1.2 Fix small-sample Mann-Whitney p-values [M] — **bug fix**
+### ~~1.2 Fix small-sample Mann-Whitney p-values [M] — **bug fix**~~ DONE
 - `internal/stats/significance.go` uses normal approximation, states "valid for n > 20"
 - Change point analyzer calls it with after-window of `minSegment=5` runs (changepoint.go:101)
 - **Options:**
