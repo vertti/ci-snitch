@@ -80,6 +80,13 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 
+	// WAL mode allows concurrent reads and avoids SQLITE_BUSY under
+	// parallel workflow writes.
+	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("set WAL mode: %w", err)
+	}
+
 	if _, err := db.Exec(schema); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("create schema: %w", err)
