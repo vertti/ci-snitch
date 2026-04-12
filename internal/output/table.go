@@ -203,7 +203,7 @@ func writeChangePointTable(w io.Writer, findings []analyze.Finding, verbose bool
 
 func writeChangePointRows(w io.Writer, findings []analyze.Finding) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "DIR\tJOB\tCHANGE\tBEFORE\tAFTER\tDATE\tCOMMIT\tP-VALUE")
+	_, _ = fmt.Fprintln(tw, "DIR\tJOB\tCHANGE\tBEFORE\tAFTER\tDATE\tCOMMIT\tP-VALUE\tSTATUS")
 	for _, f := range findings {
 		d, ok := f.Detail.(analyze.ChangePointDetail)
 		if !ok {
@@ -213,12 +213,26 @@ func writeChangePointRows(w io.Writer, findings []analyze.Finding) {
 		if d.Direction == "speedup" {
 			icon = "\033[32m▼" + reset // green
 		}
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%+.0f%%\t%s\t%s\t%s\t%s\t%.4f\n",
+		status := formatPersistence(d)
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%+.0f%%\t%s\t%s\t%s\t%s\t%.4f\t%s\n",
 			icon, d.JobName, d.PctChange,
 			fmtDur(d.BeforeMean), fmtDur(d.AfterMean),
-			findDate(f), truncSHA(d.CommitSHA), d.PValue)
+			findDate(f), truncSHA(d.CommitSHA), d.PValue, status)
 	}
 	_ = tw.Flush()
+}
+
+func formatPersistence(d analyze.ChangePointDetail) string {
+	switch d.Persistence {
+	case "persistent":
+		return fmt.Sprintf("✓ %d runs", d.PostChangeRuns)
+	case "transient":
+		return fmt.Sprintf("~ %d runs", d.PostChangeRuns)
+	case "inconclusive":
+		return fmt.Sprintf("? %d runs", d.PostChangeRuns)
+	default:
+		return ""
+	}
 }
 
 func findDate(f analyze.Finding) string {

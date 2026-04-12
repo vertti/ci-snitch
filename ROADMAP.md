@@ -36,7 +36,7 @@ _Focus: fix correctness bugs, reduce cognitive load, make the default output ans
 - **Recommendation:** (b) permutation test — straightforward, correct for any sample size, no combinatorial explosion. Fall back to normal approximation when both n > 20.
 - **Files:** `internal/stats/significance.go`, `internal/analyze/changepoint.go`
 
-### 1.3 Change point persistence & classification [S]
+### ~~1.3 Change point persistence & classification [S]~~ DONE
 - Currently `afterMean` uses only next `minSegment` points (changepoint.go:101)
 - After detecting change at index `i`, compute over all remaining data `durations[i:]`:
   - `PostChangeRuns int` — how many runs since the shift
