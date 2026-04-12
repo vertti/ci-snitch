@@ -368,17 +368,11 @@ func truncSHA(sha string) string {
 	return sha
 }
 
-func writeLegend(w io.Writer, hasSummary, hasOutliers, hasChangePoints bool) {
+func writeLegend(w io.Writer, _, _, _ bool) {
 	_, _ = fmt.Fprintf(w, "\n%s", dim)
-	if hasSummary {
-		_, _ = fmt.Fprint(w, "Volatility (p95/median): [variable] 1.3-2x  [spiky] 2-3x  [volatile] >3x\n")
-	}
-	if hasOutliers {
-		_, _ = fmt.Fprintf(w, "Outliers: %s●%s critical (p99+)  %s●%s warning (p95+)  %s●%s info\n",
-			red, dim, yellow, dim, dim, dim)
-	}
-	if hasChangePoints {
-		_, _ = fmt.Fprint(w, "Change points: ^ slowdown  v speedup | Status: N runs = persistent, transient = reverted, ? = too few runs\n")
-	}
+	_, _ = fmt.Fprint(w, "Volatility (p95/median): [variable] 1.3-2x  [spiky] 2-3x  [volatile] >3x\n")
+	_, _ = fmt.Fprintf(w, "Outliers: %s●%s critical (p99+)  %s●%s warning (p95+)  %s●%s info\n",
+		red, dim, yellow, dim, dim, dim)
+	_, _ = fmt.Fprint(w, "Change points: ^ slowdown  v speedup | Status: N runs = persistent, transient = reverted, ? = too few runs\n")
 	_, _ = fmt.Fprintf(w, "%s", reset)
 }
