@@ -52,7 +52,7 @@ _Focus: fix correctness bugs, reduce cognitive load, make the default output ans
 - Add to `SummaryDetail` alongside existing stats
 - **Files:** `internal/analyze/summary.go`, all formatters
 
-### 1.5 Triage header [S]
+### ~~1.5 Triage header [S]~~ DONE
 - Above the current report, show a compact "top offenders" view:
   - Top 3 by developer wait time (workflow wall-clock)
   - Top 3 by total compute minutes (sum of job durations)
