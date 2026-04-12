@@ -4,6 +4,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -317,6 +318,10 @@ func parseTime(s string) time.Time {
 	if s == "" {
 		return time.Time{}
 	}
-	t, _ := time.Parse(timeFormat, s)
+	t, err := time.Parse(timeFormat, s)
+	if err != nil {
+		log.Printf("WARNING: failed to parse time %q: %v", s, err)
+		return time.Time{}
+	}
 	return t
 }

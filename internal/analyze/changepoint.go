@@ -17,12 +17,13 @@ type ChangePointDetail struct {
 	BeforeMean     time.Duration
 	AfterMean      time.Duration
 	PctChange      float64
-	Direction      string  // "slowdown" or "speedup"
-	PValue         float64 // Mann-Whitney U p-value (< 0.05 = significant)
-	CommitSHA      string  // commit at the change point
-	PostChangeRuns int     // number of runs after the change point
-	PostChangeCV   float64 // coefficient of variation of post-change segment
-	Persistence    string  // "persistent", "transient", or "inconclusive"
+	Direction      string    // "slowdown" or "speedup"
+	PValue         float64   // Mann-Whitney U p-value (< 0.05 = significant)
+	CommitSHA      string    // commit at the change point
+	Date           time.Time // date of the change point run
+	PostChangeRuns int       // number of runs after the change point
+	PostChangeCV   float64   // coefficient of variation of post-change segment
+	Persistence    string    // "persistent", "transient", or "inconclusive"
 }
 
 // DetailType implements FindingDetail.
@@ -147,6 +148,7 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 					Direction:      cp.Direction,
 					PValue:         pValue,
 					CommitSHA:      d.Run.HeadSHA,
+					Date:           d.Run.CreatedAt,
 					PostChangeRuns: postChangeRuns,
 					PostChangeCV:   postChangeCV,
 					Persistence:    persistence,

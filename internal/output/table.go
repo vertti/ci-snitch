@@ -294,7 +294,7 @@ func writeChangePointRows(w io.Writer, findings []analyze.Finding) {
 			icon, d.JobName,
 			changeColor, d.PctChange, reset,
 			fmtDur(d.BeforeMean), fmtDur(d.AfterMean),
-			findDate(f),
+			d.Date.Format("2006-01-02"),
 			dim, truncSHA(d.CommitSHA), reset,
 			fmtPValue(d.PValue),
 			status)
@@ -323,17 +323,6 @@ func formatPersistence(d analyze.ChangePointDetail) string {
 	default:
 		return ""
 	}
-}
-
-func findDate(f analyze.Finding) string {
-	// Extract date from description (format: "... at YYYY-MM-DD ...")
-	desc := f.Description
-	for i := range len(desc) - 10 {
-		if desc[i] >= '2' && desc[i] <= '2' && desc[i+4] == '-' {
-			return desc[i : i+10]
-		}
-	}
-	return "?"
 }
 
 func fmtDur(d time.Duration) string {
