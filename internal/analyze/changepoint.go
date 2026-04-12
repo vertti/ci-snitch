@@ -11,14 +11,15 @@ import (
 
 // ChangePointDetail contains information about a detected performance shift.
 type ChangePointDetail struct {
-	JobName    string
-	ChangeIdx  int
-	BeforeMean time.Duration
-	AfterMean  time.Duration
-	PctChange  float64
-	Direction  string  // "slowdown" or "speedup"
-	PValue     float64 // Mann-Whitney U p-value (< 0.05 = significant)
-	CommitSHA  string  // commit at the change point
+	WorkflowName string
+	JobName      string
+	ChangeIdx    int
+	BeforeMean   time.Duration
+	AfterMean    time.Duration
+	PctChange    float64
+	Direction    string  // "slowdown" or "speedup"
+	PValue       float64 // Mann-Whitney U p-value (< 0.05 = significant)
+	CommitSHA    string  // commit at the change point
 }
 
 // DetailType implements FindingDetail.
@@ -61,12 +62,18 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 
 	var findings []Finding
 
-	// Per-job change-point detection
+	// Per-(workflow, job) change-point detection.
+	// Keying by job name alone would mix distributions from different workflows
+	// that happen to share a job name (e.g. "Unit tests").
+	type jobKey struct {
+		workflow string
+		job      string
+	}
 	type jobSeries struct {
 		durations []float64
 		refs      []int // indices into sorted
 	}
-	jobs := make(map[string]*jobSeries)
+	jobs := make(map[jobKey]*jobSeries)
 
 	for i, ref := range sorted {
 		d := ac.Details[ref.idx]
@@ -75,16 +82,17 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 			if dur <= 0 {
 				continue
 			}
-			if jobs[j.Name] == nil {
-				jobs[j.Name] = &jobSeries{}
+			k := jobKey{d.Run.WorkflowName, j.Name}
+			if jobs[k] == nil {
+				jobs[k] = &jobSeries{}
 			}
-			js := jobs[j.Name]
+			js := jobs[k]
 			js.durations = append(js.durations, dur)
 			js.refs = append(js.refs, i)
 		}
 	}
 
-	for jobName, js := range jobs {
+	for jk, js := range jobs {
 		if len(js.durations) < 2*minSeg {
 			continue
 		}
@@ -107,7 +115,7 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 			findings = append(findings, Finding{
 				Type:     "changepoint",
 				Severity: severity,
-				Title:    fmt.Sprintf("Performance %s in job %q", cp.Direction, jobName),
+				Title:    fmt.Sprintf("Performance %s in job %q", cp.Direction, jk.job),
 				Description: fmt.Sprintf("%.0f%% change at %s (commit %s), before: %s, after: %s (p=%.4f)",
 					cp.PctChange,
 					d.Run.CreatedAt.Format("2006-01-02"),
@@ -116,14 +124,15 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 					(time.Duration(cp.AfterMean * float64(time.Second))).Round(time.Second),
 					pValue),
 				Detail: ChangePointDetail{
-					JobName:    jobName,
-					ChangeIdx:  cp.Index,
-					BeforeMean: time.Duration(cp.BeforeMean * float64(time.Second)),
-					AfterMean:  time.Duration(cp.AfterMean * float64(time.Second)),
-					PctChange:  cp.PctChange,
-					Direction:  cp.Direction,
-					PValue:     pValue,
-					CommitSHA:  d.Run.HeadSHA,
+					WorkflowName: jk.workflow,
+					JobName:      jk.job,
+					ChangeIdx:    cp.Index,
+					BeforeMean:   time.Duration(cp.BeforeMean * float64(time.Second)),
+					AfterMean:    time.Duration(cp.AfterMean * float64(time.Second)),
+					PctChange:    cp.PctChange,
+					Direction:    cp.Direction,
+					PValue:       pValue,
+					CommitSHA:    d.Run.HeadSHA,
 				},
 			})
 		}

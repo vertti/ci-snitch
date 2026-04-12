@@ -148,6 +148,84 @@ func TestChangePointAnalyzer_SignificanceTest(t *testing.T) {
 	assert.Less(t, detail.PValue, 0.05, "clear shift should be statistically significant")
 }
 
+func TestChangePointAnalyzer_SameJobNameDifferentWorkflows(t *testing.T) {
+	// Two workflows both have a job named "test".
+	// Workflow A: stable at 5min. Workflow B: shifts from 3min to 6min.
+	// Bug: if keyed by job name alone, the distributions get mixed
+	// and the change point may not be detected (or is attributed wrong).
+	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	var details []model.RunDetail
+
+	for i := range 40 {
+		start := base.Add(time.Duration(i) * time.Hour)
+
+		// Workflow A "CI": job "test" always ~5min
+		details = append(details, model.RunDetail{
+			Run: model.WorkflowRun{
+				ID:           int64(1000 + i),
+				WorkflowID:   100,
+				WorkflowName: "CI",
+				HeadSHA:      "aaa11111",
+				CreatedAt:    start,
+				StartedAt:    start,
+				UpdatedAt:    start.Add(5*time.Minute + time.Duration(i%3)*time.Second),
+			},
+			Jobs: []model.Job{
+				{
+					Name:        "test",
+					StartedAt:   start,
+					CompletedAt: start.Add(5*time.Minute + time.Duration(i%3)*time.Second),
+				},
+			},
+		})
+
+		// Workflow B "Deploy": job "test" shifts from 3min to 6min at i=20
+		dur := 3*time.Minute + time.Duration(i%3)*time.Second
+		if i >= 20 {
+			dur = 6*time.Minute + time.Duration(i%3)*time.Second
+		}
+		details = append(details, model.RunDetail{
+			Run: model.WorkflowRun{
+				ID:           int64(2000 + i),
+				WorkflowID:   200,
+				WorkflowName: "Deploy",
+				HeadSHA:      "bbb22222",
+				CreatedAt:    start.Add(30 * time.Minute),
+				StartedAt:    start.Add(30 * time.Minute),
+				UpdatedAt:    start.Add(30*time.Minute + dur),
+			},
+			Jobs: []model.Job{
+				{
+					Name:        "test",
+					StartedAt:   start.Add(30 * time.Minute),
+					CompletedAt: start.Add(30*time.Minute + dur),
+				},
+			},
+		})
+	}
+
+	analyzer := ChangePointAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{Details: details})
+	require.NoError(t, err)
+
+	// Should detect a change point in Deploy's "test" job, not in CI's "test" job.
+	// With (workflow, job) keying, these are separate time series.
+	var deployFindings, ciFindings []ChangePointDetail
+	for _, f := range findings {
+		detail, ok := f.Detail.(ChangePointDetail)
+		require.True(t, ok)
+		switch detail.WorkflowName {
+		case "Deploy":
+			deployFindings = append(deployFindings, detail)
+		case "CI":
+			ciFindings = append(ciFindings, detail)
+		}
+	}
+
+	assert.NotEmpty(t, deployFindings, "should detect change point in Deploy workflow's test job")
+	assert.Empty(t, ciFindings, "should NOT detect change point in CI workflow's stable test job")
+}
+
 func TestChangePointDetail_Type(t *testing.T) {
 	d := ChangePointDetail{}
 	assert.Equal(t, "changepoint", d.DetailType())
