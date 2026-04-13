@@ -269,12 +269,15 @@ func (c *Client) FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) 
 
 func convertJob(j *gh.WorkflowJob) model.Job {
 	job := model.Job{
-		ID:         j.GetID(),
-		RunID:      j.GetRunID(),
-		Name:       j.GetName(),
-		Status:     j.GetStatus(),
-		Conclusion: j.GetConclusion(),
-		StartedAt:  j.GetStartedAt().Time,
+		ID:              j.GetID(),
+		RunID:           j.GetRunID(),
+		Name:            j.GetName(),
+		Status:          j.GetStatus(),
+		Conclusion:      j.GetConclusion(),
+		StartedAt:       j.GetStartedAt().Time,
+		RunnerName:      j.GetRunnerName(),
+		RunnerGroupName: j.GetRunnerGroupName(),
+		Labels:          j.Labels,
 	}
 	if j.CompletedAt != nil {
 		job.CompletedAt = j.CompletedAt.Time

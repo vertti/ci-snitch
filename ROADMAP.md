@@ -73,7 +73,7 @@ _Focus: fix correctness bugs, reduce cognitive load, make the default output ans
 
 _Focus: quantify flakiness, rerun tax, and CI spend. Answer "where is money going?" and "which pipelines waste developer time with failures?"_
 
-### 2.1 Capture runner metadata [S]
+### ~~2.1 Capture runner metadata [S]~~ DONE
 - Add `RunnerName`, `RunnerGroupName`, `Labels []string` to `model.Job`
 - Extract from go-github's `WorkflowJob` in `convertJob()` (client.go:243) — fields already exist in the library
 - Add columns to SQLite `jobs` table
