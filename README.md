@@ -36,9 +36,6 @@ brew install vertti/tap/ci-snitch
 
 # Binary (macOS, Linux)
 curl -fsSL https://raw.githubusercontent.com/vertti/ci-snitch/main/install.sh | sh
-
-# Go
-go install github.com/vertti/ci-snitch/cmd/ci-snitch@latest
 ```
 
 Authenticates via `GITHUB_TOKEN` env var, or falls back to the [GitHub CLI](https://cli.github.com) (`gh auth token`).
