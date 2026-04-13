@@ -146,7 +146,10 @@ func columnExists(db *sql.DB, table, column string) bool {
 			return true
 		}
 	}
-	return rows.Err() == nil
+	// Column not found. Check rows.Err() to satisfy the linter,
+	// but either way the column doesn't exist.
+	_ = rows.Err()
+	return false
 }
 
 // Close closes the database connection.

@@ -1,12 +1,15 @@
 package store
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	_ "modernc.org/sqlite"
 
 	"github.com/vertti/ci-snitch/internal/model"
 )
@@ -219,4 +222,46 @@ func TestSaveRunDetails_Batch(t *testing.T) {
 	runs, err := s.RunsSince(100, time.Time{})
 	require.NoError(t, err)
 	assert.Len(t, runs, 5)
+}
+
+func TestMigration_AddsEventColumn(t *testing.T) {
+	// Simulate a pre-migration database: create schema without the event column,
+	// then open with Open() which should migrate.
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := sql.Open("sqlite", path)
+	require.NoError(t, err)
+
+	// Create old schema without event column
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS runs (
+		id INTEGER PRIMARY KEY, workflow_id INTEGER, workflow_name TEXT,
+		name TEXT, status TEXT, conclusion TEXT, head_branch TEXT,
+		head_sha TEXT, run_attempt INTEGER, created_at TEXT, started_at TEXT, updated_at TEXT
+	)`)
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS jobs (
+		id INTEGER PRIMARY KEY, run_id INTEGER, name TEXT, status TEXT,
+		conclusion TEXT, started_at TEXT, completed_at TEXT
+	)`)
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS steps (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, job_id INTEGER, name TEXT,
+		number INTEGER, status TEXT, conclusion TEXT, started_at TEXT, completed_at TEXT
+	)`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	// Open should migrate successfully
+	s, err := Open(path)
+	require.NoError(t, err)
+	defer s.Close() //nolint:errcheck
+
+	// Should be able to save a run with the event field
+	detail := testRunDetail()
+	err = s.SaveRunDetail(detail)
+	require.NoError(t, err, "save should work after migration adds event column")
+
+	// Round-trip the event field
+	loaded, err := s.LoadRunDetail(detail.Run.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "push", loaded.Run.Event)
 }
