@@ -47,14 +47,17 @@ func (r WorkflowRun) IsCompleted() bool {
 
 // Job represents a single job within a workflow run.
 type Job struct {
-	ID          int64
-	RunID       int64
-	Name        string
-	Status      string
-	Conclusion  string
-	StartedAt   time.Time
-	CompletedAt time.Time
-	Steps       []Step
+	ID              int64
+	RunID           int64
+	Name            string
+	Status          string
+	Conclusion      string
+	StartedAt       time.Time
+	CompletedAt     time.Time
+	RunnerName      string
+	RunnerGroupName string
+	Labels          []string
+	Steps           []Step
 }
 
 // Duration returns the wall-clock duration of the job.

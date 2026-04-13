@@ -42,13 +42,16 @@ func testRunDetail() model.RunDetail {
 		},
 		Jobs: []model.Job{
 			{
-				ID:          2001,
-				RunID:       1001,
-				Name:        "build",
-				Status:      "completed",
-				Conclusion:  "success",
-				StartedAt:   base.Add(10 * time.Second),
-				CompletedAt: base.Add(2 * time.Minute),
+				ID:              2001,
+				RunID:           1001,
+				Name:            "build",
+				Status:          "completed",
+				Conclusion:      "success",
+				StartedAt:       base.Add(10 * time.Second),
+				CompletedAt:     base.Add(2 * time.Minute),
+				RunnerName:      "GitHub Actions 4",
+				RunnerGroupName: "GitHub Actions",
+				Labels:          []string{"ubuntu-latest"},
 				Steps: []model.Step{
 					{
 						Name:        "Checkout",
@@ -93,6 +96,9 @@ func TestSaveAndLoadRunDetail(t *testing.T) {
 	require.Len(t, loaded.Jobs, 1)
 	assert.Equal(t, "build", loaded.Jobs[0].Name)
 	assert.WithinDuration(t, detail.Jobs[0].StartedAt, loaded.Jobs[0].StartedAt, time.Second)
+	assert.Equal(t, "GitHub Actions 4", loaded.Jobs[0].RunnerName)
+	assert.Equal(t, "GitHub Actions", loaded.Jobs[0].RunnerGroupName)
+	assert.Equal(t, []string{"ubuntu-latest"}, loaded.Jobs[0].Labels)
 
 	require.Len(t, loaded.Jobs[0].Steps, 2)
 	assert.Equal(t, "Checkout", loaded.Jobs[0].Steps[0].Name)
