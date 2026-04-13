@@ -55,6 +55,22 @@ const (
 	DirectionSpeedup  = "speedup"
 )
 
+// Finding type identifiers.
+const (
+	TypeSummary     = "summary"
+	TypeOutlier     = "outlier"
+	TypeChangepoint = "changepoint"
+	TypeFailure     = "failure"
+	TypeCost        = "cost"
+)
+
+// Change point persistence classifications.
+const (
+	PersistencePersistent   = "persistent"
+	PersistenceTransient    = "transient"
+	PersistenceInconclusive = "inconclusive"
+)
+
 // Finding represents a single analysis result.
 type Finding struct {
 	Type        string        `json:"type"`

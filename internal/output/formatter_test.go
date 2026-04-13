@@ -82,9 +82,26 @@ func TestGet(t *testing.T) {
 	assert.IsType(t, MarkdownFormatter{}, f)
 	assert.True(t, ok)
 
+	f, ok = Get("llm", opts)
+	assert.IsType(t, LLMFormatter{}, f)
+	assert.True(t, ok)
+
 	f, ok = Get("unknown", opts)
 	assert.IsType(t, TableFormatter{}, f)
 	assert.False(t, ok)
+}
+
+func TestLLMFormatter(t *testing.T) {
+	var buf bytes.Buffer
+	err := LLMFormatter{}.Format(&buf, testResult())
+	require.NoError(t, err)
+
+	out := buf.String()
+	assert.Contains(t, out, "# CI Analysis")
+	assert.Contains(t, out, "## Priority Findings")
+	assert.Contains(t, out, "## Workflow Summaries")
+	assert.Contains(t, out, "## Raw Data")
+	assert.Contains(t, out, "```json")
 }
 
 func TestJSONFormatter(t *testing.T) {
