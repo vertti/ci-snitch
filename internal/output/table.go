@@ -23,7 +23,7 @@ func (t TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error
 	}
 
 	// Group findings by type
-	var summaries, outliers, changepoints []analyze.Finding
+	var summaries, outliers, changepoints, failures []analyze.Finding
 	for _, f := range result.Findings {
 		switch f.Type {
 		case "summary":
@@ -32,14 +32,20 @@ func (t TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error
 			outliers = append(outliers, f)
 		case "changepoint":
 			changepoints = append(changepoints, f)
+		case "failure":
+			failures = append(failures, f)
 		}
 	}
 
 	if len(summaries) > 0 {
-		writeTriageHeader(w, summaries, changepoints)
+		writeTriageHeader(w, summaries, changepoints, failures)
 		if err := writeSummaryTable(w, summaries); err != nil {
 			return err
 		}
+	}
+
+	if len(failures) > 0 {
+		writeFailureTable(w, failures)
 	}
 
 	if len(outliers) > 0 {
@@ -76,7 +82,7 @@ const (
 	reset  = "\033[0m"
 )
 
-func writeTriageHeader(w io.Writer, summaries, changepoints []analyze.Finding) {
+func writeTriageHeader(w io.Writer, summaries, changepoints, failures []analyze.Finding) {
 	_, _ = fmt.Fprintf(w, "%s── Triage ──%s\n", dim, reset)
 
 	// Top 3 by total CI time (summaries are already sorted)
@@ -135,6 +141,23 @@ func writeTriageHeader(w io.Writer, summaries, changepoints []analyze.Finding) {
 				_, _ = fmt.Fprint(w, ", ")
 			}
 			_, _ = fmt.Fprintf(w, "%s%s%s", red, r, reset)
+		}
+		_, _ = fmt.Fprintln(w)
+	}
+
+	// Flaky workflows
+	if len(failures) > 0 {
+		_, _ = fmt.Fprintf(w, "  %sFlaky:%s  ", dim, reset)
+		count := min(3, len(failures))
+		for i := range count {
+			d, ok := failures[i].Detail.(analyze.FailureDetail)
+			if !ok {
+				continue
+			}
+			if i > 0 {
+				_, _ = fmt.Fprint(w, ", ")
+			}
+			_, _ = fmt.Fprintf(w, "%s%s%s %s(%.0f%%)%s", red, d.Workflow, reset, dim, d.FailureRate*100, reset)
 		}
 		_, _ = fmt.Fprintln(w)
 	}
@@ -254,6 +277,40 @@ func fmtTotalTime(d time.Duration) string {
 		return fmt.Sprintf("%dh%dm", h, m)
 	}
 	return fmt.Sprintf("%dm", m)
+}
+
+func writeFailureTable(w io.Writer, findings []analyze.Finding) {
+	_, _ = fmt.Fprintf(w, "%s── Failure Rates (%d) ──%s\n", dim, len(findings), reset)
+
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	for _, f := range findings {
+		d, ok := f.Detail.(analyze.FailureDetail)
+		if !ok {
+			continue
+		}
+
+		rateColor := dim
+		switch {
+		case d.FailureRate >= 0.2:
+			rateColor = red
+		case d.FailureRate >= 0.05:
+			rateColor = yellow
+		}
+
+		// Build breakdown string
+		var parts []string
+		for conclusion, count := range d.ByConclusion {
+			parts = append(parts, fmt.Sprintf("%s: %d", conclusion, count))
+		}
+
+		_, _ = fmt.Fprintf(tw, "  %s%s%s\t%s%.0f%%%s\t%s(%d/%d runs)%s\t%s%s%s\n",
+			bold, d.Workflow, reset,
+			rateColor, d.FailureRate*100, reset,
+			dim, d.FailureCount, d.TotalRuns, reset,
+			dim, strings.Join(parts, ", "), reset)
+	}
+	_ = tw.Flush()
+	_, _ = fmt.Fprintln(w)
 }
 
 func writeOutlierTable(w io.Writer, findings []analyze.Finding) error {

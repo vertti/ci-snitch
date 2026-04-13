@@ -208,8 +208,9 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 		analyze.SummaryAnalyzer{},
 		analyze.OutlierAnalyzer{},
 		analyze.ChangePointAnalyzer{},
+		analyze.FailureAnalyzer{},
 	)
-	result := engine.Run(ctx, filtered)
+	result := engine.Run(ctx, filtered, allDetails)
 	prog.Done()
 	if opts.verbose {
 		prog.Log("Analyze: %s", time.Since(analyzeStart))
