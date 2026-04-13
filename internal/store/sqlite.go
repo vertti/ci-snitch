@@ -87,10 +87,16 @@ func Open(path string) (*Store, error) {
 	}
 
 	// WAL mode allows concurrent reads and avoids SQLITE_BUSY under
-	// parallel workflow writes.
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("set WAL mode: %w", err)
+	// parallel workflow writes. busy_timeout retries on lock contention
+	// instead of failing immediately.
+	for _, pragma := range []string{
+		`PRAGMA journal_mode=WAL`,
+		`PRAGMA busy_timeout=5000`,
+	} {
+		if _, err := db.Exec(pragma); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("exec %s: %w", pragma, err)
+		}
 	}
 
 	if _, err := db.Exec(schema); err != nil {
@@ -127,7 +133,12 @@ func migrate(db *sql.DB) error {
 	return nil
 }
 
+var validTables = map[string]bool{"runs": true, "jobs": true, "steps": true}
+
 func columnExists(db *sql.DB, table, column string) bool {
+	if !validTables[table] {
+		return false
+	}
 	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
 	if err != nil {
 		return false

@@ -65,11 +65,26 @@ func testResult() analyze.AnalysisResult {
 
 func TestGet(t *testing.T) {
 	opts := Options{}
-	assert.IsType(t, JSONFormatter{}, Get("json", opts))
-	assert.IsType(t, TableFormatter{}, Get("table", opts))
-	assert.IsType(t, MarkdownFormatter{}, Get("markdown", opts))
-	assert.IsType(t, MarkdownFormatter{}, Get("md", opts))
-	assert.IsType(t, TableFormatter{}, Get("unknown", opts))
+
+	f, ok := Get("json", opts)
+	assert.IsType(t, JSONFormatter{}, f)
+	assert.True(t, ok)
+
+	f, ok = Get("table", opts)
+	assert.IsType(t, TableFormatter{}, f)
+	assert.True(t, ok)
+
+	f, ok = Get("markdown", opts)
+	assert.IsType(t, MarkdownFormatter{}, f)
+	assert.True(t, ok)
+
+	f, ok = Get("md", opts)
+	assert.IsType(t, MarkdownFormatter{}, f)
+	assert.True(t, ok)
+
+	f, ok = Get("unknown", opts)
+	assert.IsType(t, TableFormatter{}, f)
+	assert.False(t, ok)
 }
 
 func TestJSONFormatter(t *testing.T) {

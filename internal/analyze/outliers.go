@@ -34,8 +34,14 @@ type OutlierAnalyzer struct {
 func (OutlierAnalyzer) Name() string { return "outlier" }
 
 // Analyze implements Analyzer.
+const (
+	minRunsForOutliers = 5
+	criticalPercentile = 99.0
+	warningPercentile  = 95.0
+)
+
 func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, error) {
-	if len(ac.Details) < 5 {
+	if len(ac.Details) < minRunsForOutliers {
 		return nil, nil
 	}
 
@@ -148,9 +154,9 @@ func (o OutlierAnalyzer) detect(data []float64) []stats.OutlierResult {
 
 func severityFromPercentile(p float64) string {
 	switch {
-	case p >= 99:
+	case p >= criticalPercentile:
 		return SeverityCritical
-	case p >= 95:
+	case p >= warningPercentile:
 		return SeverityWarning
 	default:
 		return SeverityInfo

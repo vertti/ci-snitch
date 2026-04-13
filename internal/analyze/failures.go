@@ -6,6 +6,11 @@ import (
 	"slices"
 )
 
+const (
+	criticalFailureRate = 0.20
+	warningFailureRate  = 0.05
+)
+
 // FailureDetail contains reliability information for a workflow.
 type FailureDetail struct {
 	Workflow      string         `json:"workflow"`
@@ -63,9 +68,9 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 
 		severity := SeverityInfo
 		switch {
-		case rate >= 0.2:
+		case rate >= criticalFailureRate:
 			severity = SeverityCritical
-		case rate >= 0.05:
+		case rate >= warningFailureRate:
 			severity = SeverityWarning
 		}
 

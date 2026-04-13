@@ -151,13 +151,19 @@ func computeStats(durations []time.Duration) SummaryStats {
 	}
 }
 
+const (
+	volatileThreshold = 3.0
+	spikyThreshold    = 2.0
+	variableThreshold = 1.3
+)
+
 func volatilityLabel(v float64) string {
 	switch {
-	case v >= 3.0:
+	case v >= volatileThreshold:
 		return "volatile"
-	case v >= 2.0:
+	case v >= spikyThreshold:
 		return "spiky"
-	case v >= 1.3:
+	case v >= variableThreshold:
 		return "variable"
 	default:
 		return "stable"
