@@ -25,6 +25,7 @@ type ChangePointDetail struct {
 	PostChangeRuns int           `json:"post_change_runs"`
 	PostChangeCV   float64       `json:"post_change_cv"`
 	Persistence    string        `json:"persistence"`
+	Category       string        `json:"category,omitempty"` // set by post-processing: regression, oscillating, minor, speedup
 }
 
 // DetailType implements FindingDetail.

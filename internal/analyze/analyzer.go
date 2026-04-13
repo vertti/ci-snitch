@@ -4,6 +4,7 @@ package analyze
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/vertti/ci-snitch/internal/model"
 	"github.com/vertti/ci-snitch/internal/preprocess"
@@ -70,6 +71,28 @@ const (
 	PersistenceTransient    = "transient"
 	PersistenceInconclusive = "inconclusive"
 )
+
+// Change point categories (set by post-processing).
+const (
+	CategoryRegression  = "regression"  // actionable slowdown (deduplicated, latest per job)
+	CategoryOscillating = "oscillating" // volatile job with 3+ shifts (noise)
+	CategoryMinor       = "minor"       // severity=info, hidden by default
+	CategorySpeedup     = "speedup"     // improvement
+)
+
+// OutlierGroupDetail is a post-processed grouped view of outliers for a (workflow, job).
+type OutlierGroupDetail struct {
+	WorkflowName    string        `json:"workflow_name"`
+	JobName         string        `json:"job_name,omitempty"`
+	Count           int           `json:"count"`
+	WorstDuration   time.Duration `json:"worst_duration"`
+	WorstPercentile float64       `json:"worst_percentile"`
+	WorstCommitSHA  string        `json:"worst_commit_sha"`
+	MaxSeverity     string        `json:"max_severity"`
+}
+
+// DetailType implements FindingDetail.
+func (OutlierGroupDetail) DetailType() string { return TypeOutlier }
 
 // Finding represents a single analysis result.
 type Finding struct {
