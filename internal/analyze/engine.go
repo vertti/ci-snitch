@@ -38,8 +38,9 @@ func NewEngine(analyzers ...Analyzer) *Engine {
 }
 
 // Run executes all analyzers sequentially and collects results.
-func (e *Engine) Run(ctx context.Context, details []model.RunDetail) AnalysisResult {
-	ac := &AnalysisContext{Details: details}
+// allDetails is optional unfiltered data for analyzers that need it (e.g. failure analysis).
+func (e *Engine) Run(ctx context.Context, details, allDetails []model.RunDetail) AnalysisResult {
+	ac := &AnalysisContext{Details: details, AllDetails: allDetails}
 
 	var result AnalysisResult
 	result.Meta = computeMeta(details)

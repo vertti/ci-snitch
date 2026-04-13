@@ -34,7 +34,7 @@ func TestEngine_CollectsFindings(t *testing.T) {
 	}
 
 	engine := NewEngine(a1, a2)
-	result := engine.Run(context.Background(), nil)
+	result := engine.Run(context.Background(), nil, nil)
 
 	assert.Len(t, result.Findings, 3)
 	assert.Empty(t, result.Warnings)
@@ -51,7 +51,7 @@ func TestEngine_AnalyzerError_BecomesWarning(t *testing.T) {
 	}
 
 	engine := NewEngine(good, bad)
-	result := engine.Run(context.Background(), nil)
+	result := engine.Run(context.Background(), nil, nil)
 
 	assert.Len(t, result.Findings, 1)
 	require.Len(t, result.Warnings, 1)
@@ -68,7 +68,7 @@ func TestEngine_Meta(t *testing.T) {
 	}
 
 	engine := NewEngine()
-	result := engine.Run(context.Background(), details)
+	result := engine.Run(context.Background(), details, nil)
 
 	assert.Equal(t, 3, result.Meta.TotalRuns)
 	assert.Equal(t, base, result.Meta.TimeRange[0])

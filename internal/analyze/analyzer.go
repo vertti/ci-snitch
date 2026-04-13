@@ -15,7 +15,8 @@ type Analyzer interface {
 
 // AnalysisContext carries run data and lazily-computed derived views shared across analyzers.
 type AnalysisContext struct {
-	Details []model.RunDetail
+	Details    []model.RunDetail // filtered (success-only by default)
+	AllDetails []model.RunDetail // unfiltered — includes failures, for reliability analysis
 }
 
 // Severity levels for findings.
