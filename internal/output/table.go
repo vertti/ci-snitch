@@ -191,7 +191,8 @@ func writeSummaryTable(w io.Writer, findings []analyze.Finding) error {
 		if !ok {
 			continue
 		}
-		if len(d.Jobs) > 1 {
+		// Workflows with ≤2 runs: don't expand job tree (stats are meaningless)
+		if len(d.Jobs) > 1 && d.Stats.TotalRuns > 2 {
 			multiJob = append(multiJob, indexedFinding{i, f})
 		} else {
 			singleJob = append(singleJob, indexedFinding{i, f})
@@ -440,6 +441,18 @@ func writeOutlierTable(w io.Writer, findings []analyze.Finding) error {
 	}
 
 	_, _ = fmt.Fprintf(w, "%s── Outliers (%d across %d groups) ──%s\n", dim, len(findings), len(groups), reset)
+
+	// Sort by worst duration descending
+	slices.SortFunc(order, func(a, b string) int {
+		ga, gb := groups[a], groups[b]
+		if gb.worstDur > ga.worstDur {
+			return 1
+		}
+		if gb.worstDur < ga.worstDur {
+			return -1
+		}
+		return 0
+	})
 
 	maxSubject := 0
 	for _, name := range order {
