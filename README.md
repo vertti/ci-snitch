@@ -1,92 +1,91 @@
 # ci-snitch
 
-Analyze GitHub Actions CI workflow performance. Detect outliers, slowdowns, and speedups in your pipelines.
+Find your slowest CI workflows, catch the commit that broke them, and stop burning CI minutes.
+
+ci-snitch analyzes your GitHub Actions history and tells you what's slow, what changed, and when.
+
+```
+ci-snitch analyze --repo cli/cli --since 7d
+
+Unit and Integration Tests  73 runs, median 8m33s, p95 15m01s, total 11h53m
+  ├─ Integration tests (2, 3)  73 runs  median 7m29s  p95 13m58s
+  ├─ Integration tests (1, 3)  73 runs  median 7m11s  p95 13m26s
+  ├─ Integration tests (3, 3)  73 runs  median 6m29s  p95 12m37s
+  ├─ Unit tests                73 runs  median 3m15s  p95 3m53s
+  └─ Merge artifacts           73 runs  median 14s    p95 20s
+
+Deploy Test Environment  23 runs, median 23m17s, p95 48m34s, total 11h2m
+  ├─ Deploy to Test              23 runs  median 10m40s  p95 29m40s
+  ├─ tests / Integration (2, 3) 23 runs  median 7m18s   p95 13m29s
+  └─ ...
+
+── Change Points (3) ──
+DIR  JOB                  CHANGE  BEFORE  AFTER  DATE        COMMIT    P-VALUE
+▲    Unit tests           +16%    3m22s   3m54s  2026-04-09  1330e058  0.0258
+▼    Integration (3, 3)   -20%    8m27s   6m44s  2026-04-09  31f2edc5  0.0014
+▲    Build and push admin +40%    2m45s   3m51s  2026-04-10  af9a58c1  0.0660
+
+390 runs analyzed (2026-04-05 to 2026-04-11)
+```
 
 ## Install
 
 ```bash
+# Homebrew
+brew install vertti/tap/ci-snitch
+
+# Binary (macOS, Linux)
 curl -fsSL https://raw.githubusercontent.com/vertti/ci-snitch/main/install.sh | sh
 ```
 
-Or with Go:
+Authenticates via `GITHUB_TOKEN` env var, or falls back to the [GitHub CLI](https://cli.github.com) (`gh auth token`).
+
+## Quick start
 
 ```bash
-go install github.com/vertti/ci-snitch/cmd/ci-snitch@latest
+ci-snitch analyze --repo your-org/your-repo
 ```
 
-Authenticates via `GITHUB_TOKEN` env var. If not set, falls back to the [GitHub CLI](https://cli.github.com) (`gh auth token`).
+That's it. Fetches the last 60 days of workflow data and shows you what matters.
 
-## Usage
+## What it finds
 
-```bash
-# Analyze all workflows from the last 60 days (default)
-ci-snitch analyze --repo owner/repo
+**Where your CI time goes** — ranked breakdown of every workflow and job by total compute time, with median, p95, and volatility scoring.
 
-# Filter to a specific workflow and branch
-ci-snitch analyze --repo owner/repo --workflow "CI" --branch main
+**Abnormally slow runs** — flags runs and jobs that took way longer than normal. Uses log-IQR to handle the right-skewed distributions typical of CI durations.
 
-# Last 2 weeks, verbose output
-ci-snitch analyze --repo owner/repo --since 2w -v
-
-# Output as JSON (for piping to jq or an LLM)
-ci-snitch analyze --repo owner/repo --format json
-
-# Output as markdown (for GitHub issues/PR comments)
-ci-snitch analyze --repo owner/repo --format markdown
-
-# Skip cache, fetch fresh data
-ci-snitch analyze --repo owner/repo --no-cache
-```
-
-## What it detects
-
-**Summary statistics** — mean, median, p95, p99, min, max per workflow and job.
-
-**Outliers** — runs or jobs with abnormally long durations, detected using log-IQR (handles right-skewed CI duration distributions). Reports percentile rank (e.g., "p97 — slower than 97% of runs").
-
-**Change points** — moments when CI performance shifted, detected using CUSUM (Cumulative Sum). Each change point includes:
-- Direction (slowdown or speedup) and percentage change
-- Before/after mean durations
-- Statistical significance via Mann-Whitney U test (p-value)
-- The commit SHA at the change point
+**Performance regressions (and improvements)** — detects the exact point where a job got slower or faster, the commit that caused it, and whether the change stuck. Statistical significance via Mann-Whitney U test so you're not chasing noise.
 
 ## Output formats
 
-- `table` (default) — human-readable, grouped by finding type
-- `json` — structured JSON, suitable for LLM consumption or programmatic use
-- `markdown` — GitHub-flavored markdown tables
+```bash
+# Human-readable table (default)
+ci-snitch analyze --repo owner/repo
 
-## Preprocessing
+# JSON — pipe to jq, feed to an LLM, build dashboards
+ci-snitch analyze --repo owner/repo --format json
 
-Before analysis, data is automatically cleaned:
-- **Retry deduplication** — keeps only the latest attempt per run
-- **Branch filtering** — scope to a single branch with `--branch`
-- **Failure exclusion** — only successful runs are analyzed by default (use `--include-failures` to override)
+# Markdown — paste into GitHub issues or PR comments
+ci-snitch analyze --repo owner/repo --format markdown
+```
 
 ## Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--repo` | (required) | Repository in `owner/repo` format |
-| `--since` | `60d` | How far back to analyze (`7d`, `2w`, `3mo`, `2026-01-01`) |
+| `--since` | `60d` | How far back: `7d`, `2w`, `3mo`, or `2026-01-01` |
 | `--branch` | all | Filter to a specific branch |
 | `--workflow` | all | Filter to a specific workflow name |
-| `--format` | `table` | Output format: `table`, `json`, `markdown` |
-| `--no-cache` | false | Bypass local SQLite cache |
-| `--include-failures` | false | Include failed runs in duration analysis |
-| `-v, --verbose` | false | Show detailed fetch progress |
-
-## Cache
-
-Run data is cached in a local SQLite database (`~/.cache/ci-snitch/data.db`). Completed runs are immutable and cached permanently. Use `--no-cache` to force a fresh fetch.
+| `--format` | `table` | `table`, `json`, or `markdown` |
+| `--no-cache` | false | Bypass local cache, fetch fresh |
+| `--include-failures` | false | Include failed runs in analysis |
+| `-v` | false | Verbose output with per-phase timing |
 
 ## Development
 
 ```bash
 mise install              # Go 1.26 + golangci-lint
-mise run test             # run tests
-mise run lint             # run linter
-mise run fmt              # run formatter
-mise run build            # build binary
+mise run check            # format + lint + test
 go run ./cmd/smoke        # smoke test against cli/cli
 ```
