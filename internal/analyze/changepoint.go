@@ -42,8 +42,16 @@ type ChangePointAnalyzer struct {
 func (ChangePointAnalyzer) Name() string { return "changepoint" }
 
 // Analyze implements Analyzer.
+const (
+	minRunsForChangePoint = 10
+	significanceAlpha     = 0.05
+	highSignificanceAlpha = 0.01
+	largeEffectPct        = 20.0
+	meaningfulEffectPct   = 10.0
+)
+
 func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, error) {
-	if len(ac.Details) < 10 {
+	if len(ac.Details) < minRunsForChangePoint {
 		return nil, nil
 	}
 
@@ -205,12 +213,12 @@ func classifyPersistence(postChangeRuns, minSeg int, cps []stats.ChangePoint, cp
 // Warning (notable): p < 0.05 and abs(change) >= 10%.
 // Info (minor): everything else -- shown only in verbose mode.
 func classifyChangePoint(pValue, pctChange float64) string {
-	significant := pValue < 0.05
-	largeEffect := math.Abs(pctChange) >= 20
-	meaningfulEffect := math.Abs(pctChange) >= 10
+	significant := pValue < significanceAlpha
+	largeEffect := math.Abs(pctChange) >= largeEffectPct
+	meaningfulEffect := math.Abs(pctChange) >= meaningfulEffectPct
 
 	switch {
-	case pValue < 0.01 && largeEffect:
+	case pValue < highSignificanceAlpha && largeEffect:
 		return SeverityCritical
 	case significant && meaningfulEffect:
 		return SeverityWarning
