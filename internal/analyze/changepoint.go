@@ -3,6 +3,7 @@ package analyze
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
@@ -205,8 +206,8 @@ func classifyPersistence(postChangeRuns, minSeg int, cps []stats.ChangePoint, cp
 // Info (minor): everything else -- shown only in verbose mode.
 func classifyChangePoint(pValue, pctChange float64) string {
 	significant := pValue < 0.05
-	largeEffect := abs(pctChange) >= 20
-	meaningfulEffect := abs(pctChange) >= 10
+	largeEffect := math.Abs(pctChange) >= 20
+	meaningfulEffect := math.Abs(pctChange) >= 10
 
 	switch {
 	case pValue < 0.01 && largeEffect:
@@ -216,11 +217,4 @@ func classifyChangePoint(pValue, pctChange float64) string {
 	default:
 		return SeverityInfo
 	}
-}
-
-func abs(f float64) float64 {
-	if f < 0 {
-		return -f
-	}
-	return f
 }
