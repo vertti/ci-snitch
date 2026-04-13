@@ -295,10 +295,14 @@ func fmtTotalTime(d time.Duration) string {
 }
 
 func writeCostTable(w io.Writer, findings []analyze.Finding) {
-	_, _ = fmt.Fprintf(w, "%s── CI Cost (%d workflows) ──%s\n", dim, len(findings), reset)
+	shown := min(5, len(findings))
+	header := fmt.Sprintf("%d workflows", len(findings))
+	if shown < len(findings) {
+		header = fmt.Sprintf("top %d of %d", shown, len(findings))
+	}
+	_, _ = fmt.Fprintf(w, "%s── CI Cost (%s) ──%s\n", dim, header, reset)
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', tabwriter.StripEscape)
-	shown := min(5, len(findings))
 	for _, f := range findings[:shown] {
 		d, ok := f.Detail.(analyze.CostDetail)
 		if !ok {
@@ -339,10 +343,23 @@ func writeCostTable(w io.Writer, findings []analyze.Finding) {
 }
 
 func writeFailureTable(w io.Writer, findings []analyze.Finding) {
-	_, _ = fmt.Fprintf(w, "%s── Failure Rates (%d) ──%s\n", dim, len(findings), reset)
+	// Only show workflows with >= 5% failure rate
+	var significant []analyze.Finding
+	for _, f := range findings {
+		d, ok := f.Detail.(analyze.FailureDetail)
+		if ok && d.FailureRate >= 0.05 {
+			significant = append(significant, f)
+		}
+	}
+	if len(significant) == 0 {
+		return
+	}
+
+	shown := min(7, len(significant))
+	_, _ = fmt.Fprintf(w, "%s── Failure Rates (%d workflows above 5%%) ──%s\n", dim, len(significant), reset)
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	for _, f := range findings {
+	for _, f := range significant[:shown] {
 		d, ok := f.Detail.(analyze.FailureDetail)
 		if !ok {
 			continue
@@ -377,6 +394,9 @@ func writeFailureTable(w io.Writer, findings []analyze.Finding) {
 			dim, strings.Join(parts, ", "), reset)
 	}
 	_ = tw.Flush()
+	if len(significant) > shown {
+		_, _ = fmt.Fprintf(w, "  %s(%d more not shown)%s\n", dim, len(significant)-shown, reset)
+	}
 	_, _ = fmt.Fprintln(w)
 }
 
@@ -514,34 +534,45 @@ func writeChangePointTable(w io.Writer, findings []analyze.Finding, verbose bool
 // writeOscillatingJobs summarizes jobs with 3+ change points — these are volatile, not changing.
 func writeOscillatingJobs(w io.Writer, findings []analyze.Finding, jobCounts map[string]int) {
 	type jobSummary struct {
-		name  string
-		count int
-		netUp bool // is the last change an increase?
+		name     string
+		count    int
+		current  time.Duration // after-mean of the latest change point
+		earliest time.Duration // before-mean of the first change point
 	}
 	seen := make(map[string]bool)
 	var summaries []jobSummary
-	// Track last direction per job
-	lastDir := make(map[string]string)
+	latest := make(map[string]analyze.ChangePointDetail)
+	earliest := make(map[string]analyze.ChangePointDetail)
+
 	for _, f := range findings {
 		d, _ := f.Detail.(analyze.ChangePointDetail)
-		lastDir[d.JobName] = d.Direction
 		if !seen[d.JobName] {
 			seen[d.JobName] = true
 			summaries = append(summaries, jobSummary{
 				name:  d.JobName,
 				count: jobCounts[d.JobName],
 			})
+			earliest[d.JobName] = d
 		}
+		latest[d.JobName] = d
 	}
 	for i := range summaries {
-		summaries[i].netUp = lastDir[summaries[i].name] == analyze.DirectionSlowdown
+		summaries[i].current = latest[summaries[i].name].AfterMean
+		summaries[i].earliest = earliest[summaries[i].name].BeforeMean
 	}
 
 	_, _ = fmt.Fprintf(w, "%s── Oscillating Jobs (%d jobs, too volatile for reliable change detection) ──%s\n", dim, len(summaries), reset)
 	for _, s := range summaries {
 		icon := yellow + "~" + reset
-		_, _ = fmt.Fprintf(w, "  %s %s  %s%d shifts in window%s\n",
-			icon, s.name, dim, s.count, reset)
+		trend := dim + "stable" + reset
+		if s.current > s.earliest+s.earliest/10 {
+			trend = red + "trending up" + reset
+		} else if s.current < s.earliest-s.earliest/10 {
+			trend = green + "trending down" + reset
+		}
+		_, _ = fmt.Fprintf(w, "  %s %s  %s%d shifts%s, was %s now %s (%s)\n",
+			icon, s.name, dim, s.count, reset,
+			fmtDur(s.earliest), fmtDur(s.current), trend)
 	}
 	_, _ = fmt.Fprintln(w)
 }
