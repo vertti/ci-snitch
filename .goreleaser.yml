@@ -38,9 +38,4 @@ brews:
       system "#{bin}/ci-snitch", "version"
 
 changelog:
-  sort: asc
-  filters:
-    exclude:
-      - "^docs:"
-      - "^test:"
-      - "^chore:"
+  use: github
