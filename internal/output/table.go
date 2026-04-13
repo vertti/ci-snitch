@@ -302,6 +302,9 @@ func writeFailureTable(w io.Writer, findings []analyze.Finding) {
 		for conclusion, count := range d.ByConclusion {
 			parts = append(parts, fmt.Sprintf("%s: %d", conclusion, count))
 		}
+		if d.RetriedRuns > 0 {
+			parts = append(parts, fmt.Sprintf("retried: %d (+%d attempts)", d.RetriedRuns, d.ExtraAttempts))
+		}
 
 		_, _ = fmt.Fprintf(tw, "  %s%s%s\t%s%.0f%%%s\t%s(%d/%d runs)%s\t%s%s%s\n",
 			bold, d.Workflow, reset,

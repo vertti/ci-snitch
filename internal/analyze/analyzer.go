@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"github.com/vertti/ci-snitch/internal/model"
+	"github.com/vertti/ci-snitch/internal/preprocess"
 )
 
 // Analyzer examines workflow run data and produces findings.
@@ -15,8 +16,9 @@ type Analyzer interface {
 
 // AnalysisContext carries run data and lazily-computed derived views shared across analyzers.
 type AnalysisContext struct {
-	Details    []model.RunDetail // filtered (success-only by default)
-	AllDetails []model.RunDetail // unfiltered — includes failures, for reliability analysis
+	Details    []model.RunDetail                // filtered (success-only by default)
+	AllDetails []model.RunDetail                // unfiltered — includes failures, for reliability analysis
+	RerunStats map[string]preprocess.RerunStats // per-workflow retry stats (computed before dedup)
 }
 
 // Severity levels for findings.

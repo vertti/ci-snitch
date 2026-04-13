@@ -12,11 +12,12 @@ import (
 func makeDetail(id int64, branch, conclusion string, attempt int) model.RunDetail {
 	return model.RunDetail{
 		Run: model.WorkflowRun{
-			ID:         id,
-			HeadBranch: branch,
-			Conclusion: conclusion,
-			Status:     "completed",
-			RunAttempt: attempt,
+			ID:           id,
+			WorkflowName: "CI",
+			HeadBranch:   branch,
+			Conclusion:   conclusion,
+			Status:       "completed",
+			RunAttempt:   attempt,
 		},
 	}
 }
@@ -173,6 +174,36 @@ func TestRun_NoBranchFilter(t *testing.T) {
 
 	result, _ := Run(details, Options{})
 	assert.Len(t, result, 2)
+}
+
+func TestComputeRerunStats(t *testing.T) {
+	details := []model.RunDetail{
+		makeDetail(1, "main", "failure", 1), // run 1, attempt 1
+		makeDetail(1, "main", "failure", 2), // run 1, attempt 2
+		makeDetail(1, "main", "success", 3), // run 1, attempt 3 (finally passed)
+		makeDetail(2, "main", "success", 1), // run 2, no retries
+		makeDetail(3, "main", "failure", 1), // run 3, attempt 1
+		makeDetail(3, "main", "success", 2), // run 3, attempt 2
+	}
+
+	stats := ComputeRerunStats(details)
+	require.Contains(t, stats, "CI")
+
+	ci := stats["CI"]
+	assert.Equal(t, 3, ci.UniqueRuns)
+	assert.Equal(t, 2, ci.RetriedRuns)   // runs 1 and 3 had retries
+	assert.Equal(t, 3, ci.ExtraAttempts) // run 1 had 2 extra, run 3 had 1 extra
+	assert.InDelta(t, 2.0/3.0, ci.RerunRate, 0.01)
+}
+
+func TestComputeRerunStats_NoRetries(t *testing.T) {
+	details := []model.RunDetail{
+		makeDetail(1, "main", "success", 1),
+		makeDetail(2, "main", "success", 1),
+	}
+
+	stats := ComputeRerunStats(details)
+	assert.Empty(t, stats, "should not report workflows with no retries")
 }
 
 func TestRun_AllFiltered(t *testing.T) {
