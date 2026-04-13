@@ -122,7 +122,7 @@ _Focus: quantify flakiness, rerun tax, and CI spend. Answer "where is money goin
 
 _Focus: make findings machine-consumable and enable before/after comparison workflows._
 
-### 3.1 LLM-optimized output format [M]
+### ~~3.1 LLM-optimized output format [M]~~ DONE
 - New `internal/output/llm.go`, registered as `--format llm`
 - Structure:
   ```

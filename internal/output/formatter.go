@@ -17,7 +17,7 @@ type Options struct {
 	Verbose bool
 }
 
-// Get returns a formatter by name. Supported: "json", "table", "markdown"/"md".
+// Get returns a formatter by name. Supported: "json", "table", "markdown"/"md", "llm".
 // Returns the formatter and true if the name was recognized, or the table
 // formatter and false for unknown names.
 func Get(name string, opts Options) (Formatter, bool) {
@@ -26,6 +26,8 @@ func Get(name string, opts Options) (Formatter, bool) {
 		return JSONFormatter{}, true
 	case "markdown", "md":
 		return MarkdownFormatter(opts), true
+	case "llm":
+		return LLMFormatter{}, true
 	case "table":
 		return TableFormatter(opts), true
 	default:
