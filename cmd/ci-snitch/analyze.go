@@ -212,6 +212,7 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 		analyze.OutlierAnalyzer{},
 		analyze.ChangePointAnalyzer{},
 		analyze.FailureAnalyzer{},
+		analyze.CostAnalyzer{},
 	)
 	result := engine.Run(ctx, filtered, allDetails, rerunStats)
 	prog.Done()

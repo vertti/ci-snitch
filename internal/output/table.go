@@ -23,7 +23,7 @@ func (t TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error
 	}
 
 	// Group findings by type
-	var summaries, outliers, changepoints, failures []analyze.Finding
+	var summaries, outliers, changepoints, failures, costs []analyze.Finding
 	for _, f := range result.Findings {
 		switch f.Type {
 		case "summary":
@@ -34,6 +34,8 @@ func (t TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error
 			changepoints = append(changepoints, f)
 		case "failure":
 			failures = append(failures, f)
+		case "cost":
+			costs = append(costs, f)
 		}
 	}
 
@@ -42,6 +44,10 @@ func (t TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error
 		if err := writeSummaryTable(w, summaries); err != nil {
 			return err
 		}
+	}
+
+	if len(costs) > 0 {
+		writeCostTable(w, costs)
 	}
 
 	if len(failures) > 0 {
@@ -277,6 +283,40 @@ func fmtTotalTime(d time.Duration) string {
 		return fmt.Sprintf("%dh%dm", h, m)
 	}
 	return fmt.Sprintf("%dm", m)
+}
+
+func writeCostTable(w io.Writer, findings []analyze.Finding) {
+	_, _ = fmt.Fprintf(w, "%s── CI Cost (%d workflows) ──%s\n", dim, len(findings), reset)
+
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', tabwriter.StripEscape)
+	for _, f := range findings {
+		d, ok := f.Detail.(analyze.CostDetail)
+		if !ok {
+			continue
+		}
+
+		_, _ = fmt.Fprintf(tw, "  %s%s%s\t%s%.0f mins%s\t%s(%.0f/day)%s\t%s%d runs%s\n",
+			esc(bold), d.Workflow, esc(reset),
+			esc(cyan), d.BillableMinutes, esc(reset),
+			esc(dim), d.DailyRate, esc(reset),
+			esc(dim), d.TotalRuns, esc(reset))
+
+		// Show top 3 costliest jobs
+		limit := min(3, len(d.Jobs))
+		for i := range limit {
+			j := d.Jobs[i]
+			mult := ""
+			if j.Multiplier > 1 {
+				mult = fmt.Sprintf(" %s(%.0fx)%s", esc(yellow), j.Multiplier, esc(reset))
+			}
+			_, _ = fmt.Fprintf(tw, "  %s  %s%s\t%s%.0f mins%s%s\n",
+				esc(dim), j.Name, esc(reset),
+				esc(dim), j.BillableMinutes, esc(reset),
+				mult)
+		}
+	}
+	_ = tw.Flush()
+	_, _ = fmt.Fprintln(w)
 }
 
 func writeFailureTable(w io.Writer, findings []analyze.Finding) {
