@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite" // SQLite driver registration
@@ -34,13 +35,16 @@ CREATE INDEX IF NOT EXISTS idx_runs_workflow_created ON runs(workflow_id, create
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
 
 CREATE TABLE IF NOT EXISTS jobs (
-	id           INTEGER PRIMARY KEY,
-	run_id       INTEGER NOT NULL REFERENCES runs(id),
-	name         TEXT NOT NULL,
-	status       TEXT NOT NULL,
-	conclusion   TEXT NOT NULL,
-	started_at   TEXT NOT NULL,
-	completed_at TEXT NOT NULL
+	id               INTEGER PRIMARY KEY,
+	run_id           INTEGER NOT NULL REFERENCES runs(id),
+	name             TEXT NOT NULL,
+	status           TEXT NOT NULL,
+	conclusion       TEXT NOT NULL,
+	started_at       TEXT NOT NULL,
+	completed_at     TEXT NOT NULL,
+	runner_name      TEXT NOT NULL DEFAULT '',
+	runner_group_name TEXT NOT NULL DEFAULT '',
+	labels           TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_run ON jobs(run_id);
 
@@ -111,6 +115,15 @@ func migrate(db *sql.DB) error {
 		}
 		log.Println("Migrated: added event column to runs table")
 	}
+	// Add runner metadata columns to jobs table (added in v0.8.0).
+	for _, col := range []string{"runner_name", "runner_group_name", "labels"} {
+		if !columnExists(db, "jobs", col) {
+			if _, err := db.Exec(fmt.Sprintf(`ALTER TABLE jobs ADD COLUMN %s TEXT NOT NULL DEFAULT ''`, col)); err != nil {
+				return fmt.Errorf("add %s column: %w", col, err)
+			}
+			log.Printf("Migrated: added %s column to jobs table", col)
+		}
+	}
 	return nil
 }
 
@@ -170,10 +183,11 @@ func (s *Store) SaveRunDetail(d model.RunDetail) error {
 	}
 
 	for _, j := range d.Jobs {
-		_, err := tx.Exec(`INSERT INTO jobs (id, run_id, name, status, conclusion, started_at, completed_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		_, err := tx.Exec(`INSERT INTO jobs (id, run_id, name, status, conclusion, started_at, completed_at, runner_name, runner_group_name, labels)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			j.ID, r.ID, j.Name, j.Status, j.Conclusion,
 			fmtTime(j.StartedAt), fmtTime(j.CompletedAt),
+			j.RunnerName, j.RunnerGroupName, strings.Join(j.Labels, ","),
 		)
 		if err != nil {
 			return fmt.Errorf("insert job %d: %w", j.ID, err)
@@ -248,7 +262,7 @@ func (s *Store) LoadRunDetail(runID int64) (*model.RunDetail, error) {
 		return nil, fmt.Errorf("load run %d: %w", runID, err)
 	}
 
-	jobRows, err := s.db.Query(`SELECT id, run_id, name, status, conclusion, started_at, completed_at
+	jobRows, err := s.db.Query(`SELECT id, run_id, name, status, conclusion, started_at, completed_at, runner_name, runner_group_name, labels
 		FROM jobs WHERE run_id = ? ORDER BY started_at ASC`, runID)
 	if err != nil {
 		return nil, err
@@ -258,12 +272,16 @@ func (s *Store) LoadRunDetail(runID int64) (*model.RunDetail, error) {
 	var jobs []model.Job
 	for jobRows.Next() {
 		var j model.Job
-		var startStr, compStr string
-		if err := jobRows.Scan(&j.ID, &j.RunID, &j.Name, &j.Status, &j.Conclusion, &startStr, &compStr); err != nil {
+		var startStr, compStr, labelsStr string
+		if err := jobRows.Scan(&j.ID, &j.RunID, &j.Name, &j.Status, &j.Conclusion, &startStr, &compStr,
+			&j.RunnerName, &j.RunnerGroupName, &labelsStr); err != nil {
 			return nil, err
 		}
 		j.StartedAt = parseTime(startStr)
 		j.CompletedAt = parseTime(compStr)
+		if labelsStr != "" {
+			j.Labels = strings.Split(labelsStr, ",")
+		}
 
 		steps, err := s.loadSteps(j.ID)
 		if err != nil {
