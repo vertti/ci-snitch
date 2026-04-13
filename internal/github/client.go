@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	gh "github.com/google/go-github/v72/github"
+	gh "github.com/google/go-github/v84/github"
 	"github.com/vertti/ci-snitch/internal/model"
 )
 
