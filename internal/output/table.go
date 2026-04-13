@@ -3,6 +3,7 @@ package output
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -297,10 +298,15 @@ func writeFailureTable(w io.Writer, findings []analyze.Finding) {
 			rateColor = yellow
 		}
 
-		// Build breakdown string
+		// Build breakdown string (sorted for stable output)
+		conclusions := make([]string, 0, len(d.ByConclusion))
+		for conclusion := range d.ByConclusion {
+			conclusions = append(conclusions, conclusion)
+		}
+		slices.Sort(conclusions)
 		var parts []string
-		for conclusion, count := range d.ByConclusion {
-			parts = append(parts, fmt.Sprintf("%s: %d", conclusion, count))
+		for _, conclusion := range conclusions {
+			parts = append(parts, fmt.Sprintf("%s: %d", conclusion, d.ByConclusion[conclusion]))
 		}
 		if d.RetriedRuns > 0 {
 			parts = append(parts, fmt.Sprintf("retried: %d (+%d attempts)", d.RetriedRuns, d.ExtraAttempts))
