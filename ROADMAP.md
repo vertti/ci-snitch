@@ -87,7 +87,7 @@ _Focus: quantify flakiness, rerun tax, and CI spend. Answer "where is money goin
 - Feed both filtered and unfiltered data from `cmd/ci-snitch/analyze.go`
 - **Files:** `internal/analyze/failures.go` (new), `internal/analyze/analyzer.go`, `cmd/ci-snitch/analyze.go`, all formatters
 
-### 2.3 Rerun tax tracking [S]
+### ~~2.3 Rerun tax tracking [S]~~ DONE
 - Currently `DeduplicateRetries()` keeps latest attempt per run ID — good for duration stats, but loses "how many reruns happened"
 - Before deduplication, compute per-run-ID: max `RunAttempt`, and flag runs with attempts > 1
 - Surface rerun rate per workflow and total rerun cost (extra minutes wasted on failed-then-retried runs)
