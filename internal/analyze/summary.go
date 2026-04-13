@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"github.com/vertti/ci-snitch/internal/preprocess"
 )
 
 // SummaryStats holds statistical measures for a duration series.
@@ -38,7 +40,11 @@ type JobSummary struct {
 func (SummaryDetail) DetailType() string { return "summary" }
 
 // SummaryAnalyzer computes per-workflow and per-job summary statistics.
-type SummaryAnalyzer struct{}
+type SummaryAnalyzer struct {
+	// GroupMatrix groups matrix job variants (e.g. "test (ubuntu, 20)" and "test (macos, 20)")
+	// under a single "test" entry with aggregate stats. Default: true.
+	GroupMatrix *bool
+}
 
 // Name implements Analyzer.
 func (SummaryAnalyzer) Name() string { return "summary" }
@@ -50,10 +56,6 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 	}
 
 	// Collect durations per workflow and per (workflow, job)
-	type jobKey struct {
-		wfID int64
-		job  string
-	}
 	wfDurations := make(map[int64][]time.Duration)
 	jobDurations := make(map[jobKey][]time.Duration)
 
@@ -87,6 +89,11 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 					Stats: computeStats(jDurations),
 				})
 			}
+		}
+
+		// Group matrix job variants under a single entry
+		if s.GroupMatrix == nil || *s.GroupMatrix {
+			jobs = groupMatrixJobs(jobs, jobDurations, wfID)
 		}
 
 		// Sort jobs by median descending (slowest first)
@@ -124,6 +131,54 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 	})
 
 	return findings, nil
+}
+
+type jobKey struct {
+	wfID int64
+	job  string
+}
+
+// groupMatrixJobs merges matrix variants (e.g. "test (ubuntu, 20)", "test (macos, 20)")
+// into a single "test" entry with combined durations when there are multiple variants.
+func groupMatrixJobs(jobs []JobSummary, jobDurations map[jobKey][]time.Duration, wfID int64) []JobSummary {
+	// Group by base name
+	type group struct {
+		variants  []string
+		durations []time.Duration
+	}
+	groups := make(map[string]*group)
+	order := make([]string, 0) // preserve first-seen order
+
+	for _, j := range jobs {
+		base, _ := preprocess.ParseMatrixJobName(j.Name)
+		g, ok := groups[base]
+		if !ok {
+			g = &group{}
+			groups[base] = g
+			order = append(order, base)
+		}
+		g.variants = append(g.variants, j.Name)
+		g.durations = append(g.durations, jobDurations[jobKey{wfID, j.Name}]...)
+	}
+
+	// Only group if a base name has multiple variants
+	var result []JobSummary
+	for _, base := range order {
+		g := groups[base]
+		if len(g.variants) <= 1 {
+			// Single variant — keep original name
+			result = append(result, JobSummary{
+				Name:  g.variants[0],
+				Stats: computeStats(g.durations),
+			})
+		} else {
+			result = append(result, JobSummary{
+				Name:  fmt.Sprintf("%s (%d variants)", base, len(g.variants)),
+				Stats: computeStats(g.durations),
+			})
+		}
+	}
+	return result
 }
 
 func computeStats(durations []time.Duration) SummaryStats {

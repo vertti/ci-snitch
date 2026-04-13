@@ -103,14 +103,14 @@ _Focus: quantify flakiness, rerun tax, and CI spend. Answer "where is money goin
 - `CostDetail`: raw minutes, billable minutes, estimated cost, runs/day, daily cost
 - **Files:** `internal/cost/` (new package), `internal/analyze/cost.go` (new)
 
-### 2.5 Prioritization score — "bang for buck" [S]
+### ~~2.5 Prioritization score — "bang for buck" [S]~~ DONE
 - Composite: `runs_per_day × median_duration × cost_multiplier × improvement_potential`
 - `improvement_potential` = p95/median ratio (high = lots of room to optimize)
 - Ranked list with estimated daily savings if median brought to p25
 - Integrate into triage header from 1.5
 - **Files:** `internal/analyze/cost.go` or `internal/analyze/priority.go` (new)
 
-### 2.6 Wire up matrix job grouping [S]
+### ~~2.6 Wire up matrix job grouping [S]~~ DONE
 - `GroupMatrixJobs` / `ParseMatrixJobName` exist in `preprocess/filter.go:101-150` but are unused
 - Use in summary analyzer: group matrix variants under base name
 - Show grouped aggregate; per-variant in verbose mode

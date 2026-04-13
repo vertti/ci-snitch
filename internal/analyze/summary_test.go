@@ -155,6 +155,44 @@ func TestSummaryAnalyzer_EmptyInput(t *testing.T) {
 	assert.Empty(t, findings)
 }
 
+func TestSummaryAnalyzer_MatrixGrouping(t *testing.T) {
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	details := make([]model.RunDetail, 10)
+	for i := range details {
+		s := base.Add(time.Duration(i) * time.Hour)
+		details[i] = model.RunDetail{
+			Run: model.WorkflowRun{WorkflowID: 1, WorkflowName: "CI", StartedAt: s, UpdatedAt: s.Add(10 * time.Minute)},
+			Jobs: []model.Job{
+				{Name: "test (ubuntu-latest, 20)", StartedAt: s, CompletedAt: s.Add(5 * time.Minute)},
+				{Name: "test (macos-latest, 20)", StartedAt: s, CompletedAt: s.Add(7 * time.Minute)},
+				{Name: "build", StartedAt: s, CompletedAt: s.Add(3 * time.Minute)},
+			},
+		}
+	}
+
+	analyzer := SummaryAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{Details: details})
+	require.NoError(t, err)
+
+	d, ok := findings[0].Detail.(SummaryDetail)
+	require.True(t, ok)
+
+	// "test" variants should be grouped, "build" stays as-is
+	var testGrouped, buildFound bool
+	for _, j := range d.Jobs {
+		if j.Name == "test (2 variants)" {
+			testGrouped = true
+			assert.Equal(t, 20, j.Stats.TotalRuns) // 10 runs * 2 variants
+		}
+		if j.Name == "build" {
+			buildFound = true
+			assert.Equal(t, 10, j.Stats.TotalRuns)
+		}
+	}
+	assert.True(t, testGrouped, "matrix variants should be grouped under 'test (2 variants)'")
+	assert.True(t, buildFound, "non-matrix job should remain unchanged")
+}
+
 func TestSummaryAnalyzer_VolatilityScoring(t *testing.T) {
 	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
 

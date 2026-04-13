@@ -7,15 +7,18 @@ import (
 	"time"
 
 	"github.com/vertti/ci-snitch/internal/cost"
+	"github.com/vertti/ci-snitch/internal/stats"
 )
 
 // CostDetail contains cost estimation for a workflow.
 type CostDetail struct {
-	Workflow        string             `json:"workflow"`
-	TotalRuns       int                `json:"total_runs"`
-	BillableMinutes float64            `json:"billable_minutes"`
-	DailyRate       float64            `json:"daily_rate"` // billable minutes per day
-	Jobs            []JobCostBreakdown `json:"jobs"`
+	Workflow             string             `json:"workflow"`
+	TotalRuns            int                `json:"total_runs"`
+	BillableMinutes      float64            `json:"billable_minutes"`
+	DailyRate            float64            `json:"daily_rate"`             // billable minutes per day
+	PriorityScore        float64            `json:"priority_score"`         // higher = more optimization value
+	DailySavingsEstimate float64            `json:"daily_savings_estimate"` // estimated minutes saved if median -> p25
+	Jobs                 []JobCostBreakdown `json:"jobs"`
 }
 
 // JobCostBreakdown holds cost info for a single job within a workflow.
@@ -52,12 +55,16 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 	}
 
 	wfRuns := make(map[int64]int)
+	wfDurations := make(map[int64][]float64) // workflow-level durations in minutes
 	jobCosts := make(map[jobKey]*jobAccum)
 	var minTime, maxTime time.Time
 
 	for _, d := range ac.Details {
 		wfID := d.Run.WorkflowID
 		wfRuns[wfID]++
+		if dur := d.Run.Duration().Minutes(); dur > 0 {
+			wfDurations[wfID] = append(wfDurations[wfID], dur)
+		}
 
 		t := d.Run.CreatedAt
 		if minTime.IsZero() || t.Before(minTime) {
@@ -115,6 +122,22 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 			return 0
 		})
 
+		// Priority score: daily rate × improvement potential (p95/median ratio).
+		// Higher score = more value from optimization.
+		var priorityScore, dailySavings float64
+		if durations := wfDurations[wfID]; len(durations) >= 5 {
+			median := stats.Median(durations)
+			p95 := stats.Percentile(durations, 95)
+			p25 := stats.Percentile(durations, 25)
+			if median > 0 {
+				improvementPotential := p95 / median
+				priorityScore = (totalBillable / days) * improvementPotential
+				// Estimated daily savings if median were brought to p25
+				runsPerDay := float64(runs) / days
+				dailySavings = (median - p25) * runsPerDay
+			}
+		}
+
 		findings = append(findings, Finding{
 			Type:     "cost",
 			Severity: SeverityInfo,
@@ -122,23 +145,25 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 			Description: fmt.Sprintf("%.0f billable minutes (%.0f/day) across %d runs",
 				totalBillable, totalBillable/days, runs),
 			Detail: CostDetail{
-				Workflow:        wfName,
-				TotalRuns:       runs,
-				BillableMinutes: totalBillable,
-				DailyRate:       totalBillable / days,
-				Jobs:            jobs,
+				Workflow:             wfName,
+				TotalRuns:            runs,
+				BillableMinutes:      totalBillable,
+				DailyRate:            totalBillable / days,
+				PriorityScore:        priorityScore,
+				DailySavingsEstimate: dailySavings,
+				Jobs:                 jobs,
 			},
 		})
 	}
 
-	// Sort by billable minutes descending
+	// Sort by priority score descending (higher = more optimization value)
 	slices.SortFunc(findings, func(a, b Finding) int {
 		ad, _ := a.Detail.(CostDetail)
 		bd, _ := b.Detail.(CostDetail)
-		if bd.BillableMinutes > ad.BillableMinutes {
+		if bd.PriorityScore > ad.PriorityScore {
 			return 1
 		}
-		if bd.BillableMinutes < ad.BillableMinutes {
+		if bd.PriorityScore < ad.PriorityScore {
 			return -1
 		}
 		return 0
