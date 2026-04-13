@@ -16,6 +16,7 @@ type WorkflowRun struct {
 	WorkflowID   int64
 	WorkflowName string
 	Name         string
+	Event        string // trigger type: push, pull_request, schedule, workflow_dispatch, etc.
 	Status       string
 	Conclusion   string
 	HeadBranch   string

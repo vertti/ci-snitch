@@ -305,6 +305,7 @@ func convertRun(r *gh.WorkflowRun) model.WorkflowRun {
 		WorkflowID:   r.GetWorkflowID(),
 		WorkflowName: r.GetName(),
 		Name:         r.GetDisplayTitle(),
+		Event:        r.GetEvent(),
 		Status:       r.GetStatus(),
 		Conclusion:   r.GetConclusion(),
 		HeadBranch:   r.GetHeadBranch(),
