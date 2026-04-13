@@ -25,6 +25,18 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+brews:
+  - repository:
+      owner: vertti
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/vertti/ci-snitch"
+    description: "CI performance analyzer — detects regressions, outliers, and trends in GitHub Actions"
+    license: "MIT"
+    test: |
+      system "#{bin}/ci-snitch", "version"
+
 changelog:
   sort: asc
   filters:
