@@ -94,7 +94,7 @@ _Focus: quantify flakiness, rerun tax, and CI spend. Answer "where is money goin
 - Combine with failure analyzer to identify "most expensive flaky workflows"
 - **Files:** `internal/preprocess/filter.go`, `internal/analyze/failures.go`
 
-### 2.4 Cost model & billable minutes estimation [M]
+### ~~2.4 Cost model & billable minutes estimation [M]~~ DONE
 - New `internal/cost/model.go`: runner label → cost multiplier mapping
 - Default multipliers from GitHub's published rates (ubuntu=1x, macos=10x, windows=2x, larger runners by label pattern)
 - Apply GitHub's rounding rule: job minutes rounded up to nearest whole minute
