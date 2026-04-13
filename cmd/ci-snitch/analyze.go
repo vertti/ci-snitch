@@ -149,24 +149,63 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 				prog.Log("  %q: fetched %d runs in %s", wf.Name, len(runs), time.Since(fetchStart))
 			}
 
-			prog.Status("Fetching %q — hydrating %d runs...", wf.Name, len(runs))
-			hydrateStart := time.Now()
-			details, warnings := client.FetchRunDetails(ctx, runs)
-			if opts.verbose {
-				prog.Log("  %q: hydrated %d runs in %s", wf.Name, len(details), time.Since(hydrateStart))
-			}
-			for _, w := range warnings {
-				prog.Log("WARNING: %s", w.Message)
-			}
+			// Partition runs: serve completed from cache, fetch only new/incomplete from API.
+			var details []model.RunDetail
+			var needsFetch []model.WorkflowRun
 
 			if s != nil {
-				saveStart := time.Now()
-				if err := s.SaveRunDetails(details); err != nil {
-					prog.Log("WARNING: failed to cache %q: %v", wf.Name, err)
+				cachedSet := make(map[int64]bool)
+				cached, err := s.RunsSince(wf.ID, sinceTime)
+				if err == nil {
+					for _, r := range cached {
+						cachedSet[r.ID] = true
+					}
 				}
+
+				incompleteSet := make(map[int64]bool)
+				incomplete, err := s.IncompleteRunIDs()
+				if err == nil {
+					for _, id := range incomplete {
+						incompleteSet[id] = true
+					}
+				}
+
+				for _, r := range runs {
+					if cachedSet[r.ID] && !incompleteSet[r.ID] {
+						d, err := s.LoadRunDetail(r.ID)
+						if err == nil {
+							details = append(details, *d)
+							continue
+						}
+					}
+					needsFetch = append(needsFetch, r)
+				}
+
 				if opts.verbose {
-					prog.Log("  %q: saved to cache in %s", wf.Name, time.Since(saveStart))
+					prog.Log("  %q: %d cached, %d to fetch", wf.Name, len(details), len(needsFetch))
 				}
+			} else {
+				needsFetch = runs
+			}
+
+			if len(needsFetch) > 0 {
+				prog.Status("Fetching %q — hydrating %d runs (%d cached)...", wf.Name, len(needsFetch), len(details))
+				hydrateStart := time.Now()
+				fetched, warnings := client.FetchRunDetails(ctx, needsFetch)
+				if opts.verbose {
+					prog.Log("  %q: hydrated %d runs in %s", wf.Name, len(fetched), time.Since(hydrateStart))
+				}
+				for _, w := range warnings {
+					prog.Log("WARNING: %s", w.Message)
+				}
+
+				if s != nil {
+					if err := s.SaveRunDetails(fetched); err != nil {
+						prog.Log("WARNING: failed to cache %q: %v", wf.Name, err)
+					}
+				}
+
+				details = append(details, fetched...)
 			}
 
 			mu.Lock()
