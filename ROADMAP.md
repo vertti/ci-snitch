@@ -61,7 +61,7 @@ _Focus: fix correctness bugs, reduce cognitive load, make the default output ans
 - Operator glances at first screen → knows what to investigate
 - **Files:** `internal/output/table.go`, `internal/output/markdown.go`
 
-### 1.6 Capture trigger event type [S]
+### ~~1.6 Capture trigger event type [S]~~ DONE
 - Add `Event string` to `model.WorkflowRun` (push, pull_request, schedule, workflow_dispatch, etc.)
 - Extract from `r.GetEvent()` in `convertRun()` (client.go:275)
 - Store in SQLite, surface in summary (runs by trigger type)

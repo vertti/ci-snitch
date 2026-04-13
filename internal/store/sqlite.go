@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS runs (
 	workflow_id  INTEGER NOT NULL,
 	workflow_name TEXT NOT NULL,
 	name         TEXT NOT NULL,
+	event        TEXT NOT NULL DEFAULT '',
 	status       TEXT NOT NULL,
 	conclusion   TEXT NOT NULL,
 	head_branch  TEXT NOT NULL,
@@ -93,7 +94,46 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
 
+	if err := migrate(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+
 	return &Store{db: db}, nil
+}
+
+// migrate applies schema migrations for existing databases.
+func migrate(db *sql.DB) error {
+	// Add event column to runs table (added in v0.7.0).
+	if !columnExists(db, "runs", "event") {
+		if _, err := db.Exec(`ALTER TABLE runs ADD COLUMN event TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("add event column: %w", err)
+		}
+		log.Println("Migrated: added event column to runs table")
+	}
+	return nil
+}
+
+func columnExists(db *sql.DB, table, column string) bool {
+	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return false
+	}
+	defer rows.Close() //nolint:errcheck
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var dfltValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dfltValue, &pk); err != nil {
+			return false
+		}
+		if name == column {
+			return true
+		}
+	}
+	return rows.Err() == nil
 }
 
 // Close closes the database connection.
@@ -111,9 +151,9 @@ func (s *Store) SaveRunDetail(d model.RunDetail) error {
 	defer tx.Rollback() //nolint:errcheck // error on deferred close has no actionable caller
 
 	r := d.Run
-	_, err = tx.Exec(`INSERT OR REPLACE INTO runs (id, workflow_id, workflow_name, name, status, conclusion, head_branch, head_sha, run_attempt, created_at, started_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ID, r.WorkflowID, r.WorkflowName, r.Name, r.Status, r.Conclusion,
+	_, err = tx.Exec(`INSERT OR REPLACE INTO runs (id, workflow_id, workflow_name, name, event, status, conclusion, head_branch, head_sha, run_attempt, created_at, started_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.WorkflowID, r.WorkflowName, r.Name, r.Event, r.Status, r.Conclusion,
 		r.HeadBranch, r.HeadSHA, r.RunAttempt,
 		fmtTime(r.CreatedAt), fmtTime(r.StartedAt), fmtTime(r.UpdatedAt),
 	)
@@ -166,7 +206,7 @@ func (s *Store) SaveRunDetails(details []model.RunDetail) error {
 
 // RunsSince returns completed runs for a workflow since the given time.
 func (s *Store) RunsSince(workflowID int64, since time.Time) ([]model.WorkflowRun, error) {
-	rows, err := s.db.Query(`SELECT id, workflow_id, workflow_name, name, status, conclusion, head_branch, head_sha, run_attempt, created_at, started_at, updated_at
+	rows, err := s.db.Query(`SELECT id, workflow_id, workflow_name, name, event, status, conclusion, head_branch, head_sha, run_attempt, created_at, started_at, updated_at
 		FROM runs WHERE workflow_id = ? AND created_at >= ? AND status = 'completed'
 		ORDER BY created_at ASC`,
 		workflowID, fmtTime(since),
@@ -200,7 +240,7 @@ func (s *Store) IncompleteRunIDs() ([]int64, error) {
 
 // LoadRunDetail loads a fully hydrated run detail from the store.
 func (s *Store) LoadRunDetail(runID int64) (*model.RunDetail, error) {
-	row := s.db.QueryRow(`SELECT id, workflow_id, workflow_name, name, status, conclusion, head_branch, head_sha, run_attempt, created_at, started_at, updated_at
+	row := s.db.QueryRow(`SELECT id, workflow_id, workflow_name, name, event, status, conclusion, head_branch, head_sha, run_attempt, created_at, started_at, updated_at
 		FROM runs WHERE id = ?`, runID)
 
 	run, err := scanRun(row)
@@ -285,7 +325,7 @@ func scanRuns(rows *sql.Rows) ([]model.WorkflowRun, error) {
 	for rows.Next() {
 		var r model.WorkflowRun
 		var createdStr, startedStr, updatedStr string
-		if err := rows.Scan(&r.ID, &r.WorkflowID, &r.WorkflowName, &r.Name, &r.Status, &r.Conclusion,
+		if err := rows.Scan(&r.ID, &r.WorkflowID, &r.WorkflowName, &r.Name, &r.Event, &r.Status, &r.Conclusion,
 			&r.HeadBranch, &r.HeadSHA, &r.RunAttempt, &createdStr, &startedStr, &updatedStr); err != nil {
 			return nil, err
 		}
@@ -300,7 +340,7 @@ func scanRuns(rows *sql.Rows) ([]model.WorkflowRun, error) {
 func scanRun(row *sql.Row) (model.WorkflowRun, error) {
 	var r model.WorkflowRun
 	var createdStr, startedStr, updatedStr string
-	err := row.Scan(&r.ID, &r.WorkflowID, &r.WorkflowName, &r.Name, &r.Status, &r.Conclusion,
+	err := row.Scan(&r.ID, &r.WorkflowID, &r.WorkflowName, &r.Name, &r.Event, &r.Status, &r.Conclusion,
 		&r.HeadBranch, &r.HeadSHA, &r.RunAttempt, &createdStr, &startedStr, &updatedStr)
 	if err != nil {
 		return r, err

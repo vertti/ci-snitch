@@ -30,6 +30,7 @@ func testRunDetail() model.RunDetail {
 			WorkflowID:   100,
 			WorkflowName: "CI",
 			Name:         "Fix tests",
+			Event:        "push",
 			Status:       "completed",
 			Conclusion:   "success",
 			HeadBranch:   "main",
@@ -85,6 +86,7 @@ func TestSaveAndLoadRunDetail(t *testing.T) {
 	assert.Equal(t, detail.Run.WorkflowName, loaded.Run.WorkflowName)
 	assert.Equal(t, detail.Run.HeadSHA, loaded.Run.HeadSHA)
 	assert.Equal(t, detail.Run.Conclusion, loaded.Run.Conclusion)
+	assert.Equal(t, "push", loaded.Run.Event)
 	assert.WithinDuration(t, detail.Run.CreatedAt, loaded.Run.CreatedAt, time.Second)
 	assert.WithinDuration(t, detail.Run.StartedAt, loaded.Run.StartedAt, time.Second)
 
