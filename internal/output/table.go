@@ -296,11 +296,17 @@ func writeCostTable(w io.Writer, findings []analyze.Finding) {
 			continue
 		}
 
-		_, _ = fmt.Fprintf(tw, "  %s%s%s\t%s%.0f mins%s\t%s(%.0f/day)%s\t%s%d runs%s\n",
+		savings := ""
+		if d.DailySavingsEstimate > 0 {
+			savings = fmt.Sprintf("\t%ssave ~%.0f mins/day%s", esc(green), d.DailySavingsEstimate, esc(reset))
+		}
+
+		_, _ = fmt.Fprintf(tw, "  %s%s%s\t%s%.0f mins%s\t%s(%.0f/day)%s\t%s%d runs%s%s\n",
 			esc(bold), d.Workflow, esc(reset),
 			esc(cyan), d.BillableMinutes, esc(reset),
 			esc(dim), d.DailyRate, esc(reset),
-			esc(dim), d.TotalRuns, esc(reset))
+			esc(dim), d.TotalRuns, esc(reset),
+			savings)
 
 		// Show top 3 costliest jobs
 		limit := min(3, len(d.Jobs))
