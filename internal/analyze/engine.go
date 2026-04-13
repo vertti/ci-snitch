@@ -41,8 +41,9 @@ func NewEngine(analyzers ...Analyzer) *Engine {
 // Run executes all analyzers sequentially and collects results.
 // allDetails is optional unfiltered data for analyzers that need it (e.g. failure analysis).
 // rerunStats is optional per-workflow retry stats (computed before dedup).
-func (e *Engine) Run(ctx context.Context, details, allDetails []model.RunDetail, rerunStats map[string]preprocess.RerunStats) AnalysisResult {
-	ac := &AnalysisContext{Details: details, AllDetails: allDetails, RerunStats: rerunStats}
+// workflowNames maps WorkflowID → canonical name from ListWorkflows.
+func (e *Engine) Run(ctx context.Context, details, allDetails []model.RunDetail, rerunStats map[int64]preprocess.RerunStats, workflowNames map[int64]string) AnalysisResult {
+	ac := &AnalysisContext{Details: details, AllDetails: allDetails, RerunStats: rerunStats, WorkflowNames: workflowNames}
 
 	var result AnalysisResult
 	result.Meta = computeMeta(details)

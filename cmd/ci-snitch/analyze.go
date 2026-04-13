@@ -214,7 +214,11 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 		analyze.FailureAnalyzer{},
 		analyze.CostAnalyzer{},
 	)
-	result := engine.Run(ctx, filtered, allDetails, rerunStats)
+	workflowNames := make(map[int64]string, len(workflows))
+	for _, wf := range workflows {
+		workflowNames[wf.ID] = wf.Name
+	}
+	result := engine.Run(ctx, filtered, allDetails, rerunStats, workflowNames)
 	prog.Done()
 	if opts.verbose {
 		prog.Log("Analyze: %s", time.Since(analyzeStart))

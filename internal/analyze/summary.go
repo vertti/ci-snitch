@@ -50,33 +50,38 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 	}
 
 	// Collect durations per workflow and per (workflow, job)
-	type jobKey struct{ wf, job string }
-	wfDurations := make(map[string][]time.Duration)
+	type jobKey struct {
+		wfID int64
+		job  string
+	}
+	wfDurations := make(map[int64][]time.Duration)
 	jobDurations := make(map[jobKey][]time.Duration)
 
 	for _, d := range ac.Details {
-		wfName := d.Run.WorkflowName
+		wfID := d.Run.WorkflowID
 		dur := d.Run.Duration()
 		if dur > 0 {
-			wfDurations[wfName] = append(wfDurations[wfName], dur)
+			wfDurations[wfID] = append(wfDurations[wfID], dur)
 		}
 		for _, j := range d.Jobs {
 			dur := j.Duration()
 			if dur > 0 {
-				jobDurations[jobKey{wfName, j.Name}] = append(jobDurations[jobKey{wfName, j.Name}], dur)
+				k := jobKey{wfID, j.Name}
+				jobDurations[k] = append(jobDurations[k], dur)
 			}
 		}
 	}
 
 	// Build per-workflow summaries with nested jobs
 	var findings []Finding
-	for wfName, durations := range wfDurations {
+	for wfID, durations := range wfDurations {
+		wfName := ac.WorkflowName(wfID)
 		wfStats := computeStats(durations)
 
 		// Collect jobs for this workflow
 		var jobs []JobSummary
 		for key, jDurations := range jobDurations {
-			if key.wf == wfName {
+			if key.wfID == wfID {
 				jobs = append(jobs, JobSummary{
 					Name:  key.job,
 					Stats: computeStats(jDurations),

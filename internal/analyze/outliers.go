@@ -53,18 +53,20 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 	var findings []Finding
 
 	// Workflow-level outliers
-	wfDurations := make(map[string][]float64)
-	wfRuns := make(map[string][]int) // index into ac.Details
+	wfDurations := make(map[int64][]float64)
+	wfRuns := make(map[int64][]int) // index into ac.Details
 	for i, d := range ac.Details {
 		dur := d.Run.Duration().Seconds()
 		if dur > 0 {
-			wfDurations[d.Run.WorkflowName] = append(wfDurations[d.Run.WorkflowName], dur)
-			wfRuns[d.Run.WorkflowName] = append(wfRuns[d.Run.WorkflowName], i)
+			wfID := d.Run.WorkflowID
+			wfDurations[wfID] = append(wfDurations[wfID], dur)
+			wfRuns[wfID] = append(wfRuns[wfID], i)
 		}
 	}
 
-	for wfName, durations := range wfDurations {
-		idxMap := wfRuns[wfName]
+	for wfID, durations := range wfDurations {
+		wfName := ac.WorkflowName(wfID)
+		idxMap := wfRuns[wfID]
 		outliers := o.detect(durations)
 		for _, out := range outliers {
 			if out.Percentile < minPct {
@@ -91,7 +93,8 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 
 	// Job-level outliers
 	type jobKey struct {
-		wf, job string
+		wfID int64
+		job  string
 	}
 	jobDurations := make(map[jobKey][]float64)
 	type jobRef struct {
@@ -104,7 +107,7 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 		for j, job := range d.Jobs {
 			dur := job.Duration().Seconds()
 			if dur > 0 {
-				k := jobKey{d.Run.WorkflowName, job.Name}
+				k := jobKey{d.Run.WorkflowID, job.Name}
 				jobDurations[k] = append(jobDurations[k], dur)
 				jobRefs[k] = append(jobRefs[k], jobRef{i, j})
 			}
@@ -112,6 +115,7 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 	}
 
 	for k, durations := range jobDurations {
+		wfName := ac.WorkflowName(k.wfID)
 		refs := jobRefs[k]
 		outliers := o.detect(durations)
 		for _, out := range outliers {
@@ -124,7 +128,7 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 			findings = append(findings, Finding{
 				Type:     "outlier",
 				Severity: severityFromPercentile(out.Percentile),
-				Title:    fmt.Sprintf("Slow job %q in %q", k.job, k.wf),
+				Title:    fmt.Sprintf("Slow job %q in %q", job.Name, wfName),
 				Description: fmt.Sprintf("Job took %s (p%.0f — slower than %.0f%% of runs)",
 					job.Duration().Round(time.Second), out.Percentile, out.Percentile),
 				Detail: OutlierDetail{
@@ -132,7 +136,7 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 					CommitSHA:    d.Run.HeadSHA,
 					Duration:     job.Duration(),
 					Percentile:   out.Percentile,
-					WorkflowName: k.wf,
+					WorkflowName: wfName,
 					JobName:      job.Name,
 				},
 			})

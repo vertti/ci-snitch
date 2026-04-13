@@ -187,9 +187,9 @@ func TestComputeRerunStats(t *testing.T) {
 	}
 
 	stats := ComputeRerunStats(details)
-	require.Contains(t, stats, "CI")
+	require.Contains(t, stats, int64(0))
 
-	ci := stats["CI"]
+	ci := stats[int64(0)]
 	assert.Equal(t, 3, ci.UniqueRuns)
 	assert.Equal(t, 2, ci.RetriedRuns)   // runs 1 and 3 had retries
 	assert.Equal(t, 3, ci.ExtraAttempts) // run 1 had 2 extra, run 3 had 1 extra
