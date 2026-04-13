@@ -72,6 +72,9 @@ ci-snitch analyze --repo owner/repo --format json
 
 # Markdown — paste into GitHub issues or PR comments
 ci-snitch analyze --repo owner/repo --format markdown
+
+# LLM — structured context for Claude Code or similar tools
+ci-snitch analyze --repo owner/repo --format llm
 ```
 
 ## Flags
@@ -82,7 +85,7 @@ ci-snitch analyze --repo owner/repo --format markdown
 | `--since` | `60d` | How far back: `7d`, `2w`, `3mo`, or `2026-01-01` |
 | `--branch` | all | Filter to a specific branch |
 | `--workflow` | all | Filter to a specific workflow name |
-| `--format` | `table` | `table`, `json`, or `markdown` |
+| `--format` | `table` | `table`, `json`, `markdown`, or `llm` |
 | `--no-cache` | false | Bypass local cache, fetch fresh |
 | `--include-failures` | false | Include failed runs in analysis |
 | `-v` | false | Verbose output with per-phase timing |
