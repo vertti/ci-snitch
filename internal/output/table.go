@@ -393,10 +393,9 @@ func writeChangePointTable(w io.Writer, findings []analyze.Finding, verbose bool
 }
 
 func writeChangePointRows(w io.Writer, findings []analyze.Finding) {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintf(tw, "  %sDir\tJob\tChange\tBefore\tAfter\tDate\tCommit\tp-value\tStatus%s\n",
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', tabwriter.StripEscape)
+	_, _ = fmt.Fprintf(tw, "  %sDIR\tJOB\tCHANGE\tBEFORE\tAFTER\tDATE\tCOMMIT\tP-VALUE\tSTATUS%s\n",
 		dim, reset)
-	_, _ = fmt.Fprintf(tw, "  %s%s%s\n", dim, strings.Repeat("-", 90), reset)
 	for _, f := range findings {
 		d, ok := f.Detail.(analyze.ChangePointDetail)
 		if !ok {
@@ -405,45 +404,54 @@ func writeChangePointRows(w io.Writer, findings []analyze.Finding) {
 
 		var icon, changeColor string
 		if d.Direction == analyze.DirectionSpeedup {
-			icon = green + "v" + reset
+			icon = esc(green) + "▼" + esc(reset)
 			changeColor = green
 		} else {
-			icon = red + "^" + reset
+			icon = esc(red) + "▲" + esc(reset)
 			changeColor = red
 		}
 
 		status := formatPersistence(d)
 
-		_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s%+.0f%%%s\t%s\t%s\t%s\t%s%s%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s%s%s\t%s\t%s\t%s\t%s%s%s\t%s\t%s\n",
 			icon, d.JobName,
-			changeColor, d.PctChange, reset,
+			esc(changeColor), fmt.Sprintf("%+.0f%%", d.PctChange), esc(reset),
 			fmtDur(d.BeforeMean), fmtDur(d.AfterMean),
 			d.Date.Format("2006-01-02"),
-			dim, truncSHA(d.CommitSHA), reset,
-			fmtPValue(d.PValue),
+			esc(dim), truncSHA(d.CommitSHA), esc(reset),
+			fmtPValueStr(d.PValue),
 			status)
 	}
 	_ = tw.Flush()
 }
 
-func fmtPValue(p float64) string {
-	if p < 0.01 {
-		return fmt.Sprintf("%s%.4f%s", green, p, reset)
+// esc wraps an ANSI code in tabwriter escape markers so it's not counted for column width.
+func esc(code string) string {
+	return "\xff" + code + "\xff"
+}
+
+func fmtPValueStr(p float64) string {
+	s := fmt.Sprintf("%.4f", p)
+	var color string
+	switch {
+	case p < 0.01:
+		color = green
+	case p < 0.05:
+		color = yellow
+	default:
+		color = dim
 	}
-	if p < 0.05 {
-		return fmt.Sprintf("%s%.4f%s", yellow, p, reset)
-	}
-	return fmt.Sprintf("%s%.4f%s", dim, p, reset)
+	return esc(color) + s + esc(reset)
 }
 
 func formatPersistence(d analyze.ChangePointDetail) string {
 	switch d.Persistence {
 	case "persistent":
-		return fmt.Sprintf("%s%d runs%s", green, d.PostChangeRuns, reset)
+		return fmt.Sprintf("%s✓ %d runs%s", esc(green), d.PostChangeRuns, esc(reset))
 	case "transient":
-		return fmt.Sprintf("%stransient (%d runs)%s", yellow, d.PostChangeRuns, reset)
+		return fmt.Sprintf("%stransient (%d runs)%s", esc(yellow), d.PostChangeRuns, esc(reset))
 	case "inconclusive":
-		return fmt.Sprintf("%s? %d runs%s", dim, d.PostChangeRuns, reset)
+		return fmt.Sprintf("%s? %d runs%s", esc(dim), d.PostChangeRuns, esc(reset))
 	default:
 		return ""
 	}
