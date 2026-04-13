@@ -1,5 +1,10 @@
 # ci-snitch
 
+[![CI](https://github.com/vertti/ci-snitch/actions/workflows/ci.yml/badge.svg)](https://github.com/vertti/ci-snitch/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/vertti/ci-snitch)](https://goreportcard.com/report/github.com/vertti/ci-snitch)
+[![Release](https://img.shields.io/github/v/release/vertti/ci-snitch)](https://github.com/vertti/ci-snitch/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Find your slowest CI workflows, catch the commit that broke them, and stop burning CI minutes.
 
 ci-snitch analyzes your GitHub Actions history and tells you what's slow, what changed, and when.
