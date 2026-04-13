@@ -8,11 +8,14 @@ import (
 
 // FailureDetail contains reliability information for a workflow.
 type FailureDetail struct {
-	Workflow     string         `json:"workflow"`
-	TotalRuns    int            `json:"total_runs"`
-	FailureCount int            `json:"failure_count"`
-	FailureRate  float64        `json:"failure_rate"`
-	ByConclusion map[string]int `json:"by_conclusion"`
+	Workflow      string         `json:"workflow"`
+	TotalRuns     int            `json:"total_runs"`
+	FailureCount  int            `json:"failure_count"`
+	FailureRate   float64        `json:"failure_rate"`
+	ByConclusion  map[string]int `json:"by_conclusion"`
+	RetriedRuns   int            `json:"retried_runs"`
+	ExtraAttempts int            `json:"extra_attempts"`
+	RerunRate     float64        `json:"rerun_rate"`
 }
 
 // DetailType implements FindingDetail.
@@ -66,19 +69,26 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 			severity = SeverityWarning
 		}
 
+		detail := FailureDetail{
+			Workflow:     name,
+			TotalRuns:    s.total,
+			FailureCount: s.failures,
+			FailureRate:  rate,
+			ByConclusion: s.byConclusion,
+		}
+		if rs, ok := ac.RerunStats[name]; ok {
+			detail.RetriedRuns = rs.RetriedRuns
+			detail.ExtraAttempts = rs.ExtraAttempts
+			detail.RerunRate = rs.RerunRate
+		}
+
 		findings = append(findings, Finding{
 			Type:     "failure",
 			Severity: severity,
 			Title:    fmt.Sprintf("Workflow %q failure rate", name),
 			Description: fmt.Sprintf("%.0f%% failure rate (%d/%d runs)",
 				rate*100, s.failures, s.total),
-			Detail: FailureDetail{
-				Workflow:     name,
-				TotalRuns:    s.total,
-				FailureCount: s.failures,
-				FailureRate:  rate,
-				ByConclusion: s.byConclusion,
-			},
+			Detail: detail,
 		})
 	}
 

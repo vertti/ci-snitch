@@ -181,6 +181,9 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 		return fmt.Errorf("no runs found for %s since %s", opts.repo, sinceTime.Format("2006-01-02"))
 	}
 
+	// Compute rerun stats before deduplication
+	rerunStats := preprocess.ComputeRerunStats(allDetails)
+
 	// Preprocess
 	ppStart := time.Now()
 	filtered, ppWarnings := preprocess.Run(allDetails, preprocess.Options{
@@ -210,7 +213,7 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 		analyze.ChangePointAnalyzer{},
 		analyze.FailureAnalyzer{},
 	)
-	result := engine.Run(ctx, filtered, allDetails)
+	result := engine.Run(ctx, filtered, allDetails, rerunStats)
 	prog.Done()
 	if opts.verbose {
 		prog.Log("Analyze: %s", time.Since(analyzeStart))

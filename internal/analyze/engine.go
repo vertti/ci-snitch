@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/vertti/ci-snitch/internal/model"
+	"github.com/vertti/ci-snitch/internal/preprocess"
 )
 
 // Warning represents a non-fatal issue during analysis.
@@ -39,8 +40,9 @@ func NewEngine(analyzers ...Analyzer) *Engine {
 
 // Run executes all analyzers sequentially and collects results.
 // allDetails is optional unfiltered data for analyzers that need it (e.g. failure analysis).
-func (e *Engine) Run(ctx context.Context, details, allDetails []model.RunDetail) AnalysisResult {
-	ac := &AnalysisContext{Details: details, AllDetails: allDetails}
+// rerunStats is optional per-workflow retry stats (computed before dedup).
+func (e *Engine) Run(ctx context.Context, details, allDetails []model.RunDetail, rerunStats map[string]preprocess.RerunStats) AnalysisResult {
+	ac := &AnalysisContext{Details: details, AllDetails: allDetails, RerunStats: rerunStats}
 
 	var result AnalysisResult
 	result.Meta = computeMeta(details)

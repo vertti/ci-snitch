@@ -98,6 +98,54 @@ func DeduplicateRetries(details []model.RunDetail) []model.RunDetail {
 	return out
 }
 
+// RerunStats holds retry statistics for a workflow.
+type RerunStats struct {
+	UniqueRuns    int     // distinct run IDs
+	RetriedRuns   int     // runs with more than 1 attempt
+	ExtraAttempts int     // total extra attempts (sum of max_attempt - 1 per retried run)
+	RerunRate     float64 // fraction of unique runs that were retried
+}
+
+// ComputeRerunStats computes per-workflow retry statistics from unfiltered data.
+// Must be called before DeduplicateRetries.
+// Returns only workflows that had at least one retry.
+func ComputeRerunStats(details []model.RunDetail) map[string]RerunStats {
+	// Per workflow, track max attempt per run ID.
+	type wfRuns struct {
+		maxAttempt map[int64]int
+	}
+	byWorkflow := make(map[string]*wfRuns)
+
+	for _, d := range details {
+		name := d.Run.WorkflowName
+		if byWorkflow[name] == nil {
+			byWorkflow[name] = &wfRuns{maxAttempt: make(map[int64]int)}
+		}
+		wr := byWorkflow[name]
+		if d.Run.RunAttempt > wr.maxAttempt[d.Run.ID] {
+			wr.maxAttempt[d.Run.ID] = d.Run.RunAttempt
+		}
+	}
+
+	result := make(map[string]RerunStats)
+	for name, wr := range byWorkflow {
+		var s RerunStats
+		s.UniqueRuns = len(wr.maxAttempt)
+		for _, maxAttempt := range wr.maxAttempt {
+			if maxAttempt > 1 {
+				s.RetriedRuns++
+				s.ExtraAttempts += maxAttempt - 1
+			}
+		}
+		if s.RetriedRuns == 0 {
+			continue
+		}
+		s.RerunRate = float64(s.RetriedRuns) / float64(s.UniqueRuns)
+		result[name] = s
+	}
+	return result
+}
+
 // GroupMatrixJobs groups jobs by their base name (stripping matrix parameters).
 // Matrix jobs appear as "test (ubuntu-latest, 20)" — this extracts "test" as the group key.
 // Returns a map from group name to the list of run details (unchanged), plus a map
