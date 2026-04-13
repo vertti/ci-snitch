@@ -80,7 +80,7 @@ _Focus: quantify flakiness, rerun tax, and CI spend. Answer "where is money goin
 - **Unlocks:** cost estimation in 2.4
 - **Files:** `internal/model/model.go`, `internal/github/client.go`, `internal/store/sqlite.go`
 
-### 2.2 Failure rate analyzer [M]
+### ~~2.2 Failure rate analyzer [M]~~ DONE
 - New `internal/analyze/failures.go` implementing `Analyzer`
 - `FailureDetail`: failure rate, count, total runs, breakdown by conclusion type (failure/cancelled/timed_out/skipped), recent streak length, trend direction
 - Needs unfiltered data → add `AllDetails []model.RunDetail` to `AnalysisContext` (analyzer.go:17)
