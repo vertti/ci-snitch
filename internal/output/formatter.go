@@ -17,14 +17,18 @@ type Options struct {
 	Verbose bool
 }
 
-// Get returns a formatter by name. Supported: "json", "table", "markdown".
-func Get(name string, opts Options) Formatter {
+// Get returns a formatter by name. Supported: "json", "table", "markdown"/"md".
+// Returns the formatter and true if the name was recognized, or the table
+// formatter and false for unknown names.
+func Get(name string, opts Options) (Formatter, bool) {
 	switch name {
 	case "json":
-		return JSONFormatter{}
+		return JSONFormatter{}, true
 	case "markdown", "md":
-		return MarkdownFormatter(opts)
+		return MarkdownFormatter(opts), true
+	case "table":
+		return TableFormatter(opts), true
 	default:
-		return TableFormatter(opts)
+		return TableFormatter(opts), false
 	}
 }

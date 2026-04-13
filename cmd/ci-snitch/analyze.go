@@ -228,7 +228,10 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 
 	// Output
 	formatStart := time.Now()
-	formatter := output.Get(opts.format, output.Options{Verbose: opts.verbose})
+	formatter, ok := output.Get(opts.format, output.Options{Verbose: opts.verbose})
+	if !ok {
+		return fmt.Errorf("unknown format %q (supported: table, json, markdown)", opts.format)
+	}
 	err = formatter.Format(cmd.OutOrStdout(), result)
 	if opts.verbose {
 		prog.Log("Format: %s", time.Since(formatStart))
