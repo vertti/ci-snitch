@@ -133,7 +133,12 @@ func migrate(db *sql.DB) error {
 	return nil
 }
 
+var validTables = map[string]bool{"runs": true, "jobs": true, "steps": true}
+
 func columnExists(db *sql.DB, table, column string) bool {
+	if !validTables[table] {
+		return false
+	}
 	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
 	if err != nil {
 		return false
