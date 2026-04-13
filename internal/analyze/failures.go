@@ -39,19 +39,19 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 		return nil, nil
 	}
 
-	type wfStats struct {
+	type wfStat struct {
 		total        int
 		failures     int
 		byConclusion map[string]int
 	}
 
-	stats := make(map[string]*wfStats)
+	wfStats := make(map[int64]*wfStat)
 	for _, d := range ac.AllDetails {
-		name := d.Run.WorkflowName
-		if stats[name] == nil {
-			stats[name] = &wfStats{byConclusion: make(map[string]int)}
+		wfID := d.Run.WorkflowID
+		if wfStats[wfID] == nil {
+			wfStats[wfID] = &wfStat{byConclusion: make(map[string]int)}
 		}
-		s := stats[name]
+		s := wfStats[wfID]
 		s.total++
 		if d.Run.Conclusion != "success" && d.Run.Conclusion != "skipped" {
 			s.failures++
@@ -60,10 +60,11 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 	}
 
 	var findings []Finding
-	for name, s := range stats {
+	for wfID, s := range wfStats {
 		if s.failures == 0 {
 			continue
 		}
+		wfName := ac.WorkflowName(wfID)
 		rate := float64(s.failures) / float64(s.total)
 
 		severity := SeverityInfo
@@ -75,13 +76,13 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 		}
 
 		detail := FailureDetail{
-			Workflow:     name,
+			Workflow:     wfName,
 			TotalRuns:    s.total,
 			FailureCount: s.failures,
 			FailureRate:  rate,
 			ByConclusion: s.byConclusion,
 		}
-		if rs, ok := ac.RerunStats[name]; ok {
+		if rs, ok := ac.RerunStats[wfID]; ok {
 			detail.RetriedRuns = rs.RetriedRuns
 			detail.ExtraAttempts = rs.ExtraAttempts
 			detail.RerunRate = rs.RerunRate
@@ -90,7 +91,7 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 		findings = append(findings, Finding{
 			Type:     "failure",
 			Severity: severity,
-			Title:    fmt.Sprintf("Workflow %q failure rate", name),
+			Title:    fmt.Sprintf("Workflow %q failure rate", wfName),
 			Description: fmt.Sprintf("%.0f%% failure rate (%d/%d runs)",
 				rate*100, s.failures, s.total),
 			Detail: detail,

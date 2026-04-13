@@ -3,6 +3,7 @@ package analyze
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/vertti/ci-snitch/internal/model"
 	"github.com/vertti/ci-snitch/internal/preprocess"
@@ -16,9 +17,29 @@ type Analyzer interface {
 
 // AnalysisContext carries run data and lazily-computed derived views shared across analyzers.
 type AnalysisContext struct {
-	Details    []model.RunDetail                // filtered (success-only by default)
-	AllDetails []model.RunDetail                // unfiltered — includes failures, for reliability analysis
-	RerunStats map[string]preprocess.RerunStats // per-workflow retry stats (computed before dedup)
+	Details       []model.RunDetail               // filtered (success-only by default)
+	AllDetails    []model.RunDetail               // unfiltered — includes failures, for reliability analysis
+	RerunStats    map[int64]preprocess.RerunStats // per-workflow retry stats (computed before dedup)
+	WorkflowNames map[int64]string                // WorkflowID → canonical name from ListWorkflows
+}
+
+// WorkflowName resolves the canonical workflow name for a given ID.
+// Falls back to scanning Details/AllDetails for a matching WorkflowID.
+func (ac *AnalysisContext) WorkflowName(id int64) string {
+	if name, ok := ac.WorkflowNames[id]; ok {
+		return name
+	}
+	for _, d := range ac.Details {
+		if d.Run.WorkflowID == id {
+			return d.Run.WorkflowName
+		}
+	}
+	for _, d := range ac.AllDetails {
+		if d.Run.WorkflowID == id {
+			return d.Run.WorkflowName
+		}
+	}
+	return fmt.Sprintf("workflow-%d", id)
 }
 
 // Severity levels for findings.

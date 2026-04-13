@@ -41,20 +41,23 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 		return nil, nil
 	}
 
-	type jobKey struct{ wf, job string }
+	type jobKey struct {
+		wfID int64
+		job  string
+	}
 	type jobAccum struct {
 		billable   float64
 		multiplier float64
 		runs       int
 	}
 
-	wfRuns := make(map[string]int)
+	wfRuns := make(map[int64]int)
 	jobCosts := make(map[jobKey]*jobAccum)
 	var minTime, maxTime time.Time
 
 	for _, d := range ac.Details {
-		name := d.Run.WorkflowName
-		wfRuns[name]++
+		wfID := d.Run.WorkflowID
+		wfRuns[wfID]++
 
 		t := d.Run.CreatedAt
 		if minTime.IsZero() || t.Before(minTime) {
@@ -65,7 +68,7 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 		}
 
 		for _, j := range d.Jobs {
-			k := jobKey{name, j.Name}
+			k := jobKey{wfID, j.Name}
 			if jobCosts[k] == nil {
 				jobCosts[k] = &jobAccum{
 					multiplier: cost.LookupMultiplier(j.Labels),
@@ -83,12 +86,13 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 	}
 
 	var findings []Finding
-	for wf, runs := range wfRuns {
+	for wfID, runs := range wfRuns {
+		wfName := ac.WorkflowName(wfID)
 		var totalBillable float64
 		var jobs []JobCostBreakdown
 
 		for k, jc := range jobCosts {
-			if k.wf != wf {
+			if k.wfID != wfID {
 				continue
 			}
 			totalBillable += jc.billable
@@ -114,11 +118,11 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 		findings = append(findings, Finding{
 			Type:     "cost",
 			Severity: SeverityInfo,
-			Title:    fmt.Sprintf("Workflow %q cost estimate", wf),
+			Title:    fmt.Sprintf("Workflow %q cost estimate", wfName),
 			Description: fmt.Sprintf("%.0f billable minutes (%.0f/day) across %d runs",
 				totalBillable, totalBillable/days, runs),
 			Detail: CostDetail{
-				Workflow:        wf,
+				Workflow:        wfName,
 				TotalRuns:       runs,
 				BillableMinutes: totalBillable,
 				DailyRate:       totalBillable / days,

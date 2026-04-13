@@ -79,8 +79,8 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 	// Keying by job name alone would mix distributions from different workflows
 	// that happen to share a job name (e.g. "Unit tests").
 	type jobKey struct {
-		workflow string
-		job      string
+		wfID int64
+		job  string
 	}
 	type jobSeries struct {
 		durations []float64
@@ -95,7 +95,7 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 			if dur <= 0 {
 				continue
 			}
-			k := jobKey{d.Run.WorkflowName, j.Name}
+			k := jobKey{d.Run.WorkflowID, j.Name}
 			if jobs[k] == nil {
 				jobs[k] = &jobSeries{}
 			}
@@ -106,6 +106,7 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 	}
 
 	for jk, js := range jobs {
+		wfName := ac.WorkflowName(jk.wfID)
 		if len(js.durations) < 2*minSeg {
 			continue
 		}
@@ -148,7 +149,7 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 					(time.Duration(cp.AfterMean * float64(time.Second))).Round(time.Second),
 					pValue),
 				Detail: ChangePointDetail{
-					WorkflowName:   jk.workflow,
+					WorkflowName:   wfName,
 					JobName:        jk.job,
 					ChangeIdx:      cp.Index,
 					BeforeMean:     time.Duration(cp.BeforeMean * float64(time.Second)),
