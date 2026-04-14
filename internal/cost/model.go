@@ -3,6 +3,8 @@ package cost
 
 import (
 	"math"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -25,17 +27,60 @@ var Multiplier = map[string]float64{
 	"macos-13":       10,
 }
 
+// largerRunnerRe matches GitHub larger runner labels like "ubuntu-latest-16-cores".
+// Per GitHub docs, the multiplier scales linearly with core count (1x per 2 cores for Linux).
+var largerRunnerRe = regexp.MustCompile(`-(\d+)-cores?$`)
+
+// IsSelfHosted reports whether the labels indicate a self-hosted runner.
+func IsSelfHosted(labels []string) bool {
+	for _, label := range labels {
+		if strings.EqualFold(label, "self-hosted") {
+			return true
+		}
+	}
+	return false
+}
+
 // LookupMultiplier returns the billing multiplier for a set of runner labels.
-// Checks each label against the known multiplier table.
-// Returns 1.0 (Linux default) if no label matches.
+// Self-hosted runners return 0 (free on GitHub billing).
+// Checks each label against the known multiplier table, then tries
+// larger-runner pattern matching. Returns 1.0 (Linux default) if no match.
 func LookupMultiplier(labels []string) float64 {
+	if IsSelfHosted(labels) {
+		return 0
+	}
 	for _, label := range labels {
 		label = strings.ToLower(label)
 		if m, ok := Multiplier[label]; ok {
 			return m
 		}
+		if m, ok := largerRunnerMultiplier(label); ok {
+			return m
+		}
 	}
 	return 1
+}
+
+// largerRunnerMultiplier extracts the core count from a larger runner label
+// and returns the GitHub billing multiplier. Linux: cores/2, Windows: cores,
+// macOS: cores*5 (matching GitHub's published rates).
+func largerRunnerMultiplier(label string) (float64, bool) {
+	matches := largerRunnerRe.FindStringSubmatch(label)
+	if matches == nil {
+		return 0, false
+	}
+	cores, err := strconv.Atoi(matches[1])
+	if err != nil || cores < 2 {
+		return 0, false
+	}
+	switch {
+	case strings.HasPrefix(label, "windows"):
+		return float64(cores), true
+	case strings.HasPrefix(label, "macos"):
+		return float64(cores) * 5, true
+	default: // linux/ubuntu
+		return float64(cores) / 2, true
+	}
 }
 
 // BillableMinutes returns the billable minutes for a job duration.
