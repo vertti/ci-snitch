@@ -5,9 +5,23 @@
 [![Release](https://img.shields.io/github/v/release/vertti/ci-snitch)](https://github.com/vertti/ci-snitch/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Find your slowest CI workflows, catch the commit that broke them, and stop burning CI minutes.
+CI performance intelligence for GitHub Actions. Detect regressions, flaky pipelines, cost hotspots, and volatile jobs — then pinpoint the commit that caused it.
 
-ci-snitch analyzes your GitHub Actions history and tells you what's slow, what changed, and when.
+ci-snitch analyzes your workflow history and surfaces what matters: where your CI minutes go, which pipelines are unreliable, what got slower (and whether it stuck), and where to invest effort for maximum impact.
+
+## Features
+
+- **Triage header** — top offenders by CI time, volatility, and active regressions at a glance
+- **Change point detection** — CUSUM algorithm with Mann-Whitney significance testing finds the exact commit that made things slower (or faster), and whether the change stuck
+- **Oscillation detection** — volatile jobs that bounce up/down are separated from real regressions
+- **Failure & flakiness analysis** — failure rates, conclusion breakdowns, and rerun tax per workflow
+- **Cost estimation** — billable minutes by runner type with daily rate and "bang for buck" priority scoring
+- **Volatility scoring** — p95/median ratio classifies each workflow as stable, variable, spiky, or volatile
+- **Outlier detection** — Log-IQR and MAD methods, grouped by job with worst-case summary
+- **Matrix job grouping** — collapses matrix variants into aggregate stats
+- **LLM-ready output** — `--format llm` produces a briefing with context, prioritized findings, investigation prompts, and structured JSON that Claude Code or similar tools can act on immediately
+- **Multiple formats** — table (ANSI), JSON, markdown, and LLM
+- **Local SQLite cache** — completed runs cached permanently, incremental fetches only
 
 ```
 ci-snitch analyze --repo cli/cli --since 7d
