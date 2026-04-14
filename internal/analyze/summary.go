@@ -61,7 +61,7 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 
 	for _, d := range ac.Details {
 		wfID := d.Run.WorkflowID
-		dur := d.Run.Duration()
+		dur := d.Duration()
 		if dur > 0 {
 			wfDurations[wfID] = append(wfDurations[wfID], dur)
 		}

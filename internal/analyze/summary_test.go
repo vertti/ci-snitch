@@ -51,11 +51,12 @@ func TestSummaryAnalyzer_BasicStats(t *testing.T) {
 
 	assert.Equal(t, "CI", d.Workflow)
 	assert.Equal(t, 10, d.Stats.TotalRuns)
-	assert.Equal(t, Duration(5*time.Minute), d.Stats.Mean)
-	assert.Equal(t, Duration(5*time.Minute), d.Stats.Median)
-	assert.Equal(t, Duration(5*time.Minute), d.Stats.Min)
-	assert.Equal(t, Duration(5*time.Minute), d.Stats.Max)
-	assert.Equal(t, Duration(50*time.Minute), d.Stats.TotalTime)
+	// RunDetail.Duration() uses max(job.CompletedAt) - StartedAt = 3min, not UpdatedAt
+	assert.Equal(t, Duration(3*time.Minute), d.Stats.Mean)
+	assert.Equal(t, Duration(3*time.Minute), d.Stats.Median)
+	assert.Equal(t, Duration(3*time.Minute), d.Stats.Min)
+	assert.Equal(t, Duration(3*time.Minute), d.Stats.Max)
+	assert.Equal(t, Duration(30*time.Minute), d.Stats.TotalTime)
 
 	// Jobs nested under workflow
 	require.Len(t, d.Jobs, 1)

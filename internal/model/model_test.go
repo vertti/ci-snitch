@@ -128,6 +128,74 @@ func TestStep_Duration(t *testing.T) {
 	}
 }
 
+func TestRunDetail_Duration(t *testing.T) {
+	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name    string
+		detail  RunDetail
+		wantDur time.Duration
+	}{
+		{
+			name: "uses max job CompletedAt over UpdatedAt",
+			detail: RunDetail{
+				Run: WorkflowRun{
+					StartedAt: base,
+					UpdatedAt: base.Add(30 * time.Minute), // inflated by post-completion event
+				},
+				Jobs: []Job{
+					{StartedAt: base, CompletedAt: base.Add(5 * time.Minute)},
+					{StartedAt: base, CompletedAt: base.Add(8 * time.Minute)},
+				},
+			},
+			wantDur: 8 * time.Minute, // max(CompletedAt) - StartedAt, not UpdatedAt
+		},
+		{
+			name: "falls back to UpdatedAt when no jobs have CompletedAt",
+			detail: RunDetail{
+				Run: WorkflowRun{
+					StartedAt: base,
+					UpdatedAt: base.Add(10 * time.Minute),
+				},
+				Jobs: []Job{
+					{StartedAt: base},
+				},
+			},
+			wantDur: 10 * time.Minute,
+		},
+		{
+			name: "falls back to UpdatedAt when no jobs",
+			detail: RunDetail{
+				Run: WorkflowRun{
+					StartedAt: base,
+					UpdatedAt: base.Add(5 * time.Minute),
+				},
+			},
+			wantDur: 5 * time.Minute,
+		},
+		{
+			name: "handles mixed jobs with and without CompletedAt",
+			detail: RunDetail{
+				Run: WorkflowRun{
+					StartedAt: base,
+					UpdatedAt: base.Add(20 * time.Minute),
+				},
+				Jobs: []Job{
+					{StartedAt: base, CompletedAt: base.Add(7 * time.Minute)},
+					{StartedAt: base}, // no CompletedAt
+				},
+			},
+			wantDur: 7 * time.Minute,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.wantDur, tt.detail.Duration())
+		})
+	}
+}
+
 func TestWorkflowRun_IsCompleted(t *testing.T) {
 	assert.True(t, WorkflowRun{Status: "completed"}.IsCompleted())
 	assert.False(t, WorkflowRun{Status: "in_progress"}.IsCompleted())

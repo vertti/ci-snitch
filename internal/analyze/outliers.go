@@ -73,7 +73,7 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 		if len(wfJobNames[wfID]) <= 1 {
 			continue
 		}
-		dur := d.Run.Duration().Seconds()
+		dur := d.Duration().Seconds()
 		if dur > 0 {
 			wfDurations[wfID] = append(wfDurations[wfID], dur)
 			wfRuns[wfID] = append(wfRuns[wfID], i)
@@ -95,11 +95,11 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 				Severity: severityFromPercentile(out.Percentile),
 				Title:    fmt.Sprintf("Slow run in %q", wfName),
 				Description: fmt.Sprintf("Run took %s (p%.0f — slower than %.0f%% of runs)",
-					d.Run.Duration().Round(time.Second), out.Percentile, out.Percentile),
+					d.Duration().Round(time.Second), out.Percentile, out.Percentile),
 				Detail: OutlierDetail{
 					RunID:        d.Run.ID,
 					CommitSHA:    d.Run.HeadSHA,
-					Duration:     Duration(d.Run.Duration()),
+					Duration:     Duration(d.Duration()),
 					Percentile:   out.Percentile,
 					WorkflowName: wfName,
 				},
