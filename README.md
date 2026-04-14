@@ -5,9 +5,9 @@
 [![Release](https://img.shields.io/github/v/release/vertti/ci-snitch)](https://github.com/vertti/ci-snitch/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Find your slowest CI workflows, catch the commit that broke them, and stop burning CI minutes.
+CI performance intelligence for GitHub Actions. Detect regressions, flaky pipelines, cost hotspots, and volatile jobs — then pinpoint the commit that caused it.
 
-ci-snitch analyzes your GitHub Actions history and tells you what's slow, what changed, and when.
+ci-snitch analyzes your workflow history and surfaces what matters: where your CI minutes go, which pipelines are unreliable, what got slower (and whether it stuck), and where to invest effort for maximum impact.
 
 ```
 ci-snitch analyze --repo cli/cli --since 7d
