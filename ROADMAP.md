@@ -13,6 +13,9 @@ ci-snitch analyzes GitHub Actions CI performance: summary stats, outlier detecti
 4. "Where should I invest effort?" (frequency × cost × improvement potential)
 5. "Which pipelines are flaky and wasting reruns?" (reliability + rerun tax)
 6. "Give me a dump that an LLM can immediately investigate"
+7. "Why is this failing?" (failing step name, not just failure rate)
+8. "Is the slowness the job or the queue?" (queue/wait time vs execution time)
+9. "Is this getting better or worse?" (failure rate trend direction)
 
 ---
 
@@ -164,34 +167,55 @@ _Focus: fix measurement inaccuracies that inflate failure rates, misattribute co
 
 ---
 
-## Release 3: LLM Integration & Compare
+## Release 3: The "Why" Dimension & LLM Integration
 
-_Focus: make findings machine-consumable and enable before/after comparison workflows._
+_Focus: answer "why is this slow/failing?", add step-level visibility, and make output LLM-ready. Validated by real-world LLM analysis feedback: the tool's detection is strong but lacks the "why" to make findings actionable without manual investigation._
 
 ### ~~3.1 LLM-optimized output format [M]~~ DONE
 - New `internal/output/llm.go`, registered as `--format llm`
-- Structure:
-  ```
-  # CI Analysis: {repo} ({date range}, {N} runs)
-  ## Top Problems (by impact)
-  1. [REGRESSION] ... — context, evidence, persistence
-  2. [FLAKY] ... — failure rate, rerun tax, cost
-  ## Cost Hotspots
-  (ranked table with daily cost)
-  ## Suggested Investigations
-  - "What changed in commit X that affected build-docker?"
-  - "Integration tests (2,3) has 3x variance — check for resource contention"
-  ## Raw Data
-  {JSON findings for programmatic follow-up}
-  ```
 - Designed for copy-paste to Claude Code — narrative + structured data
 
-### 3.2 LLM explain mode [M]
+### 3.2 Step-level timing analyzer [M]
+- Steps are already fetched and stored in SQLite but never analyzed
+- New `internal/analyze/steps.go` implementing `Analyzer`
+- Per job: identify top 3 slowest steps by median duration, flag steps with high variance
+- Transforms "job is slow" into "Docker build step is slow" — critical for actionability
+- Surface in all formatters: nested under job in summary, inline in LLM output
+- **Files:** `internal/analyze/steps.go` (new), formatters
+
+### 3.3 Failing step attribution [S]
+- When a job fails, identify which step has `conclusion: failure`
+- Add `FailingSteps []FailingStep` to `FailureDetail` with step name, conclusion, frequency
+- Transforms "95% failure rate" into "95% failure rate — fails at 'Run integration tests'"
+- Data already available in `model.Job.Steps` — just needs analysis
+- **Files:** `internal/analyze/failures.go`, formatters
+
+### 3.4 Queue/wait time analysis [S]
+- `CreatedAt` to `StartedAt` gap = runner wait time (queued, waiting for runner)
+- Surface as separate metric in summary: median queue time, p95 queue time per workflow
+- Distinguishes "slow job" from "no runners available" — different root causes, different fixes
+- Data already in `model.WorkflowRun` — just needs extraction
+- **Files:** `internal/analyze/summary.go`, formatters
+
+### 3.5 Compact LLM mode — reduce noise [S]
+- Real-world test: 54k token report → ~5k useful tokens. Most JSON is oscillating/minor changepoints
+- `--format llm` should omit oscillating and minor changepoints from embedded JSON
+- Only include actionable findings (regressions, speedups, high-severity outliers, failure details)
+- Keep the narrative section unchanged (already well-filtered by postprocessor)
+- **Files:** `internal/output/llm.go`
+
+### 3.6 Raw JSON to separate file [S]
+- `--raw-output report.json` writes full JSON to file instead of embedding in LLM output
+- LLM reads the narrative; only fetches JSON if it needs to dig deeper
+- Keeps the context window clean while preserving full data access
+- **Files:** `cmd/ci-snitch/analyze.go`, `internal/output/llm.go`
+
+### 3.7 LLM explain mode [M]
 - `--format llm --run-id X` or `--commit SHA`: focused on a single incident
 - Shows: this run's timing vs baseline, which jobs/steps were slow, step-level attribution, recent change points affecting those jobs
 - Minimal output, maximum context density for LLM reasoning
 
-### 3.3 `ci-snitch compare` subcommand [M]
+### 3.8 `ci-snitch compare` subcommand [M]
 - Compare two time periods: `--before 7d --after 7d`
 - Compare two branches: `--base main --head feature-x`
 - Runs analysis engine twice, diffs results
@@ -199,11 +223,23 @@ _Focus: make findings machine-consumable and enable before/after comparison work
 - Supports all output formats
 - **Files:** new subcommand in `cmd/ci-snitch/compare.go`, new `internal/analyze/compare.go`
 
-### 3.4 Drift detection (separate from step-change) [M]
+### 3.9 Failure rate trend [S]
+- Add directional indicator: "23% and improving" vs "23% and getting worse"
+- Compare recent window (last 7d) failure rate against full-period rate
+- Simple but changes the urgency of findings significantly
+- **Files:** `internal/analyze/failures.go`
+
+### 3.10 Drift detection (separate from step-change) [M]
 - CUSUM targets step-like mean shifts; gradual drift is a different phenomenon
 - Add linear regression over sliding windows to detect steady trends
 - Different operator guidance: "pipeline gradually slowing — look for repo growth, cache degradation, dependency bloat" vs "step change at commit X"
 - **Files:** `internal/stats/drift.go` (new), `internal/analyze/changepoint.go` or new analyzer
+
+### Implementation priority
+1. **3.2** (step timing) + **3.3** (failing step) — highest impact, data already available
+2. **3.4** (queue time) + **3.5** (compact LLM) — quick wins, immediate signal-to-noise improvement
+3. **3.6** (raw output) + **3.9** (failure trend) — small but valuable
+4. **3.7** (explain) + **3.8** (compare) + **3.10** (drift) — larger features
 
 ---
 
@@ -260,6 +296,24 @@ _Depends on Releases 1-3 for data richness. A TUI over today's data would be und
 - If CI config changed: include diff in change point evidence
 - Distinguishes "CI config change" from "application code change" as root cause
 
+### 5.4 Reusable workflow call chain dedup [M]
+- `deploy-test.yml` calls `tests.yml` via `workflow_call` — findings are duplicated across both
+- Detect call chains from workflow YAML `jobs.*.uses` fields
+- Attribute findings to the leaf workflow, suppress duplicates from callers
+- **Files:** `internal/github/client.go` (fetch workflow YAML), `internal/preprocess/`
+
+### 5.5 Branch-aware failure analysis [S]
+- PR failures (expected during development) vs main failures (critical) are very different signals
+- Default: weight main-branch failures higher in severity, or separate failure rates by branch category
+- Extends `--branch` flag with `--branch-category pr|main|all`
+- **Files:** `internal/analyze/failures.go`, `internal/preprocess/filter.go`
+
+### 5.6 Regression commit diff attribution [S]
+- Change point detection already captures the commit SHA
+- Fetch `git diff --stat` via GitHub API for that commit to show what files changed
+- Saves the user a manual `git show` round-trip per regression
+- **Files:** `internal/github/client.go`, `internal/analyze/changepoint.go`, formatters
+
 ---
 
 ## Key Files Reference
@@ -277,8 +331,9 @@ _Depends on Releases 1-3 for data richness. A TUI over today's data would be und
 | `internal/analyze/failures.go` | New analyzer, cancel exclusion | 2.2, 2.3, 2.5.1 |
 | `internal/cost/model.go` | New package, self-hosted detection | 2.4, 2.5.2 |
 | `internal/analyze/cost.go` | New analyzer, billable priority | 2.4, 2.5, 2.5.2, 2.5.4 |
-| `internal/output/llm.go` | New formatter | 3.1, 3.2 |
-| `cmd/ci-snitch/compare.go` | New subcommand | 3.3 |
+| `internal/analyze/steps.go` | New step-level analyzer | 3.2 |
+| `internal/output/llm.go` | New formatter, compact mode, raw output | 3.1, 3.5, 3.6, 3.7 |
+| `cmd/ci-snitch/compare.go` | New subcommand | 3.8 |
 | `internal/tui/` | New package (bubbletea) | 4.x |
 
 ## Versioning
