@@ -10,12 +10,12 @@ import (
 
 // OutlierDetail contains information about an outlier run or job.
 type OutlierDetail struct {
-	RunID        int64         `json:"run_id"`
-	CommitSHA    string        `json:"commit_sha"`
-	Duration     time.Duration `json:"duration"`
-	Percentile   float64       `json:"percentile"`
-	WorkflowName string        `json:"workflow_name"`
-	JobName      string        `json:"job_name,omitempty"`
+	RunID        int64    `json:"run_id"`
+	CommitSHA    string   `json:"commit_sha"`
+	Duration     Duration `json:"duration"`
+	Percentile   float64  `json:"percentile"`
+	WorkflowName string   `json:"workflow_name"`
+	JobName      string   `json:"job_name,omitempty"`
 }
 
 // DetailType implements FindingDetail.
@@ -52,13 +52,29 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 
 	var findings []Finding
 
-	// Workflow-level outliers
+	// Count distinct job names per workflow to skip workflow-level detection
+	// for single-job workflows (avoids duplicate entries with job-level detection).
+	wfJobNames := make(map[int64]map[string]bool)
+	for _, d := range ac.Details {
+		wfID := d.Run.WorkflowID
+		if wfJobNames[wfID] == nil {
+			wfJobNames[wfID] = make(map[string]bool)
+		}
+		for _, j := range d.Jobs {
+			wfJobNames[wfID][j.Name] = true
+		}
+	}
+
+	// Workflow-level outliers (only for multi-job workflows)
 	wfDurations := make(map[int64][]float64)
 	wfRuns := make(map[int64][]int) // index into ac.Details
 	for i, d := range ac.Details {
+		wfID := d.Run.WorkflowID
+		if len(wfJobNames[wfID]) <= 1 {
+			continue
+		}
 		dur := d.Run.Duration().Seconds()
 		if dur > 0 {
-			wfID := d.Run.WorkflowID
 			wfDurations[wfID] = append(wfDurations[wfID], dur)
 			wfRuns[wfID] = append(wfRuns[wfID], i)
 		}
@@ -75,7 +91,7 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 			detailIdx := idxMap[out.Index]
 			d := ac.Details[detailIdx]
 			findings = append(findings, Finding{
-				Type:     "outlier",
+				Type:     TypeOutlier,
 				Severity: severityFromPercentile(out.Percentile),
 				Title:    fmt.Sprintf("Slow run in %q", wfName),
 				Description: fmt.Sprintf("Run took %s (p%.0f — slower than %.0f%% of runs)",
@@ -83,7 +99,7 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 				Detail: OutlierDetail{
 					RunID:        d.Run.ID,
 					CommitSHA:    d.Run.HeadSHA,
-					Duration:     d.Run.Duration(),
+					Duration:     Duration(d.Run.Duration()),
 					Percentile:   out.Percentile,
 					WorkflowName: wfName,
 				},
@@ -134,7 +150,7 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 				Detail: OutlierDetail{
 					RunID:        d.Run.ID,
 					CommitSHA:    d.Run.HeadSHA,
-					Duration:     job.Duration(),
+					Duration:     Duration(job.Duration()),
 					Percentile:   out.Percentile,
 					WorkflowName: wfName,
 					JobName:      job.Name,

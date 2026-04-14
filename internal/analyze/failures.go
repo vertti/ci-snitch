@@ -59,9 +59,11 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 		}
 	}
 
+	const minRunsForFailureRate = 5
+
 	var findings []Finding
 	for wfID, s := range wfStats {
-		if s.failures == 0 {
+		if s.failures == 0 || s.total < minRunsForFailureRate {
 			continue
 		}
 		wfName := ac.WorkflowName(wfID)

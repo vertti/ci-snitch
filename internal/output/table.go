@@ -129,25 +129,25 @@ func writeTriageHeader(w io.Writer, summaries, changepoints, failures []analyze.
 		_, _ = fmt.Fprintln(w)
 	}
 
-	// Active regressions (persistent critical/warning change points)
-	var regressions []string
+	// Active regressions (already deduplicated by postprocessor)
+	var regressions []analyze.ChangePointDetail
 	for _, f := range changepoints {
-		if f.Severity == analyze.SeverityInfo {
-			continue
-		}
 		d, ok := f.Detail.(analyze.ChangePointDetail)
-		if !ok || d.Direction != analyze.DirectionSlowdown || d.Persistence == "transient" {
-			continue
+		if ok && d.Category == analyze.CategoryRegression && d.Direction == analyze.DirectionSlowdown {
+			regressions = append(regressions, d)
 		}
-		regressions = append(regressions, fmt.Sprintf("%s %+.0f%%", d.JobName, d.PctChange))
 	}
 	if len(regressions) > 0 {
 		_, _ = fmt.Fprintf(w, "  %sRegressions:%s  ", dim, reset)
-		for i, r := range regressions {
+		shown := min(5, len(regressions))
+		for i, d := range regressions[:shown] {
 			if i > 0 {
 				_, _ = fmt.Fprint(w, ", ")
 			}
-			_, _ = fmt.Fprintf(w, "%s%s%s", red, r, reset)
+			_, _ = fmt.Fprintf(w, "%s%s %+.0f%%%s", red, d.JobName, d.PctChange, reset)
+		}
+		if len(regressions) > shown {
+			_, _ = fmt.Fprintf(w, "%s, +%d more%s", dim, len(regressions)-shown, reset)
 		}
 		_, _ = fmt.Fprintln(w)
 	}
@@ -183,7 +183,8 @@ func writeSummaryTable(w io.Writer, findings []analyze.Finding) error {
 		if !ok {
 			continue
 		}
-		if len(d.Jobs) > 1 {
+		// Workflows with ≤2 runs: don't expand job tree (stats are meaningless)
+		if len(d.Jobs) > 1 && d.Stats.TotalRuns > 2 {
 			multiJob = append(multiJob, indexedFinding{i, f})
 		} else {
 			singleJob = append(singleJob, indexedFinding{i, f})
@@ -277,7 +278,8 @@ func fmtVolatility(label string) string {
 	}
 }
 
-func fmtTotalTime(d time.Duration) string {
+func fmtTotalTime(ad analyze.Duration) string {
+	d := ad.Std()
 	h := int(d.Hours())
 	m := int(d.Minutes()) % 60
 	if h > 0 {
@@ -287,10 +289,15 @@ func fmtTotalTime(d time.Duration) string {
 }
 
 func writeCostTable(w io.Writer, findings []analyze.Finding) {
-	_, _ = fmt.Fprintf(w, "%s── CI Cost (%d workflows) ──%s\n", dim, len(findings), reset)
+	shown := min(5, len(findings))
+	header := fmt.Sprintf("%d workflows", len(findings))
+	if shown < len(findings) {
+		header = fmt.Sprintf("top %d of %d", shown, len(findings))
+	}
+	_, _ = fmt.Fprintf(w, "%s── CI Cost (%s) ──%s\n", dim, header, reset)
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', tabwriter.StripEscape)
-	for _, f := range findings {
+	for _, f := range findings[:shown] {
 		d, ok := f.Detail.(analyze.CostDetail)
 		if !ok {
 			continue
@@ -323,14 +330,23 @@ func writeCostTable(w io.Writer, findings []analyze.Finding) {
 		}
 	}
 	_ = tw.Flush()
+	if len(findings) > shown {
+		_, _ = fmt.Fprintf(w, "  %s(%d more workflows not shown)%s\n", dim, len(findings)-shown, reset)
+	}
 	_, _ = fmt.Fprintln(w)
 }
 
 func writeFailureTable(w io.Writer, findings []analyze.Finding) {
+	// Sub-5% already filtered by postprocessor
+	if len(findings) == 0 {
+		return
+	}
+
+	shown := min(7, len(findings))
 	_, _ = fmt.Fprintf(w, "%s── Failure Rates (%d) ──%s\n", dim, len(findings), reset)
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	for _, f := range findings {
+	for _, f := range findings[:shown] {
 		d, ok := f.Detail.(analyze.FailureDetail)
 		if !ok {
 			continue
@@ -365,27 +381,34 @@ func writeFailureTable(w io.Writer, findings []analyze.Finding) {
 			dim, strings.Join(parts, ", "), reset)
 	}
 	_ = tw.Flush()
+	if len(findings) > shown {
+		_, _ = fmt.Fprintf(w, "  %s(%d more not shown)%s\n", dim, len(findings)-shown, reset)
+	}
 	_, _ = fmt.Fprintln(w)
 }
 
 func writeOutlierTable(w io.Writer, findings []analyze.Finding) error {
-	_, _ = fmt.Fprintf(w, "%s── Outliers (%d) ──%s\n", dim, len(findings), reset)
-
-	// Build rows without ANSI so we can measure column widths
-	type outlierRow struct {
-		severity string
-		subject  string
-		duration string
-		pct      string
-		commit   string
-	}
-	rows := make([]outlierRow, 0, len(findings))
-	maxSubject := 0
-	for _, f := range findings {
-		d, ok := f.Detail.(analyze.OutlierDetail)
-		if !ok {
-			continue
+	// Findings are already grouped by postprocessor into OutlierGroupDetail.
+	// Sort by worst duration descending.
+	sorted := make([]analyze.Finding, len(findings))
+	copy(sorted, findings)
+	slices.SortFunc(sorted, func(a, b analyze.Finding) int {
+		ad, _ := a.Detail.(analyze.OutlierGroupDetail)
+		bd, _ := b.Detail.(analyze.OutlierGroupDetail)
+		if bd.WorstDuration > ad.WorstDuration {
+			return 1
 		}
+		if bd.WorstDuration < ad.WorstDuration {
+			return -1
+		}
+		return 0
+	})
+
+	_, _ = fmt.Fprintf(w, "%s── Outliers (%d groups) ──%s\n", dim, len(sorted), reset)
+
+	maxSubject := 0
+	for _, f := range sorted {
+		d, _ := f.Detail.(analyze.OutlierGroupDetail)
 		subject := d.WorkflowName
 		if d.JobName != "" {
 			subject += " / " + d.JobName
@@ -393,44 +416,59 @@ func writeOutlierTable(w io.Writer, findings []analyze.Finding) error {
 		if len(subject) > maxSubject {
 			maxSubject = len(subject)
 		}
-		rows = append(rows, outlierRow{
-			severity: f.Severity,
-			subject:  subject,
-			duration: fmtDur(d.Duration),
-			pct:      fmt.Sprintf("p%.0f", d.Percentile),
-			commit:   truncSHA(d.CommitSHA),
-		})
 	}
 
-	for _, r := range rows {
+	for _, f := range sorted {
+		d, _ := f.Detail.(analyze.OutlierGroupDetail)
+		subject := d.WorkflowName
+		if d.JobName != "" {
+			subject += " / " + d.JobName
+		}
 		durColor := yellow
-		if r.severity == analyze.SeverityCritical {
+		if d.MaxSeverity == analyze.SeverityCritical {
 			durColor = red
 		}
-		_, _ = fmt.Fprintf(w, "  %s %-*s  %s%-8s%s %s%-4s%s  %s%s%s\n",
-			severityDot(r.severity), maxSubject, r.subject,
-			durColor, r.duration, reset,
-			dim, r.pct, reset,
-			dim, r.commit, reset)
+		countStr := fmt.Sprintf("%dx", d.Count)
+		if d.Count == 1 {
+			countStr = "  "
+		}
+		_, _ = fmt.Fprintf(w, "  %s %-*s  %s%-3s%s %s%-8s%s %sp%.0f%s  %s%s%s\n",
+			severityDot(d.MaxSeverity), maxSubject, subject,
+			bold, countStr, reset,
+			durColor, fmtDur(d.WorstDuration), reset,
+			dim, d.WorstPercentile, reset,
+			dim, truncSHA(d.WorstCommitSHA), reset)
 	}
 	_, _ = fmt.Fprintln(w)
 	return nil
 }
 
 func writeChangePointTable(w io.Writer, findings []analyze.Finding, verbose bool) error {
-	var notable, minor []analyze.Finding
+	// Split by category (set by postprocessor)
+	var actionable, oscillating, minor []analyze.Finding
 	for _, f := range findings {
-		if f.Severity == analyze.SeverityInfo {
+		d, ok := f.Detail.(analyze.ChangePointDetail)
+		if !ok {
+			continue
+		}
+		switch d.Category {
+		case analyze.CategoryOscillating:
+			oscillating = append(oscillating, f)
+		case analyze.CategoryMinor:
 			minor = append(minor, f)
-		} else {
-			notable = append(notable, f)
+		default: // regression, speedup
+			actionable = append(actionable, f)
 		}
 	}
 
-	if len(notable) > 0 {
-		_, _ = fmt.Fprintf(w, "%s── Change Points (%d) ──%s\n", dim, len(notable), reset)
-		writeChangePointRows(w, notable)
+	if len(actionable) > 0 {
+		_, _ = fmt.Fprintf(w, "%s── Change Points (%d) ──%s\n", dim, len(actionable), reset)
+		writeChangePointRows(w, actionable)
 		_, _ = fmt.Fprintln(w)
+	}
+
+	if len(oscillating) > 0 {
+		writeOscillatingJobs(w, oscillating)
 	}
 
 	switch {
@@ -438,13 +476,57 @@ func writeChangePointTable(w io.Writer, findings []analyze.Finding, verbose bool
 		_, _ = fmt.Fprintf(w, "%s── Change Points (minor, %d) ──%s\n", dim, len(minor), reset)
 		writeChangePointRows(w, minor)
 		_, _ = fmt.Fprintln(w)
-	case len(minor) > 0 && len(notable) > 0:
-		_, _ = fmt.Fprintf(w, "  %s(%d minor change points hidden, use -v to show)%s\n\n", dim, len(minor), reset)
 	case len(minor) > 0:
-		_, _ = fmt.Fprintf(w, "  %s(%d minor change points found, use -v to show)%s\n\n", dim, len(minor), reset)
+		_, _ = fmt.Fprintf(w, "  %s(%d minor change points hidden, use -v to show)%s\n\n", dim, len(minor), reset)
 	}
 
 	return nil
+}
+
+// writeOscillatingJobs summarizes jobs with 3+ change points — these are volatile, not changing.
+func writeOscillatingJobs(w io.Writer, findings []analyze.Finding) {
+	type jobSummary struct {
+		name     string
+		count    int
+		current  analyze.Duration // after-mean of the latest change point
+		earliest analyze.Duration // before-mean of the first change point
+	}
+	seen := make(map[string]bool)
+	jobCounts := make(map[string]int)
+	var summaries []jobSummary
+	latest := make(map[string]analyze.ChangePointDetail)
+	earliest := make(map[string]analyze.ChangePointDetail)
+
+	for _, f := range findings {
+		d, _ := f.Detail.(analyze.ChangePointDetail)
+		jobCounts[d.JobName]++
+		if !seen[d.JobName] {
+			seen[d.JobName] = true
+			summaries = append(summaries, jobSummary{name: d.JobName})
+			earliest[d.JobName] = d
+		}
+		latest[d.JobName] = d
+	}
+	for i := range summaries {
+		summaries[i].count = jobCounts[summaries[i].name]
+		summaries[i].current = latest[summaries[i].name].AfterMean
+		summaries[i].earliest = earliest[summaries[i].name].BeforeMean
+	}
+
+	_, _ = fmt.Fprintf(w, "%s── Oscillating Jobs (%d jobs, too volatile for reliable change detection) ──%s\n", dim, len(summaries), reset)
+	for _, s := range summaries {
+		icon := yellow + "~" + reset
+		trend := dim + "stable" + reset
+		if s.current > s.earliest+s.earliest/10 {
+			trend = red + "trending up" + reset
+		} else if s.current < s.earliest-s.earliest/10 {
+			trend = green + "trending down" + reset
+		}
+		_, _ = fmt.Fprintf(w, "  %s %s  %s%d shifts%s, was %s now %s (%s)\n",
+			icon, s.name, dim, s.count, reset,
+			fmtDur(s.earliest), fmtDur(s.current), trend)
+	}
+	_, _ = fmt.Fprintln(w)
 }
 
 func writeChangePointRows(w io.Writer, findings []analyze.Finding) {
@@ -512,8 +594,8 @@ func formatPersistence(d analyze.ChangePointDetail) string {
 	}
 }
 
-func fmtDur(d time.Duration) string {
-	d = d.Round(time.Second)
+func fmtDur(ad analyze.Duration) string {
+	d := ad.Std().Round(time.Second)
 	if d < time.Minute {
 		return fmt.Sprintf("%ds", int(d.Seconds()))
 	}

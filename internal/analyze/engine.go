@@ -59,6 +59,8 @@ func (e *Engine) Run(ctx context.Context, details, allDetails []model.RunDetail,
 		result.Findings = append(result.Findings, findings...)
 	}
 
+	result.Findings = postProcess(result.Findings)
+
 	return result
 }
 

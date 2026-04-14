@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"slices"
 
 	"github.com/vertti/ci-snitch/internal/analyze"
 )
@@ -43,11 +42,8 @@ func (LLMFormatter) Format(w io.Writer, result analyze.AnalysisResult) error {
 	hasPriority := false
 
 	for _, f := range changepoints {
-		if f.Severity == analyze.SeverityInfo {
-			continue
-		}
 		d, ok := f.Detail.(analyze.ChangePointDetail)
-		if !ok || d.Direction != analyze.DirectionSlowdown || d.Persistence == analyze.PersistenceTransient {
+		if !ok || d.Category != analyze.CategoryRegression || d.Direction != analyze.DirectionSlowdown {
 			continue
 		}
 		hasPriority = true
@@ -62,9 +58,6 @@ func (LLMFormatter) Format(w io.Writer, result analyze.AnalysisResult) error {
 	}
 
 	for _, f := range failures {
-		if f.Severity == analyze.SeverityInfo {
-			continue
-		}
 		d, ok := f.Detail.(analyze.FailureDetail)
 		if !ok {
 			continue
@@ -137,11 +130,8 @@ func buildSuggestions(changepoints, failures, costs, outliers []analyze.Finding)
 	var suggestions []string
 
 	for _, f := range changepoints {
-		if f.Severity == analyze.SeverityInfo {
-			continue
-		}
 		d, ok := f.Detail.(analyze.ChangePointDetail)
-		if !ok || d.Direction != analyze.DirectionSlowdown {
+		if !ok || d.Category != analyze.CategoryRegression || d.Direction != analyze.DirectionSlowdown {
 			continue
 		}
 		suggestions = append(suggestions,
@@ -159,30 +149,19 @@ func buildSuggestions(changepoints, failures, costs, outliers []analyze.Finding)
 				d.Workflow, d.DailySavingsEstimate))
 	}
 
-	// Outlier clusters
-	commitCounts := make(map[string]int)
+	// Frequent outlier groups
 	for _, f := range outliers {
-		d, ok := f.Detail.(analyze.OutlierDetail)
-		if !ok {
+		d, ok := f.Detail.(analyze.OutlierGroupDetail)
+		if !ok || d.Count < 5 {
 			continue
 		}
-		commitCounts[d.CommitSHA]++
-	}
-	type commitCount struct {
-		sha   string
-		count int
-	}
-	var hotCommits []commitCount
-	for sha, count := range commitCounts {
-		if count >= 3 {
-			hotCommits = append(hotCommits, commitCount{sha, count})
+		subject := d.WorkflowName
+		if d.JobName != "" {
+			subject = d.JobName
 		}
-	}
-	slices.SortFunc(hotCommits, func(a, b commitCount) int { return b.count - a.count })
-	for _, hc := range hotCommits {
 		suggestions = append(suggestions,
-			fmt.Sprintf("Commit `%s` appears in %d outliers -- likely a systemic issue",
-				truncSHA(hc.sha), hc.count))
+			fmt.Sprintf("%q has %d outliers (worst %s) -- check for resource contention or flaky infrastructure",
+				subject, d.Count, fmtDur(d.WorstDuration)))
 	}
 
 	for _, f := range failures {
