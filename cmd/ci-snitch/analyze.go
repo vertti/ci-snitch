@@ -248,6 +248,7 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 	analyzeStart := time.Now()
 	engine := analyze.NewEngine(
 		analyze.SummaryAnalyzer{},
+		analyze.StepAnalyzer{},
 		analyze.OutlierAnalyzer{},
 		analyze.ChangePointAnalyzer{},
 		analyze.FailureAnalyzer{},

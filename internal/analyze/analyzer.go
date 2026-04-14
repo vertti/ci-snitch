@@ -58,6 +58,7 @@ const (
 // Finding type identifiers.
 const (
 	TypeSummary     = "summary"
+	TypeSteps       = "steps"
 	TypeOutlier     = "outlier"
 	TypeChangepoint = "changepoint"
 	TypeFailure     = "failure"
