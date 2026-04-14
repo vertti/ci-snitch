@@ -17,8 +17,8 @@ func postProcess(findings []Finding) []Finding {
 			// Handled in batch below
 		case TypeFailure:
 			d, ok := f.Detail.(FailureDetail)
-			if ok && d.FailureRate < 0.05 {
-				continue // drop sub-5% failure rates
+			if ok && d.FailureRate < 0.05 && d.CancellationRate < 0.05 {
+				continue // drop workflows with negligible failure and cancellation rates
 			}
 			result = append(result, f)
 		default:

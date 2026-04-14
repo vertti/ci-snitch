@@ -374,11 +374,17 @@ func writeFailureTable(w io.Writer, findings []analyze.Finding) {
 			parts = append(parts, fmt.Sprintf("retried: %d (+%d attempts)", d.RetriedRuns, d.ExtraAttempts))
 		}
 
-		_, _ = fmt.Fprintf(tw, "  %s%s%s\t%s%.0f%%%s\t%s(%d/%d runs)%s\t%s%s%s\n",
+		cancelNote := ""
+		if d.CancellationCount > 0 {
+			cancelNote = fmt.Sprintf("\t%s+%d cancelled (%.0f%%)%s", dim, d.CancellationCount, d.CancellationRate*100, reset)
+		}
+
+		_, _ = fmt.Fprintf(tw, "  %s%s%s\t%s%.0f%%%s\t%s(%d/%d runs)%s\t%s%s%s%s\n",
 			bold, d.Workflow, reset,
 			rateColor, d.FailureRate*100, reset,
 			dim, d.FailureCount, d.TotalRuns, reset,
-			dim, strings.Join(parts, ", "), reset)
+			dim, strings.Join(parts, ", "), reset,
+			cancelNote)
 	}
 	_ = tw.Flush()
 	if len(findings) > shown {
