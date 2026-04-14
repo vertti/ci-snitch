@@ -51,17 +51,17 @@ func TestSummaryAnalyzer_BasicStats(t *testing.T) {
 
 	assert.Equal(t, "CI", d.Workflow)
 	assert.Equal(t, 10, d.Stats.TotalRuns)
-	assert.Equal(t, 5*time.Minute, d.Stats.Mean)
-	assert.Equal(t, 5*time.Minute, d.Stats.Median)
-	assert.Equal(t, 5*time.Minute, d.Stats.Min)
-	assert.Equal(t, 5*time.Minute, d.Stats.Max)
-	assert.Equal(t, 50*time.Minute, d.Stats.TotalTime)
+	assert.Equal(t, Duration(5*time.Minute), d.Stats.Mean)
+	assert.Equal(t, Duration(5*time.Minute), d.Stats.Median)
+	assert.Equal(t, Duration(5*time.Minute), d.Stats.Min)
+	assert.Equal(t, Duration(5*time.Minute), d.Stats.Max)
+	assert.Equal(t, Duration(50*time.Minute), d.Stats.TotalTime)
 
 	// Jobs nested under workflow
 	require.Len(t, d.Jobs, 1)
 	assert.Equal(t, "build", d.Jobs[0].Name)
 	assert.Equal(t, 10, d.Jobs[0].Stats.TotalRuns)
-	assert.Equal(t, 3*time.Minute, d.Jobs[0].Stats.Mean)
+	assert.Equal(t, Duration(3*time.Minute), d.Jobs[0].Stats.Mean)
 }
 
 func TestSummaryAnalyzer_SortedByTotalTime(t *testing.T) {
@@ -141,10 +141,10 @@ func TestSummaryAnalyzer_VariedDurations(t *testing.T) {
 	d, ok := findings[0].Detail.(SummaryDetail)
 	require.True(t, ok)
 	assert.Equal(t, 5, d.Stats.TotalRuns)
-	assert.Equal(t, 4*time.Minute, d.Stats.Mean)
-	assert.Equal(t, 3*time.Minute, d.Stats.Median)
-	assert.Equal(t, 1*time.Minute, d.Stats.Min)
-	assert.Equal(t, 10*time.Minute, d.Stats.Max)
+	assert.Equal(t, Duration(4*time.Minute), d.Stats.Mean)
+	assert.Equal(t, Duration(3*time.Minute), d.Stats.Median)
+	assert.Equal(t, Duration(1*time.Minute), d.Stats.Min)
+	assert.Equal(t, Duration(10*time.Minute), d.Stats.Max)
 	assert.Greater(t, d.Stats.P95, d.Stats.Median)
 }
 

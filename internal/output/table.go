@@ -278,7 +278,8 @@ func fmtVolatility(label string) string {
 	}
 }
 
-func fmtTotalTime(d time.Duration) string {
+func fmtTotalTime(ad analyze.Duration) string {
+	d := ad.Std()
 	h := int(d.Hours())
 	m := int(d.Minutes()) % 60
 	if h > 0 {
@@ -487,8 +488,8 @@ func writeOscillatingJobs(w io.Writer, findings []analyze.Finding) {
 	type jobSummary struct {
 		name     string
 		count    int
-		current  time.Duration // after-mean of the latest change point
-		earliest time.Duration // before-mean of the first change point
+		current  analyze.Duration // after-mean of the latest change point
+		earliest analyze.Duration // before-mean of the first change point
 	}
 	seen := make(map[string]bool)
 	jobCounts := make(map[string]int)
@@ -593,8 +594,8 @@ func formatPersistence(d analyze.ChangePointDetail) string {
 	}
 }
 
-func fmtDur(d time.Duration) string {
-	d = d.Round(time.Second)
+func fmtDur(ad analyze.Duration) string {
+	d := ad.Std().Round(time.Second)
 	if d < time.Minute {
 		return fmt.Sprintf("%ds", int(d.Seconds()))
 	}

@@ -12,20 +12,20 @@ import (
 
 // ChangePointDetail contains information about a detected performance shift.
 type ChangePointDetail struct {
-	WorkflowName   string        `json:"workflow_name"`
-	JobName        string        `json:"job_name"`
-	ChangeIdx      int           `json:"change_idx"`
-	BeforeMean     time.Duration `json:"before_mean"`
-	AfterMean      time.Duration `json:"after_mean"`
-	PctChange      float64       `json:"pct_change"`
-	Direction      string        `json:"direction"`
-	PValue         float64       `json:"p_value"`
-	CommitSHA      string        `json:"commit_sha"`
-	Date           time.Time     `json:"date"`
-	PostChangeRuns int           `json:"post_change_runs"`
-	PostChangeCV   float64       `json:"post_change_cv"`
-	Persistence    string        `json:"persistence"`
-	Category       string        `json:"category,omitempty"` // set by post-processing: regression, oscillating, minor, speedup
+	WorkflowName   string    `json:"workflow_name"`
+	JobName        string    `json:"job_name"`
+	ChangeIdx      int       `json:"change_idx"`
+	BeforeMean     Duration  `json:"before_mean"`
+	AfterMean      Duration  `json:"after_mean"`
+	PctChange      float64   `json:"pct_change"`
+	Direction      string    `json:"direction"`
+	PValue         float64   `json:"p_value"`
+	CommitSHA      string    `json:"commit_sha"`
+	Date           time.Time `json:"date"`
+	PostChangeRuns int       `json:"post_change_runs"`
+	PostChangeCV   float64   `json:"post_change_cv"`
+	Persistence    string    `json:"persistence"`
+	Category       string    `json:"category,omitempty"` // set by post-processing: regression, oscillating, minor, speedup
 }
 
 // DetailType implements FindingDetail.
@@ -153,8 +153,8 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 					WorkflowName:   wfName,
 					JobName:        jk.job,
 					ChangeIdx:      cp.Index,
-					BeforeMean:     time.Duration(cp.BeforeMean * float64(time.Second)),
-					AfterMean:      time.Duration(cp.AfterMean * float64(time.Second)),
+					BeforeMean:     Duration(cp.BeforeMean * float64(time.Second)),
+					AfterMean:      Duration(cp.AfterMean * float64(time.Second)),
 					PctChange:      cp.PctChange,
 					Direction:      cp.Direction,
 					PValue:         pValue,

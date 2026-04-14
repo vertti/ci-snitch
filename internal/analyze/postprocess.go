@@ -105,7 +105,7 @@ func groupOutliers(findings []Finding) []Finding {
 	type group struct {
 		key         groupKey
 		count       int
-		worstDur    time.Duration
+		worstDur    Duration
 		worstPct    float64
 		worstCommit string
 		maxSeverity string

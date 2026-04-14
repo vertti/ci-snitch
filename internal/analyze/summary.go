@@ -11,16 +11,16 @@ import (
 
 // SummaryStats holds statistical measures for a duration series.
 type SummaryStats struct {
-	TotalRuns       int           `json:"total_runs"`
-	Mean            time.Duration `json:"mean"`
-	Median          time.Duration `json:"median"`
-	P95             time.Duration `json:"p95"`
-	P99             time.Duration `json:"p99"`
-	Min             time.Duration `json:"min"`
-	Max             time.Duration `json:"max"`
-	TotalTime       time.Duration `json:"total_time"`
-	Volatility      float64       `json:"volatility"`
-	VolatilityLabel string        `json:"volatility_label"`
+	TotalRuns       int      `json:"total_runs"`
+	Mean            Duration `json:"mean"`
+	Median          Duration `json:"median"`
+	P95             Duration `json:"p95"`
+	P99             Duration `json:"p99"`
+	Min             Duration `json:"min"`
+	Max             Duration `json:"max"`
+	TotalTime       Duration `json:"total_time"`
+	Volatility      float64  `json:"volatility"`
+	VolatilityLabel string   `json:"volatility_label"`
 }
 
 // SummaryDetail contains summary statistics for a workflow and its jobs.
@@ -199,13 +199,13 @@ func computeStats(durations []time.Duration) SummaryStats {
 
 	return SummaryStats{
 		TotalRuns:       n,
-		Mean:            total / time.Duration(n),
-		Median:          median,
-		P95:             p95,
-		P99:             percentile(durations, 99),
-		Min:             durations[0],
-		Max:             durations[n-1],
-		TotalTime:       total,
+		Mean:            Duration(total / time.Duration(n)),
+		Median:          Duration(median),
+		P95:             Duration(p95),
+		P99:             Duration(percentile(durations, 99)),
+		Min:             Duration(durations[0]),
+		Max:             Duration(durations[n-1]),
+		TotalTime:       Duration(total),
 		Volatility:      volatility,
 		VolatilityLabel: volatilityLabel(volatility),
 	}

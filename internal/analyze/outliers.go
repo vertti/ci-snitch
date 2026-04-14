@@ -10,12 +10,12 @@ import (
 
 // OutlierDetail contains information about an outlier run or job.
 type OutlierDetail struct {
-	RunID        int64         `json:"run_id"`
-	CommitSHA    string        `json:"commit_sha"`
-	Duration     time.Duration `json:"duration"`
-	Percentile   float64       `json:"percentile"`
-	WorkflowName string        `json:"workflow_name"`
-	JobName      string        `json:"job_name,omitempty"`
+	RunID        int64    `json:"run_id"`
+	CommitSHA    string   `json:"commit_sha"`
+	Duration     Duration `json:"duration"`
+	Percentile   float64  `json:"percentile"`
+	WorkflowName string   `json:"workflow_name"`
+	JobName      string   `json:"job_name,omitempty"`
 }
 
 // DetailType implements FindingDetail.
@@ -99,7 +99,7 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 				Detail: OutlierDetail{
 					RunID:        d.Run.ID,
 					CommitSHA:    d.Run.HeadSHA,
-					Duration:     d.Run.Duration(),
+					Duration:     Duration(d.Run.Duration()),
 					Percentile:   out.Percentile,
 					WorkflowName: wfName,
 				},
@@ -150,7 +150,7 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 				Detail: OutlierDetail{
 					RunID:        d.Run.ID,
 					CommitSHA:    d.Run.HeadSHA,
-					Duration:     job.Duration(),
+					Duration:     Duration(job.Duration()),
 					Percentile:   out.Percentile,
 					WorkflowName: wfName,
 					JobName:      job.Name,

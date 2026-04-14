@@ -51,9 +51,9 @@ func TestPostProcess_DedupRegressions(t *testing.T) {
 
 func TestPostProcess_GroupOutliers(t *testing.T) {
 	findings := []Finding{
-		{Type: TypeOutlier, Severity: SeverityWarning, Detail: OutlierDetail{WorkflowName: "CI", JobName: "test", Duration: 5 * time.Minute, Percentile: 96, CommitSHA: "aaa"}},
-		{Type: TypeOutlier, Severity: SeverityCritical, Detail: OutlierDetail{WorkflowName: "CI", JobName: "test", Duration: 10 * time.Minute, Percentile: 99, CommitSHA: "bbb"}},
-		{Type: TypeOutlier, Severity: SeverityWarning, Detail: OutlierDetail{WorkflowName: "CI", JobName: "test", Duration: 6 * time.Minute, Percentile: 97, CommitSHA: "ccc"}},
+		{Type: TypeOutlier, Severity: SeverityWarning, Detail: OutlierDetail{WorkflowName: "CI", JobName: "test", Duration: Duration(5 * time.Minute), Percentile: 96, CommitSHA: "aaa"}},
+		{Type: TypeOutlier, Severity: SeverityCritical, Detail: OutlierDetail{WorkflowName: "CI", JobName: "test", Duration: Duration(10 * time.Minute), Percentile: 99, CommitSHA: "bbb"}},
+		{Type: TypeOutlier, Severity: SeverityWarning, Detail: OutlierDetail{WorkflowName: "CI", JobName: "test", Duration: Duration(6 * time.Minute), Percentile: 97, CommitSHA: "ccc"}},
 	}
 
 	result := postProcess(findings)
@@ -65,7 +65,7 @@ func TestPostProcess_GroupOutliers(t *testing.T) {
 	}
 	require.Len(t, groups, 1, "3 outliers for same job should become 1 group")
 	assert.Equal(t, 3, groups[0].Count)
-	assert.Equal(t, 10*time.Minute, groups[0].WorstDuration)
+	assert.Equal(t, Duration(10*time.Minute), groups[0].WorstDuration)
 	assert.Equal(t, SeverityCritical, groups[0].MaxSeverity)
 }
 
