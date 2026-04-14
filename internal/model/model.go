@@ -99,3 +99,21 @@ type RunDetail struct {
 	Run  WorkflowRun
 	Jobs []Job
 }
+
+// Duration returns the wall-clock duration of the run, preferring job completion
+// times over the run's UpdatedAt (which can be bumped by post-completion events).
+func (rd RunDetail) Duration() time.Duration {
+	var maxCompleted time.Time
+	for _, j := range rd.Jobs {
+		if !j.CompletedAt.IsZero() && j.CompletedAt.After(maxCompleted) {
+			maxCompleted = j.CompletedAt
+		}
+	}
+	if !maxCompleted.IsZero() && !rd.Run.StartedAt.IsZero() {
+		d := maxCompleted.Sub(rd.Run.StartedAt)
+		if d >= 0 {
+			return d
+		}
+	}
+	return rd.Run.Duration()
+}

@@ -74,8 +74,10 @@ func TestFailureAnalyzer_DetectsFailures(t *testing.T) {
 	require.NotNil(t, ciFailure, "should detect failures in CI workflow")
 
 	assert.Equal(t, 20, ciFailure.TotalRuns)
-	assert.Equal(t, 5, ciFailure.FailureCount) // 3 failure + 2 cancelled
-	assert.InDelta(t, 0.25, ciFailure.FailureRate, 0.01)
+	assert.Equal(t, 3, ciFailure.FailureCount) // only actual failures, not cancelled
+	assert.InDelta(t, 0.15, ciFailure.FailureRate, 0.01)
+	assert.Equal(t, 2, ciFailure.CancellationCount)
+	assert.InDelta(t, 0.10, ciFailure.CancellationRate, 0.01)
 	assert.Equal(t, 3, ciFailure.ByConclusion[conclusionFailure])
 	assert.Equal(t, 2, ciFailure.ByConclusion["cancelled"])
 }

@@ -13,14 +13,16 @@ const (
 
 // FailureDetail contains reliability information for a workflow.
 type FailureDetail struct {
-	Workflow      string         `json:"workflow"`
-	TotalRuns     int            `json:"total_runs"`
-	FailureCount  int            `json:"failure_count"`
-	FailureRate   float64        `json:"failure_rate"`
-	ByConclusion  map[string]int `json:"by_conclusion"`
-	RetriedRuns   int            `json:"retried_runs"`
-	ExtraAttempts int            `json:"extra_attempts"`
-	RerunRate     float64        `json:"rerun_rate"`
+	Workflow          string         `json:"workflow"`
+	TotalRuns         int            `json:"total_runs"`
+	FailureCount      int            `json:"failure_count"`
+	FailureRate       float64        `json:"failure_rate"`
+	CancellationCount int            `json:"cancellation_count"`
+	CancellationRate  float64        `json:"cancellation_rate"`
+	ByConclusion      map[string]int `json:"by_conclusion"`
+	RetriedRuns       int            `json:"retried_runs"`
+	ExtraAttempts     int            `json:"extra_attempts"`
+	RerunRate         float64        `json:"rerun_rate"`
 }
 
 // DetailType implements FindingDetail.
@@ -40,9 +42,10 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 	}
 
 	type wfStat struct {
-		total        int
-		failures     int
-		byConclusion map[string]int
+		total         int
+		failures      int
+		cancellations int
+		byConclusion  map[string]int
 	}
 
 	wfStats := make(map[int64]*wfStat)
@@ -53,7 +56,13 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 		}
 		s := wfStats[wfID]
 		s.total++
-		if d.Run.Conclusion != "success" && d.Run.Conclusion != "skipped" {
+		switch d.Run.Conclusion {
+		case "success", "skipped":
+			// not a failure
+		case "cancelled":
+			s.cancellations++
+			s.byConclusion[d.Run.Conclusion]++
+		default:
 			s.failures++
 			s.byConclusion[d.Run.Conclusion]++
 		}
@@ -63,26 +72,29 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 
 	var findings []Finding
 	for wfID, s := range wfStats {
-		if s.failures == 0 || s.total < minRunsForFailureRate {
+		if (s.failures == 0 && s.cancellations == 0) || s.total < minRunsForFailureRate {
 			continue
 		}
 		wfName := ac.WorkflowName(wfID)
-		rate := float64(s.failures) / float64(s.total)
+		failRate := float64(s.failures) / float64(s.total)
+		cancelRate := float64(s.cancellations) / float64(s.total)
 
 		severity := SeverityInfo
 		switch {
-		case rate >= criticalFailureRate:
+		case failRate >= criticalFailureRate:
 			severity = SeverityCritical
-		case rate >= warningFailureRate:
+		case failRate >= warningFailureRate:
 			severity = SeverityWarning
 		}
 
 		detail := FailureDetail{
-			Workflow:     wfName,
-			TotalRuns:    s.total,
-			FailureCount: s.failures,
-			FailureRate:  rate,
-			ByConclusion: s.byConclusion,
+			Workflow:          wfName,
+			TotalRuns:         s.total,
+			FailureCount:      s.failures,
+			FailureRate:       failRate,
+			CancellationCount: s.cancellations,
+			CancellationRate:  cancelRate,
+			ByConclusion:      s.byConclusion,
 		}
 		if rs, ok := ac.RerunStats[wfID]; ok {
 			detail.RetriedRuns = rs.RetriedRuns
@@ -95,7 +107,7 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 			Severity: severity,
 			Title:    fmt.Sprintf("Workflow %q failure rate", wfName),
 			Description: fmt.Sprintf("%.0f%% failure rate (%d/%d runs)",
-				rate*100, s.failures, s.total),
+				failRate*100, s.failures, s.total),
 			Detail: detail,
 		})
 	}

@@ -118,6 +118,52 @@ _Focus: quantify flakiness, rerun tax, and CI spend. Answer "where is money goin
 
 ---
 
+## Release 2.5: Measurement Correctness
+
+_Focus: fix measurement inaccuracies that inflate failure rates, misattribute costs, and produce misleading priority scores. Each fix is independently shippable._
+
+### 2.5.1 Exclude `cancelled` from failure rate [S] — **measurement fix**
+- `internal/analyze/failures.go:56` counts anything not `success`/`skipped` as a failure
+- `cancelled` runs (developer-initiated cancellations of superseded runs) inflate failure rates significantly in active repos
+- Only count `conclusion == "failure"` and `conclusion == "timed_out"` as failures
+- Track `cancelled` separately: add `CancellationCount`/`CancellationRate` to `FailureDetail`
+- Keep `ByConclusion` map unchanged for full breakdown
+- Formatters show cancellation rate alongside failure rate when non-zero
+- **Files:** `internal/analyze/failures.go`, `internal/output/table.go`
+
+### 2.5.2 Detect self-hosted runners and expand cost model [S] — **measurement fix**
+- `internal/cost/model.go` only maps standard runner labels; self-hosted runners are billed at 1x Linux instead of $0
+- Larger GitHub-hosted runners (e.g., `ubuntu-latest-16-cores` = 8x) also missing
+- Add `IsSelfHosted(labels []string) bool` — returns true if any label is `"self-hosted"`
+- Self-hosted → multiplier 0.0; track `SelfHostedMinutes` separately in `CostDetail`
+- Add larger runner multipliers: pattern-match on `-N-cores` suffix per GitHub docs
+- **Files:** `internal/cost/model.go`, `internal/analyze/cost.go`
+
+### 2.5.3 Use max(job.CompletedAt) for workflow duration [M] — **measurement fix**
+- `WorkflowRun.Duration()` uses `UpdatedAt - StartedAt`; `UpdatedAt` can be bumped by post-completion events (annotations, deployment statuses), inflating durations and creating false outliers
+- Add `func (rd RunDetail) Duration() time.Duration`:
+  1. Compute `max(job.CompletedAt)` across all jobs
+  2. Return `maxCompletedAt - StartedAt` if valid
+  3. Fall back to `WorkflowRun.Duration()` when no jobs have completion times
+- Update callers: `summary.go:64`, `cost.go:65`, `outliers.go:59` — use `d.Duration()` instead of `d.Run.Duration()`
+- Keep `WorkflowRun.Duration()` as-is for backward compat
+- **Files:** `internal/model/model.go`, `internal/analyze/summary.go`, `internal/analyze/cost.go`, `internal/analyze/outliers.go`
+
+### 2.5.4 Compute priority score from billable durations [S] — **measurement fix**
+- `internal/analyze/cost.go:128-138` mixes wall-clock variability ratio (p95/median) with billable totals (includes OS multipliers and per-job rounding) — inconsistent units for parallel-job workflows
+- Replace `wfDurations` (wall-clock) with per-run billable sums: for each run, sum `BillableMinutes(job) × multiplier` across all jobs
+- Use billable-based median/p95/p25 for priority score and daily savings estimate
+- Depends on 2.5.3 being merged first
+- **Files:** `internal/analyze/cost.go`
+
+### Implementation order
+1. **2.5.1** (cancelled exclusion) — no dependencies
+2. **2.5.3** (max job CompletedAt) — no dependencies, but 2.5.4 depends on it
+3. **2.5.2** (self-hosted runners) — no dependencies
+4. **2.5.4** (billable priority score) — after 2.5.3
+
+---
+
 ## Release 3: LLM Integration & Compare
 
 _Focus: make findings machine-consumable and enable before/after comparison workflows._
@@ -228,9 +274,9 @@ _Depends on Releases 1-3 for data richness. A TUI over today's data would be und
 | `internal/github/client.go` | Extract runner info, event | 1.6, 2.1 |
 | `internal/store/sqlite.go` | Schema migration for new columns | 1.6, 2.1 |
 | `internal/analyze/analyzer.go` | `AllDetails` on AnalysisContext | 2.2 |
-| `internal/analyze/failures.go` | New analyzer | 2.2, 2.3 |
-| `internal/cost/model.go` | New package | 2.4 |
-| `internal/analyze/cost.go` | New analyzer | 2.4, 2.5 |
+| `internal/analyze/failures.go` | New analyzer, cancel exclusion | 2.2, 2.3, 2.5.1 |
+| `internal/cost/model.go` | New package, self-hosted detection | 2.4, 2.5.2 |
+| `internal/analyze/cost.go` | New analyzer, billable priority | 2.4, 2.5, 2.5.2, 2.5.4 |
 | `internal/output/llm.go` | New formatter | 3.1, 3.2 |
 | `cmd/ci-snitch/compare.go` | New subcommand | 3.3 |
 | `internal/tui/` | New package (bubbletea) | 4.x |

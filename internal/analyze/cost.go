@@ -15,9 +15,10 @@ type CostDetail struct {
 	Workflow             string             `json:"workflow"`
 	TotalRuns            int                `json:"total_runs"`
 	BillableMinutes      float64            `json:"billable_minutes"`
-	DailyRate            float64            `json:"daily_rate"`             // billable minutes per day
-	PriorityScore        float64            `json:"priority_score"`         // higher = more optimization value
-	DailySavingsEstimate float64            `json:"daily_savings_estimate"` // estimated minutes saved if median -> p25
+	SelfHostedMinutes    float64            `json:"self_hosted_minutes"` // minutes on self-hosted runners (free)
+	DailyRate            float64            `json:"daily_rate"`          // billable minutes per day
+	PriorityScore        float64            `json:"priority_score"`      // higher = more optimization value
+	DailySavingsEstimate float64            `json:"daily_savings_estimate"`
 	Jobs                 []JobCostBreakdown `json:"jobs"`
 }
 
@@ -49,22 +50,21 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 		job  string
 	}
 	type jobAccum struct {
-		billable   float64
-		multiplier float64
-		runs       int
+		billable     float64
+		selfHosted   float64
+		multiplier   float64
+		isSelfHosted bool
+		runs         int
 	}
 
 	wfRuns := make(map[int64]int)
-	wfDurations := make(map[int64][]float64) // workflow-level durations in minutes
+	wfBillable := make(map[int64][]float64) // per-run billable minutes (for priority scoring)
 	jobCosts := make(map[jobKey]*jobAccum)
 	var minTime, maxTime time.Time
 
 	for _, d := range ac.Details {
 		wfID := d.Run.WorkflowID
 		wfRuns[wfID]++
-		if dur := d.Run.Duration().Minutes(); dur > 0 {
-			wfDurations[wfID] = append(wfDurations[wfID], dur)
-		}
 
 		t := d.Run.CreatedAt
 		if minTime.IsZero() || t.Before(minTime) {
@@ -74,16 +74,29 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 			maxTime = t
 		}
 
+		var runBillable float64
 		for _, j := range d.Jobs {
 			k := jobKey{wfID, j.Name}
 			if jobCosts[k] == nil {
+				sh := cost.IsSelfHosted(j.Labels)
 				jobCosts[k] = &jobAccum{
-					multiplier: cost.LookupMultiplier(j.Labels),
+					multiplier:   cost.LookupMultiplier(j.Labels),
+					isSelfHosted: sh,
 				}
 			}
 			jc := jobCosts[k]
-			jc.billable += cost.BillableMinutes(j.Duration()) * jc.multiplier
+			rawMinutes := cost.BillableMinutes(j.Duration())
+			if jc.isSelfHosted {
+				jc.selfHosted += rawMinutes
+			} else {
+				billable := rawMinutes * jc.multiplier
+				jc.billable += billable
+				runBillable += billable
+			}
 			jc.runs++
+		}
+		if runBillable > 0 {
+			wfBillable[wfID] = append(wfBillable[wfID], runBillable)
 		}
 	}
 
@@ -95,7 +108,7 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 	var findings []Finding
 	for wfID, runs := range wfRuns {
 		wfName := ac.WorkflowName(wfID)
-		var totalBillable float64
+		var totalBillable, totalSelfHosted float64
 		var jobs []JobCostBreakdown
 
 		for k, jc := range jobCosts {
@@ -103,9 +116,10 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 				continue
 			}
 			totalBillable += jc.billable
+			totalSelfHosted += jc.selfHosted
 			jobs = append(jobs, JobCostBreakdown{
 				Name:            k.job,
-				BillableMinutes: jc.billable,
+				BillableMinutes: jc.billable + jc.selfHosted,
 				Multiplier:      jc.multiplier,
 				Runs:            jc.runs,
 			})
@@ -123,16 +137,16 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 		})
 
 		// Priority score: daily rate × improvement potential (p95/median ratio).
-		// Higher score = more value from optimization.
+		// Uses per-run billable minutes for consistent units.
 		var priorityScore, dailySavings float64
-		if durations := wfDurations[wfID]; len(durations) >= 5 {
-			median := stats.Median(durations)
-			p95 := stats.Percentile(durations, 95)
-			p25 := stats.Percentile(durations, 25)
+		if billable := wfBillable[wfID]; len(billable) >= 5 {
+			median := stats.Median(billable)
+			p95 := stats.Percentile(billable, 95)
+			p25 := stats.Percentile(billable, 25)
 			if median > 0 {
 				improvementPotential := p95 / median
 				priorityScore = (totalBillable / days) * improvementPotential
-				// Estimated daily savings if median were brought to p25
+				// Estimated daily savings in billable minutes if median were brought to p25
 				runsPerDay := float64(runs) / days
 				dailySavings = (median - p25) * runsPerDay
 			}
@@ -148,6 +162,7 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 				Workflow:             wfName,
 				TotalRuns:            runs,
 				BillableMinutes:      totalBillable,
+				SelfHostedMinutes:    totalSelfHosted,
 				DailyRate:            totalBillable / days,
 				PriorityScore:        priorityScore,
 				DailySavingsEstimate: dailySavings,
