@@ -11,7 +11,10 @@ import (
 	"github.com/vertti/ci-snitch/internal/model"
 )
 
-const conclusionFailure = "failure"
+const (
+	conclusionFailure = "failure"
+	conclusionSuccess = "success"
+)
 
 func makeFailureDetails() []model.RunDetail {
 	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
@@ -20,7 +23,7 @@ func makeFailureDetails() []model.RunDetail {
 	// 20 runs: 15 success, 3 failure, 2 cancelled
 	for i := range 20 {
 		start := base.Add(time.Duration(i) * time.Hour)
-		conclusion := "success"
+		conclusion := conclusionSuccess
 		switch i {
 		case 5, 10, 15:
 			conclusion = conclusionFailure
@@ -90,7 +93,7 @@ func TestFailureAnalyzer_NoFailures(t *testing.T) {
 		details = append(details, model.RunDetail{
 			Run: model.WorkflowRun{
 				WorkflowID: 100, WorkflowName: "CI",
-				Status: "completed", Conclusion: "success",
+				Status: "completed", Conclusion: conclusionSuccess,
 				CreatedAt: start, StartedAt: start, UpdatedAt: start.Add(5 * time.Minute),
 			},
 		})
@@ -111,6 +114,52 @@ func TestFailureAnalyzer_UsesAllDetails(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Empty(t, findings, "should use AllDetails, not Details")
+}
+
+func TestFailureAnalyzer_FailingStepAttribution(t *testing.T) {
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	var details []model.RunDetail
+
+	for i := range 10 {
+		start := base.Add(time.Duration(i) * time.Hour)
+		conclusion := conclusionSuccess
+		jobConclusion := conclusionSuccess
+		stepConclusion := conclusionSuccess
+		if i%3 == 0 { // runs 0, 3, 6, 9 fail
+			conclusion = conclusionFailure
+			jobConclusion = conclusionFailure
+			stepConclusion = conclusionFailure
+		}
+		details = append(details, model.RunDetail{
+			Run: model.WorkflowRun{
+				ID: int64(3000 + i), WorkflowID: 300, WorkflowName: "Tests",
+				Status: "completed", Conclusion: conclusion,
+				CreatedAt: start, StartedAt: start, UpdatedAt: start.Add(5 * time.Minute),
+			},
+			Jobs: []model.Job{
+				{
+					Name: "integration", Status: "completed", Conclusion: jobConclusion,
+					Steps: []model.Step{
+						{Name: "Checkout", Status: "completed", Conclusion: conclusionSuccess},
+						{Name: "Run tests", Status: "completed", Conclusion: stepConclusion},
+					},
+				},
+			},
+		})
+	}
+
+	analyzer := FailureAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{AllDetails: details})
+	require.NoError(t, err)
+	require.NotEmpty(t, findings)
+
+	d, ok := findings[0].Detail.(FailureDetail)
+	require.True(t, ok)
+
+	require.NotEmpty(t, d.FailingSteps, "should identify failing steps")
+	assert.Equal(t, "Run tests", d.FailingSteps[0].StepName)
+	assert.Equal(t, "integration", d.FailingSteps[0].JobName)
+	assert.Equal(t, 4, d.FailingSteps[0].Count)
 }
 
 func TestFailureDetail_Type(t *testing.T) {

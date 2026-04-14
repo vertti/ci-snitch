@@ -20,20 +20,28 @@ type FailureDetail struct {
 	CancellationCount int            `json:"cancellation_count"`
 	CancellationRate  float64        `json:"cancellation_rate"`
 	ByConclusion      map[string]int `json:"by_conclusion"`
+	FailingSteps      []FailingStep  `json:"failing_steps,omitempty"`
 	RetriedRuns       int            `json:"retried_runs"`
 	ExtraAttempts     int            `json:"extra_attempts"`
 	RerunRate         float64        `json:"rerun_rate"`
 }
 
+// FailingStep identifies a step that frequently causes job failures.
+type FailingStep struct {
+	JobName  string `json:"job_name"`
+	StepName string `json:"step_name"`
+	Count    int    `json:"count"`
+}
+
 // DetailType implements FindingDetail.
-func (FailureDetail) DetailType() string { return "failure" }
+func (FailureDetail) DetailType() string { return TypeFailure }
 
 // FailureAnalyzer analyzes failure rates across workflows.
 // Uses AllDetails (unfiltered) from AnalysisContext.
 type FailureAnalyzer struct{}
 
 // Name implements Analyzer.
-func (FailureAnalyzer) Name() string { return "failure" }
+func (FailureAnalyzer) Name() string { return TypeFailure }
 
 // Analyze implements Analyzer.
 func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, error) {
@@ -41,18 +49,26 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 		return nil, nil
 	}
 
+	type stepKey struct {
+		job  string
+		step string
+	}
 	type wfStat struct {
 		total         int
 		failures      int
 		cancellations int
 		byConclusion  map[string]int
+		failingSteps  map[stepKey]int
 	}
 
 	wfStats := make(map[int64]*wfStat)
 	for _, d := range ac.AllDetails {
 		wfID := d.Run.WorkflowID
 		if wfStats[wfID] == nil {
-			wfStats[wfID] = &wfStat{byConclusion: make(map[string]int)}
+			wfStats[wfID] = &wfStat{
+				byConclusion: make(map[string]int),
+				failingSteps: make(map[stepKey]int),
+			}
 		}
 		s := wfStats[wfID]
 		s.total++
@@ -65,6 +81,17 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 		default:
 			s.failures++
 			s.byConclusion[d.Run.Conclusion]++
+			// Attribute failure to specific steps
+			for _, j := range d.Jobs {
+				if j.Conclusion != "failure" {
+					continue
+				}
+				for _, st := range j.Steps {
+					if st.Conclusion == "failure" {
+						s.failingSteps[stepKey{j.Name, st.Name}]++
+					}
+				}
+			}
 		}
 	}
 
@@ -87,6 +114,21 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 			severity = SeverityWarning
 		}
 
+		var failingSteps []FailingStep
+		for k, count := range s.failingSteps {
+			failingSteps = append(failingSteps, FailingStep{
+				JobName:  k.job,
+				StepName: k.step,
+				Count:    count,
+			})
+		}
+		slices.SortFunc(failingSteps, func(a, b FailingStep) int {
+			if b.Count != a.Count {
+				return b.Count - a.Count
+			}
+			return 0
+		})
+
 		detail := FailureDetail{
 			Workflow:          wfName,
 			TotalRuns:         s.total,
@@ -95,6 +137,7 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 			CancellationCount: s.cancellations,
 			CancellationRate:  cancelRate,
 			ByConclusion:      s.byConclusion,
+			FailingSteps:      failingSteps,
 		}
 		if rs, ok := ac.RerunStats[wfID]; ok {
 			detail.RetriedRuns = rs.RetriedRuns
@@ -103,7 +146,7 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 		}
 
 		findings = append(findings, Finding{
-			Type:     "failure",
+			Type:     TypeFailure,
 			Severity: severity,
 			Title:    fmt.Sprintf("Workflow %q failure rate", wfName),
 			Description: fmt.Sprintf("%.0f%% failure rate (%d/%d runs)",
