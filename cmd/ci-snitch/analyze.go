@@ -258,6 +258,7 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 		workflowNames[wf.ID] = wf.Name
 	}
 	result := engine.Run(ctx, filtered, allDetails, rerunStats, workflowNames)
+	result.Meta.Repo = opts.repo
 	prog.Done()
 	if opts.verbose {
 		prog.Log("Analyze: %s", time.Since(analyzeStart))

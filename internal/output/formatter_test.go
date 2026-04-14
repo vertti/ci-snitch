@@ -99,7 +99,7 @@ func TestLLMFormatter(t *testing.T) {
 	require.NoError(t, err)
 
 	out := buf.String()
-	assert.Contains(t, out, "# CI Analysis")
+	assert.Contains(t, out, "# CI Performance Report")
 	assert.Contains(t, out, "## Priority Findings")
 	assert.Contains(t, out, "## Workflow Summaries")
 	assert.Contains(t, out, "## Raw Data")

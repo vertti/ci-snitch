@@ -16,6 +16,7 @@ type Warning struct {
 
 // ResultMeta contains metadata about the analysis run.
 type ResultMeta struct {
+	Repo        string       `json:"repo"`
 	TotalRuns   int          `json:"total_runs"`
 	TimeRange   [2]time.Time `json:"time_range"`
 	WorkflowIDs []int64      `json:"workflow_ids"`
