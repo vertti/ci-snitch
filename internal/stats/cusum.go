@@ -11,6 +11,10 @@ type ChangePoint struct {
 	Direction  string  // "slowdown" or "speedup"
 }
 
+// slackMultiplier controls the CUSUM slack parameter (k = slackMultiplier * stddev).
+// Standard value for detecting mean shifts of ~1 stddev.
+const slackMultiplier = 0.5
+
 // CUSUMDetect runs two-sided CUSUM (Cumulative Sum) change-point detection.
 // It uses adaptive thresholds based on the local coefficient of variation:
 //   - slack (k) = 0.5 * stddev of baseline
@@ -37,7 +41,7 @@ func CUSUMDetect(data []float64, thresholdMultiplier float64, minSegment int) []
 		}
 	}
 
-	k := 0.5 * sigma                 // slack parameter
+	k := slackMultiplier * sigma     // slack parameter
 	h := thresholdMultiplier * sigma // decision threshold
 
 	var points []ChangePoint

@@ -191,6 +191,225 @@ func TestCompactResult_FiltersNoise(t *testing.T) {
 	}
 }
 
+func richTestResult() analyze.AnalysisResult {
+	base := testResult()
+	base.Findings = append(base.Findings,
+		analyze.Finding{
+			Type: analyze.TypeCost, Severity: analyze.SeverityInfo,
+			Title: "Workflow \"CI\" cost",
+			Detail: analyze.CostDetail{
+				Workflow: "CI", TotalRuns: 50, BillableMinutes: 500,
+				DailyRate: 50, PriorityScore: 100, DailySavingsEstimate: 5,
+				Jobs: []analyze.JobCostBreakdown{
+					{Name: "build", BillableMinutes: 300, Multiplier: 1, Runs: 50},
+					{Name: "test", BillableMinutes: 200, Multiplier: 1, Runs: 50},
+				},
+			},
+		},
+		analyze.Finding{
+			Type: analyze.TypeFailure, Severity: analyze.SeverityWarning,
+			Title: "Workflow \"CI\" failure rate",
+			Detail: analyze.FailureDetail{
+				Workflow: "CI", TotalRuns: 100, FailureCount: 15, FailureRate: 0.15,
+				ByConclusion: map[string]int{"failure": 10, "cancelled": 5},
+				RetriedRuns:  3, ExtraAttempts: 4,
+			},
+		},
+		analyze.Finding{
+			Type: analyze.TypeOutlier, Severity: analyze.SeverityCritical,
+			Title: "Outliers in CI / build",
+			Detail: analyze.OutlierGroupDetail{
+				WorkflowName: "CI", JobName: "build", Count: 5,
+				WorstDuration: dur(15 * time.Minute), WorstPercentile: 99,
+				WorstCommitSHA: "aabbccdd11223344", MaxSeverity: analyze.SeverityCritical,
+			},
+		},
+	)
+	return base
+}
+
+func TestTableFormatter_AllSections(t *testing.T) {
+	var buf bytes.Buffer
+	err := TableFormatter{}.Format(&buf, richTestResult())
+	require.NoError(t, err)
+
+	out := buf.String()
+	assert.Contains(t, out, "Triage")
+	assert.Contains(t, out, "CI Cost")
+	assert.Contains(t, out, "500 mins")
+	assert.Contains(t, out, "Failure Rates")
+	assert.Contains(t, out, "15%")
+	assert.Contains(t, out, "Outliers")
+	assert.Contains(t, out, "5x")
+	assert.Contains(t, out, "Change Points")
+	assert.Contains(t, out, "build")
+	assert.Contains(t, out, "Volatility")
+}
+
+func TestMarkdownFormatter_AllSections(t *testing.T) {
+	var buf bytes.Buffer
+	err := MarkdownFormatter{}.Format(&buf, richTestResult())
+	require.NoError(t, err)
+
+	out := buf.String()
+	assert.Contains(t, out, "CI")
+	assert.Contains(t, out, "Performance Changes")
+	assert.Contains(t, out, "Outliers")
+}
+
+func TestLLMFormatter_AllSections(t *testing.T) {
+	var buf bytes.Buffer
+	err := LLMFormatter{}.Format(&buf, richTestResult())
+	require.NoError(t, err)
+
+	out := buf.String()
+	assert.Contains(t, out, "Priority Findings")
+	assert.Contains(t, out, "[FLAKY]")
+	assert.Contains(t, out, "[COST]")
+	assert.Contains(t, out, "Workflow Summaries")
+	assert.Contains(t, out, "Raw Data")
+	assert.Contains(t, out, "Suggested Investigations")
+}
+
+func TestGroupByType(t *testing.T) {
+	findings := []analyze.Finding{
+		{Type: analyze.TypeSummary},
+		{Type: analyze.TypeSummary},
+		{Type: analyze.TypeOutlier},
+		{Type: analyze.TypeChangepoint},
+		{Type: analyze.TypeFailure},
+		{Type: analyze.TypeCost},
+		{Type: analyze.TypeCost},
+		{Type: analyze.TypeSteps},
+	}
+
+	g := groupByType(findings)
+	assert.Len(t, g.Summaries, 2)
+	assert.Len(t, g.Outliers, 1)
+	assert.Len(t, g.Changepoints, 1)
+	assert.Len(t, g.Failures, 1)
+	assert.Len(t, g.Costs, 2)
+	assert.Len(t, g.Steps, 1)
+}
+
+func TestTruncSHA(t *testing.T) {
+	assert.Equal(t, "aabbccdd", truncSHA("aabbccdd11223344"))
+	assert.Equal(t, "short", truncSHA("short"))
+	assert.Empty(t, truncSHA(""))
+}
+
+func TestFmtTotalTime(t *testing.T) {
+	assert.Equal(t, "30m", fmtTotalTime(dur(30*time.Minute)))
+	assert.Equal(t, "2h30m", fmtTotalTime(dur(150*time.Minute)))
+	assert.Equal(t, "0m", fmtTotalTime(0))
+}
+
+func TestTableFormatter_StepTable(t *testing.T) {
+	result := analyze.AnalysisResult{
+		Findings: []analyze.Finding{
+			{
+				Type: analyze.TypeSteps, Severity: analyze.SeverityInfo,
+				Detail: analyze.StepTimingDetail{
+					WorkflowName: "CI", JobName: "build", TotalRuns: 50,
+					Steps: []analyze.StepSummary{
+						{Name: "Checkout", Runs: 50, Median: dur(5 * time.Second), P95: dur(8 * time.Second), PctOfJob: 3, Volatility: 1.2},
+						{Name: "Build", Runs: 50, Median: dur(2 * time.Minute), P95: dur(3 * time.Minute), PctOfJob: 60, Volatility: 2.5},
+						{Name: "Test", Runs: 50, Median: dur(1 * time.Minute), P95: dur(2 * time.Minute), PctOfJob: 30, Volatility: 1.1},
+					},
+				},
+			},
+		},
+		Meta: analyze.ResultMeta{TotalRuns: 50, TimeRange: [2]time.Time{time.Now(), time.Now()}},
+	}
+
+	var buf bytes.Buffer
+	err := TableFormatter{}.Format(&buf, result)
+	require.NoError(t, err)
+
+	out := buf.String()
+	assert.Contains(t, out, "Step Breakdown")
+	assert.Contains(t, out, "Checkout")
+	assert.Contains(t, out, "Build")
+	assert.Contains(t, out, "60% of job")
+	assert.Contains(t, out, "[2.5x]") // volatile step marker
+}
+
+func TestTableFormatter_OscillatingJobs(t *testing.T) {
+	result := analyze.AnalysisResult{
+		Findings: []analyze.Finding{
+			{Type: analyze.TypeChangepoint, Severity: analyze.SeverityWarning, Detail: analyze.ChangePointDetail{
+				JobName: "test", Direction: analyze.DirectionSlowdown, Category: analyze.CategoryOscillating,
+				BeforeMean: dur(5 * time.Minute), AfterMean: dur(7 * time.Minute),
+			}},
+			{Type: analyze.TypeChangepoint, Severity: analyze.SeverityWarning, Detail: analyze.ChangePointDetail{
+				JobName: "test", Direction: analyze.DirectionSpeedup, Category: analyze.CategoryOscillating,
+				BeforeMean: dur(7 * time.Minute), AfterMean: dur(5 * time.Minute),
+			}},
+			{Type: analyze.TypeChangepoint, Severity: analyze.SeverityWarning, Detail: analyze.ChangePointDetail{
+				JobName: "test", Direction: analyze.DirectionSlowdown, Category: analyze.CategoryOscillating,
+				BeforeMean: dur(5 * time.Minute), AfterMean: dur(8 * time.Minute),
+			}},
+		},
+		Meta: analyze.ResultMeta{TotalRuns: 50, TimeRange: [2]time.Time{time.Now(), time.Now()}},
+	}
+
+	var buf bytes.Buffer
+	err := TableFormatter{}.Format(&buf, result)
+	require.NoError(t, err)
+
+	out := buf.String()
+	assert.Contains(t, out, "Oscillating Jobs")
+	assert.Contains(t, out, "test")
+	assert.Contains(t, out, "3 shifts")
+	assert.Contains(t, out, "trending up")
+}
+
+func TestTableFormatter_ChangePointPersistence(t *testing.T) {
+	result := analyze.AnalysisResult{
+		Findings: []analyze.Finding{
+			{Type: analyze.TypeChangepoint, Severity: analyze.SeverityWarning, Detail: analyze.ChangePointDetail{
+				JobName: "build", Direction: analyze.DirectionSlowdown, Category: analyze.CategoryRegression,
+				BeforeMean: dur(3 * time.Minute), AfterMean: dur(4 * time.Minute),
+				PctChange: 33, PValue: 0.001, CommitSHA: "aabbccdd11223344",
+				Date:        time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+				Persistence: "persistent", PostChangeRuns: 30,
+			}},
+			{Type: analyze.TypeChangepoint, Severity: analyze.SeverityWarning, Detail: analyze.ChangePointDetail{
+				JobName: "deploy", Direction: analyze.DirectionSpeedup, Category: analyze.CategorySpeedup,
+				BeforeMean: dur(10 * time.Minute), AfterMean: dur(7 * time.Minute),
+				PctChange: -30, PValue: 0.05, CommitSHA: "11223344aabbccdd",
+				Date:        time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC),
+				Persistence: "transient", PostChangeRuns: 15,
+			}},
+			{Type: analyze.TypeChangepoint, Severity: analyze.SeverityInfo, Detail: analyze.ChangePointDetail{
+				JobName: "lint", Direction: analyze.DirectionSlowdown, Category: analyze.CategoryMinor,
+				BeforeMean: dur(30 * time.Second), AfterMean: dur(32 * time.Second),
+				PctChange: 7, PValue: 0.2, CommitSHA: "ccddaabb11223344",
+				Date:        time.Date(2026, 4, 3, 0, 0, 0, 0, time.UTC),
+				Persistence: "inconclusive", PostChangeRuns: 3,
+			}},
+		},
+		Meta: analyze.ResultMeta{TotalRuns: 50, TimeRange: [2]time.Time{time.Now(), time.Now()}},
+	}
+
+	var buf bytes.Buffer
+	err := TableFormatter{Verbose: true}.Format(&buf, result)
+	require.NoError(t, err)
+
+	out := buf.String()
+	assert.Contains(t, out, "30 runs")              // persistent
+	assert.Contains(t, out, "transient")            // transient label
+	assert.Contains(t, out, "? 3 runs")             // inconclusive
+	assert.Contains(t, out, "Change Points (minor") // verbose shows minor
+}
+
+func TestFmtVolatility(t *testing.T) {
+	assert.Empty(t, fmtVolatility("stable"))
+	assert.Contains(t, fmtVolatility("variable"), "variable")
+	assert.Contains(t, fmtVolatility("spiky"), "spiky")
+	assert.Contains(t, fmtVolatility("volatile"), "volatile")
+}
+
 func TestFmtDur(t *testing.T) {
 	tests := []struct {
 		dur  analyze.Duration
