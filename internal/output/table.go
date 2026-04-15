@@ -63,7 +63,7 @@ func (t TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error
 		result.Meta.TimeRange[1].Format("2006-01-02"))
 
 	// Legend
-	writeLegend(w, len(g.Summaries) > 0, len(g.Outliers) > 0, len(g.Changepoints) > 0)
+	writeLegend(w)
 	return nil
 }
 
@@ -643,7 +643,7 @@ func severityDot(severity string) string {
 	}
 }
 
-func writeLegend(w io.Writer, _, _, _ bool) {
+func writeLegend(w io.Writer) {
 	_, _ = fmt.Fprintf(w, "\n%s", dim)
 	_, _ = fmt.Fprint(w, "Volatility (p95/median): [variable] 1.3-2x  [spiky] 2-3x  [volatile] >3x\n")
 	_, _ = fmt.Fprintf(w, "Outliers: %s●%s critical (p99+)  %s●%s warning (p95+)  %s●%s info\n",

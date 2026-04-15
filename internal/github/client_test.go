@@ -81,8 +81,9 @@ func TestFetchRuns_GoldenFile(t *testing.T) {
 	c := testClient(t, mux)
 
 	since := time.Now().AddDate(0, 0, -3)
-	runs, err := c.FetchRuns(context.Background(), 12345, since, "")
+	runs, warnings, err := c.FetchRuns(context.Background(), 12345, since, "")
 	require.NoError(t, err)
+	assert.Empty(t, warnings)
 	assert.Len(t, runs, 3) // golden file has 3 runs
 	assert.Equal(t, 1, callCount, "should need only one window for 3 days")
 
@@ -112,7 +113,7 @@ func TestFetchRuns_SlidingWindows(t *testing.T) {
 
 	// 15 days ago → should produce 3 windows (7 + 7 + 1 days)
 	since := time.Now().AddDate(0, 0, -15)
-	runs, err := c.FetchRuns(context.Background(), 1, since, "")
+	runs, _, err := c.FetchRuns(context.Background(), 1, since, "")
 	require.NoError(t, err)
 	assert.Empty(t, runs)
 	assert.Equal(t, 3, callCount, "15 days should produce 3 windows of 7 days each")
@@ -129,7 +130,7 @@ func TestFetchRuns_BranchFilter(t *testing.T) {
 
 	c := testClient(t, mux)
 	since := time.Now().AddDate(0, 0, -3)
-	_, err := c.FetchRuns(context.Background(), 1, since, "main")
+	_, _, err := c.FetchRuns(context.Background(), 1, since, "main")
 	require.NoError(t, err)
 	assert.Equal(t, "main", capturedBranch)
 }
@@ -294,6 +295,6 @@ func TestFetchRuns_ContextCancellation(t *testing.T) {
 	cancel() // cancel immediately
 
 	since := time.Now().AddDate(0, 0, -3)
-	_, err := c.FetchRuns(ctx, 1, since, "")
+	_, _, err := c.FetchRuns(ctx, 1, since, "")
 	assert.Error(t, err)
 }
