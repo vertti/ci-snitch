@@ -159,16 +159,46 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 		}
 	}
 
-	// Raw JSON
-	_, _ = fmt.Fprint(w, "\n## Raw Data\n\n```json\n")
+	// Raw JSON — filtered to actionable findings only.
+	// Oscillating and minor changepoints are noise (can be 80+ entries);
+	// the narrative sections above already cover what matters.
+	compact := compactResult(result)
+	_, _ = fmt.Fprintf(w, "\n## Raw Data (%d findings)\n\n```json\n", len(compact.Findings))
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	if err := enc.Encode(result); err != nil {
+	if err := enc.Encode(compact); err != nil {
 		return fmt.Errorf("encode JSON: %w", err)
 	}
 	_, _ = fmt.Fprint(w, "```\n")
 
 	return nil
+}
+
+// compactResult strips noise from the analysis result for LLM consumption.
+// Drops oscillating/minor changepoints and low-severity outliers that inflate
+// the JSON from ~54k tokens to ~5k without adding actionable information.
+func compactResult(result analyze.AnalysisResult) analyze.AnalysisResult {
+	var filtered []analyze.Finding
+	for _, f := range result.Findings {
+		switch f.Type {
+		case analyze.TypeChangepoint:
+			d, ok := f.Detail.(analyze.ChangePointDetail)
+			if !ok {
+				continue
+			}
+			if d.Category == analyze.CategoryOscillating || d.Category == analyze.CategoryMinor {
+				continue
+			}
+			filtered = append(filtered, f)
+		default:
+			filtered = append(filtered, f)
+		}
+	}
+	return analyze.AnalysisResult{
+		Findings: filtered,
+		Warnings: result.Warnings,
+		Meta:     result.Meta,
+	}
 }
 
 func buildSuggestions(changepoints, failures, costs, outliers []analyze.Finding) []string {
