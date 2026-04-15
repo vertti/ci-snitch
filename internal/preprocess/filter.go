@@ -146,35 +146,6 @@ func ComputeRerunStats(details []model.RunDetail) map[int64]RerunStats {
 	return result
 }
 
-// GroupMatrixJobs groups jobs by their base name (stripping matrix parameters).
-// Matrix jobs appear as "test (ubuntu-latest, 20)" — this extracts "test" as the group key.
-// Returns a map from group name to the list of run details (unchanged), plus a map
-// from group name to the distinct matrix variants seen.
-func GroupMatrixJobs(details []model.RunDetail) map[string][]string {
-	variants := make(map[string]map[string]bool)
-	for _, d := range details {
-		for _, j := range d.Jobs {
-			base, variant := ParseMatrixJobName(j.Name)
-			if variants[base] == nil {
-				variants[base] = make(map[string]bool)
-			}
-			if variant != "" {
-				variants[base][variant] = true
-			}
-		}
-	}
-
-	result := make(map[string][]string, len(variants))
-	for base, vs := range variants {
-		keys := make([]string, 0, len(vs))
-		for v := range vs {
-			keys = append(keys, v)
-		}
-		result[base] = keys
-	}
-	return result
-}
-
 // ParseMatrixJobName splits a job name like "test (ubuntu-latest, 20)" into
 // base="test" and variant="ubuntu-latest, 20".
 // If there are no parentheses, variant is empty.

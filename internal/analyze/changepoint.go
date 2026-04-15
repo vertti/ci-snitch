@@ -145,7 +145,7 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 				Description: fmt.Sprintf("%.0f%% change at %s (commit %s), before: %s, after: %s (p=%.4f)",
 					cp.PctChange,
 					d.Run.CreatedAt.Format("2006-01-02"),
-					truncSHA(d.Run.HeadSHA),
+					d.Run.HeadSHA[:min(8, len(d.Run.HeadSHA))],
 					(time.Duration(cp.BeforeMean * float64(time.Second))).Round(time.Second),
 					(time.Duration(cp.AfterMean * float64(time.Second))).Round(time.Second),
 					pValue),
@@ -174,13 +174,6 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 type detailRef struct {
 	idx     int
 	created time.Time
-}
-
-func truncSHA(sha string) string {
-	if len(sha) > 8 {
-		return sha[:8]
-	}
-	return sha
 }
 
 func coefficientOfVariation(data []float64) float64 {
