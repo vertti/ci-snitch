@@ -209,14 +209,15 @@ func writeSummaryTable(w io.Writer, findings []analyze.Finding) error {
 		d, _ := mf.finding.Detail.(analyze.SummaryDetail)
 		marker := mostCITimeMarker(mf.idx, firstIdx, len(findings))
 		volTag := fmtVolatility(d.Stats.VolatilityLabel)
+		queueTag := fmtQueueTime(d.Queue)
 
-		_, _ = fmt.Fprintf(w, "%s%s%s  %d runs, median %s%s%s, p95 %s%s%s, total %s%s%s%s%s\n",
+		_, _ = fmt.Fprintf(w, "%s%s%s  %d runs, median %s%s%s, p95 %s%s%s, total %s%s%s%s%s%s\n",
 			bold, d.Workflow, reset,
 			d.Stats.TotalRuns,
 			cyan, fmtDur(d.Stats.Median), reset,
 			cyan, fmtDur(d.Stats.P95), reset,
 			bold, fmtTotalTime(d.Stats.TotalTime), reset,
-			volTag, marker)
+			volTag, queueTag, marker)
 
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 		for j, job := range d.Jobs {
@@ -243,14 +244,15 @@ func writeSummaryTable(w io.Writer, findings []analyze.Finding) error {
 			d, _ := sf.finding.Detail.(analyze.SummaryDetail)
 			marker := mostCITimeMarker(sf.idx, firstIdx, len(findings))
 			volTag := fmtVolatility(d.Stats.VolatilityLabel)
+			queueTag := fmtQueueTime(d.Queue)
 
-			_, _ = fmt.Fprintf(tw, "%s%s%s\t%d runs\tmedian %s%s%s\tp95 %s%s%s\ttotal %s%s%s%s%s\n",
+			_, _ = fmt.Fprintf(tw, "%s%s%s\t%d runs\tmedian %s%s%s\tp95 %s%s%s\ttotal %s%s%s%s%s%s\n",
 				bold, d.Workflow, reset,
 				d.Stats.TotalRuns,
 				cyan, fmtDur(d.Stats.Median), reset,
 				cyan, fmtDur(d.Stats.P95), reset,
 				bold, fmtTotalTime(d.Stats.TotalTime), reset,
-				volTag, marker)
+				volTag, queueTag, marker)
 		}
 		_ = tw.Flush()
 		_, _ = fmt.Fprintln(w)
@@ -282,6 +284,14 @@ func fmtVolatility(label string) string {
 	default:
 		return ""
 	}
+}
+
+func fmtQueueTime(q analyze.QueueStats) string {
+	// Only show queue time when median is notable (> 5 seconds)
+	if q.Median.Std() <= 5*time.Second {
+		return ""
+	}
+	return fmt.Sprintf(" %s[queue %s]%s", yellow, fmtDur(q.Median), reset)
 }
 
 func fmtTotalTime(ad analyze.Duration) string {

@@ -23,10 +23,17 @@ type SummaryStats struct {
 	VolatilityLabel string   `json:"volatility_label"`
 }
 
+// QueueStats holds queue/wait time statistics (CreatedAt to StartedAt gap).
+type QueueStats struct {
+	Median Duration `json:"median"`
+	P95    Duration `json:"p95"`
+}
+
 // SummaryDetail contains summary statistics for a workflow and its jobs.
 type SummaryDetail struct {
 	Workflow string       `json:"workflow"`
 	Stats    SummaryStats `json:"stats"`
+	Queue    QueueStats   `json:"queue"`
 	Jobs     []JobSummary `json:"jobs"`
 }
 
@@ -57,6 +64,7 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 
 	// Collect durations per workflow and per (workflow, job)
 	wfDurations := make(map[int64][]time.Duration)
+	wfQueueTimes := make(map[int64][]time.Duration)
 	jobDurations := make(map[jobKey][]time.Duration)
 
 	for _, d := range ac.Details {
@@ -64,6 +72,13 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 		dur := d.Duration()
 		if dur > 0 {
 			wfDurations[wfID] = append(wfDurations[wfID], dur)
+		}
+		// Queue time: how long the run waited before starting
+		if !d.Run.CreatedAt.IsZero() && !d.Run.StartedAt.IsZero() {
+			qt := d.Run.StartedAt.Sub(d.Run.CreatedAt)
+			if qt >= 0 {
+				wfQueueTimes[wfID] = append(wfQueueTimes[wfID], qt)
+			}
 		}
 		for _, j := range d.Jobs {
 			dur := j.Duration()
@@ -101,9 +116,19 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 			return int(b.Stats.Median - a.Stats.Median)
 		})
 
+		var queue QueueStats
+		if qts := wfQueueTimes[wfID]; len(qts) > 0 {
+			slices.Sort(qts)
+			queue = QueueStats{
+				Median: Duration(percentile(qts, 50)),
+				P95:    Duration(percentile(qts, 95)),
+			}
+		}
+
 		detail := SummaryDetail{
 			Workflow: wfName,
 			Stats:    wfStats,
+			Queue:    queue,
 			Jobs:     jobs,
 		}
 
