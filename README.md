@@ -14,8 +14,9 @@ ci-snitch analyzes your workflow history and surfaces what matters: where your C
 - **Triage header** — top offenders by CI time, volatility, and active regressions at a glance
 - **Change point detection** — CUSUM algorithm with Mann-Whitney significance testing finds the exact commit that made things slower (or faster), and whether the change stuck
 - **Oscillation detection** — volatile jobs that bounce up/down are separated from real regressions
-- **Failure & flakiness analysis** — failure rates, conclusion breakdowns, and rerun tax per workflow
-- **Cost estimation** — billable minutes by runner type with daily rate and "bang for buck" priority scoring
+- **Failure & flakiness analysis** — failure rates, conclusion breakdowns, rerun tax, and failing step attribution
+- **Step-level timing** — identifies which steps within a job consume the most time
+- **Cost estimation** — billable minutes by runner type (including self-hosted and larger runners) with daily rate and "bang for buck" priority scoring
 - **Volatility scoring** — p95/median ratio classifies each workflow as stable, variable, spiky, or volatile
 - **Outlier detection** — Log-IQR and MAD methods, grouped by job with worst-case summary
 - **Matrix job grouping** — collapses matrix variants into aggregate stats
