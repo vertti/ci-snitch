@@ -98,6 +98,35 @@ func TestMADOutliers_IdenticalValues(t *testing.T) {
 	assert.Nil(t, outliers)
 }
 
+func TestClampOutliers_ClampsExtremeValues(t *testing.T) {
+	// 20 normal values around 100, plus one extreme outlier at 2000
+	data := []float64{
+		100, 105, 98, 102, 101, 99, 103, 97, 104, 100,
+		101, 98, 102, 100, 103, 99, 101, 100, 102, 98,
+		2000, // extreme outlier
+	}
+	result := ClampOutliers(data, 4.0)
+	require.Len(t, result, len(data))
+
+	// The 2000 should be clamped to the median (~100)
+	assert.Less(t, result[20], 200.0, "extreme outlier should be clamped")
+	// Normal values should be unchanged
+	assert.InDelta(t, data[0], result[0], 0.001)
+	assert.InDelta(t, data[5], result[5], 0.001)
+}
+
+func TestClampOutliers_PreservesNormalData(t *testing.T) {
+	data := []float64{100, 102, 101, 103, 99, 100, 101, 102, 100, 101}
+	result := ClampOutliers(data, 4.0)
+	assert.Equal(t, data, result, "normal data should be unchanged")
+}
+
+func TestClampOutliers_TooFewPoints(t *testing.T) {
+	data := []float64{1, 2, 3}
+	result := ClampOutliers(data, 4.0)
+	assert.Equal(t, data, result, "should return input unchanged")
+}
+
 func TestPercentileRank(t *testing.T) {
 	sorted := []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 	assert.InDelta(t, 0.0, percentileRank(sorted, 1), 0.1)

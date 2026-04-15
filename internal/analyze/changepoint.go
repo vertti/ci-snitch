@@ -25,7 +25,8 @@ type ChangePointDetail struct {
 	PostChangeRuns int       `json:"post_change_runs"`
 	PostChangeCV   float64   `json:"post_change_cv"`
 	Persistence    string    `json:"persistence"`
-	Category       string    `json:"category,omitempty"` // set by post-processing: regression, oscillating, minor, speedup
+	OverlapRatio   float64   `json:"overlap_ratio"` // fraction of after-points within before-segment's IQR (0-1)
+	Category       string    `json:"category,omitempty"`
 }
 
 // DetailType implements FindingDetail.
@@ -112,19 +113,35 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 			continue
 		}
 
-		cps := stats.CUSUMDetect(js.durations, threshold, minSeg)
+		// Clamp extreme outliers before changepoint detection.
+		// A single 38-min run in a 10-min job can fool CUSUM into reporting
+		// a persistent regression when the job actually got faster.
+		clamped := stats.ClampOutliers(js.durations, 4.0)
+		cps := stats.CUSUMDetect(clamped, threshold, minSeg)
 		for cpIdx, cp := range cps {
 			// Find the corresponding run for context
 			sortedIdx := js.refs[cp.Index]
 			detailIdx := sorted[sortedIdx].idx
 			d := ac.Details[detailIdx]
 
-			// Significance test: compare segments before and after.
-			// Use all available post-change data (not just minSegment) so the
-			// Mann-Whitney test has enough samples for reliable p-values.
+			// Use raw (unclamped) durations for significance testing and reporting.
+			// CUSUM detects the change point index on clamped data; we verify
+			// and report using the original values.
 			before := js.durations[:cp.Index]
 			after := js.durations[cp.Index:]
 			_, pValue := stats.MannWhitneyU(before, after)
+
+			// Recompute means from raw data for accurate reporting
+			beforeMean := stats.Mean(before)
+			afterMean := stats.Mean(after)
+			pctChange := 0.0
+			if beforeMean != 0 {
+				pctChange = (afterMean - beforeMean) / beforeMean * 100
+			}
+			direction := DirectionSlowdown
+			if pctChange < 0 {
+				direction = DirectionSpeedup
+			}
 
 			// Persistence: how many runs after the change, how stable, did it revert?
 			postChangeEnd := len(js.durations)
@@ -136,33 +153,39 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 			postChangeCV := coefficientOfVariation(postSegment)
 			persistence := classifyPersistence(postChangeRuns, minSeg, cps, cpIdx)
 
-			severity := classifyChangePoint(pValue, cp.PctChange)
+			// Overlap ratio: what fraction of after-points fall within the
+			// before-segment's IQR? High overlap suggests the "shift" is
+			// driven by a few outliers, not a genuine level change.
+			overlapRatio := computeOverlapRatio(before, after)
+
+			severity := classifyChangePoint(pValue, pctChange)
 
 			findings = append(findings, Finding{
 				Type:     "changepoint",
 				Severity: severity,
-				Title:    fmt.Sprintf("Performance %s in job %q", cp.Direction, jk.job),
+				Title:    fmt.Sprintf("Performance %s in job %q", direction, jk.job),
 				Description: fmt.Sprintf("%.0f%% change at %s (commit %s), before: %s, after: %s (p=%.4f)",
-					cp.PctChange,
+					pctChange,
 					d.Run.CreatedAt.Format("2006-01-02"),
 					d.Run.HeadSHA[:min(8, len(d.Run.HeadSHA))],
-					(time.Duration(cp.BeforeMean * float64(time.Second))).Round(time.Second),
-					(time.Duration(cp.AfterMean * float64(time.Second))).Round(time.Second),
+					(time.Duration(beforeMean * float64(time.Second))).Round(time.Second),
+					(time.Duration(afterMean * float64(time.Second))).Round(time.Second),
 					pValue),
 				Detail: ChangePointDetail{
 					WorkflowName:   wfName,
 					JobName:        jk.job,
 					ChangeIdx:      cp.Index,
-					BeforeMean:     Duration(cp.BeforeMean * float64(time.Second)),
-					AfterMean:      Duration(cp.AfterMean * float64(time.Second)),
-					PctChange:      cp.PctChange,
-					Direction:      cp.Direction,
+					BeforeMean:     Duration(beforeMean * float64(time.Second)),
+					AfterMean:      Duration(afterMean * float64(time.Second)),
+					PctChange:      pctChange,
+					Direction:      direction,
 					PValue:         pValue,
 					CommitSHA:      d.Run.HeadSHA,
 					Date:           d.Run.CreatedAt,
 					PostChangeRuns: postChangeRuns,
 					PostChangeCV:   postChangeCV,
 					Persistence:    persistence,
+					OverlapRatio:   overlapRatio,
 				},
 			})
 		}
@@ -174,6 +197,23 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 type detailRef struct {
 	idx     int
 	created time.Time
+}
+
+// computeOverlapRatio returns the fraction of after-segment points that fall
+// within the before-segment's IQR (Q1 to Q3). A high ratio (>0.5) suggests
+// the detected shift is driven by outliers, not a genuine level change.
+func computeOverlapRatio(before, after []float64) float64 {
+	if len(before) < 4 || len(after) == 0 {
+		return 0
+	}
+	q1, q3, _ := stats.IQR(before)
+	count := 0
+	for _, v := range after {
+		if v >= q1 && v <= q3 {
+			count++
+		}
+	}
+	return float64(count) / float64(len(after))
 }
 
 func coefficientOfVariation(data []float64) float64 {
