@@ -220,10 +220,14 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 		return fmt.Errorf("no runs found for %s since %s", opts.repo, sinceTime.Format("2006-01-02"))
 	}
 
-	// Compute rerun stats before deduplication
+	// Compute rerun stats before deduplication (needs to see all attempts)
 	rerunStats := preprocess.ComputeRerunStats(allDetails)
 
-	// Preprocess
+	// Deduplicate retried runs for all downstream consumers.
+	// allDetails may contain duplicate run IDs from overlapping API date windows.
+	allDetails = preprocess.DeduplicateRetries(allDetails)
+
+	// Preprocess: branch filter + failure exclusion (for duration analysis)
 	ppStart := time.Now()
 	filtered, ppWarnings := preprocess.Run(allDetails, preprocess.Options{
 		Branch:          opts.branch,
