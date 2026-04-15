@@ -267,6 +267,31 @@ func repeat(n int, d time.Duration) []time.Duration {
 	return out
 }
 
+func TestSummaryAnalyzer_QueueTime(t *testing.T) {
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	details := make([]model.RunDetail, 10)
+	for i := range details {
+		created := base.Add(time.Duration(i) * time.Hour)
+		started := created.Add(30 * time.Second) // 30s queue time
+		details[i] = model.RunDetail{
+			Run: model.WorkflowRun{
+				WorkflowID: 100, WorkflowName: "CI",
+				CreatedAt: created, StartedAt: started, UpdatedAt: started.Add(5 * time.Minute),
+			},
+		}
+	}
+
+	analyzer := SummaryAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{Details: details})
+	require.NoError(t, err)
+	require.NotEmpty(t, findings)
+
+	d, ok := findings[0].Detail.(SummaryDetail)
+	require.True(t, ok)
+	assert.Equal(t, Duration(30*time.Second), d.Queue.Median)
+	assert.Equal(t, Duration(30*time.Second), d.Queue.P95)
+}
+
 func TestSummaryDetail_Type(t *testing.T) {
 	d := SummaryDetail{}
 	assert.Equal(t, "summary", d.DetailType())

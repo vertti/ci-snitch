@@ -115,16 +115,21 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 
 	// Workflow summaries
 	_, _ = fmt.Fprint(w, "\n## Workflow Summaries\n\n")
-	_, _ = fmt.Fprint(w, "| Workflow | Runs | Median | P95 | Total | Volatility |\n")
-	_, _ = fmt.Fprint(w, "|----------|------|--------|-----|-------|------------|\n")
+	_, _ = fmt.Fprint(w, "| Workflow | Runs | Median | P95 | Queue | Total | Volatility |\n")
+	_, _ = fmt.Fprint(w, "|----------|------|--------|-----|-------|-------|------------|\n")
 	for _, f := range summaries {
 		d, ok := f.Detail.(analyze.SummaryDetail)
 		if !ok {
 			continue
 		}
-		_, _ = fmt.Fprintf(w, "| %s | %d | %s | %s | %s | %s |\n",
+		queueStr := "-"
+		if d.Queue.Median.Std() > 0 {
+			queueStr = fmtDur(d.Queue.Median)
+		}
+		_, _ = fmt.Fprintf(w, "| %s | %d | %s | %s | %s | %s | %s |\n",
 			d.Workflow, d.Stats.TotalRuns,
 			fmtDur(d.Stats.Median), fmtDur(d.Stats.P95),
+			queueStr,
 			fmtTotalTime(d.Stats.TotalTime), d.Stats.VolatilityLabel)
 	}
 
