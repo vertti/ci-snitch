@@ -22,14 +22,6 @@ func makeDetail(id int64, branch, conclusion string, attempt int) model.RunDetai
 	}
 }
 
-func makeDetailWithJobs(id int64, jobNames ...string) model.RunDetail {
-	d := makeDetail(id, "main", "success", 1)
-	for _, name := range jobNames {
-		d.Jobs = append(d.Jobs, model.Job{Name: name})
-	}
-	return d
-}
-
 func TestFilterByBranch(t *testing.T) {
 	details := []model.RunDetail{
 		makeDetail(1, "main", "success", 1),
@@ -118,21 +110,6 @@ func TestParseMatrixJobName(t *testing.T) {
 			assert.Equal(t, tt.wantVariant, variant)
 		})
 	}
-}
-
-func TestGroupMatrixJobs(t *testing.T) {
-	details := []model.RunDetail{
-		makeDetailWithJobs(1, "build", "test (ubuntu-latest, 20)", "test (macos-latest, 20)"),
-		makeDetailWithJobs(2, "build", "test (ubuntu-latest, 20)", "test (macos-latest, 20)"),
-	}
-
-	groups := GroupMatrixJobs(details)
-	assert.Contains(t, groups, "build")
-	assert.Empty(t, groups["build"]) // no variants for "build"
-
-	assert.Contains(t, groups, "test")
-	assert.Len(t, groups["test"], 2)
-	assert.ElementsMatch(t, []string{"ubuntu-latest, 20", "macos-latest, 20"}, groups["test"])
 }
 
 func TestRun_FullPipeline(t *testing.T) {

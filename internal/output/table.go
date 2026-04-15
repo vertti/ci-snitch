@@ -23,52 +23,35 @@ func (t TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error
 		return err
 	}
 
-	// Group findings by type
-	var summaries, steps, outliers, changepoints, failures, costs []analyze.Finding
-	for _, f := range result.Findings {
-		switch f.Type {
-		case "summary":
-			summaries = append(summaries, f)
-		case analyze.TypeSteps:
-			steps = append(steps, f)
-		case "outlier":
-			outliers = append(outliers, f)
-		case "changepoint":
-			changepoints = append(changepoints, f)
-		case "failure":
-			failures = append(failures, f)
-		case "cost":
-			costs = append(costs, f)
-		}
-	}
+	g := groupByType(result.Findings)
 
-	if len(summaries) > 0 {
-		writeTriageHeader(w, summaries, changepoints, failures)
-		if err := writeSummaryTable(w, summaries); err != nil {
+	if len(g.Summaries) > 0 {
+		writeTriageHeader(w, g.Summaries, g.Changepoints, g.Failures)
+		if err := writeSummaryTable(w, g.Summaries); err != nil {
 			return err
 		}
 	}
 
-	if len(steps) > 0 {
-		writeStepTable(w, steps)
+	if len(g.Steps) > 0 {
+		writeStepTable(w, g.Steps)
 	}
 
-	if len(costs) > 0 {
-		writeCostTable(w, costs)
+	if len(g.Costs) > 0 {
+		writeCostTable(w, g.Costs)
 	}
 
-	if len(failures) > 0 {
-		writeFailureTable(w, failures)
+	if len(g.Failures) > 0 {
+		writeFailureTable(w, g.Failures)
 	}
 
-	if len(outliers) > 0 {
-		if err := writeOutlierTable(w, outliers); err != nil {
+	if len(g.Outliers) > 0 {
+		if err := writeOutlierTable(w, g.Outliers); err != nil {
 			return err
 		}
 	}
 
-	if len(changepoints) > 0 {
-		if err := writeChangePointTable(w, changepoints, t.Verbose); err != nil {
+	if len(g.Changepoints) > 0 {
+		if err := writeChangePointTable(w, g.Changepoints, t.Verbose); err != nil {
 			return err
 		}
 	}
@@ -79,8 +62,8 @@ func (t TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error
 		result.Meta.TimeRange[0].Format("2006-01-02"),
 		result.Meta.TimeRange[1].Format("2006-01-02"))
 
-	// Legend: only show entries for sections that appeared
-	writeLegend(w, len(summaries) > 0, len(outliers) > 0, len(changepoints) > 0)
+	// Legend
+	writeLegend(w, len(g.Summaries) > 0, len(g.Outliers) > 0, len(g.Changepoints) > 0)
 	return nil
 }
 
@@ -292,16 +275,6 @@ func fmtQueueTime(q analyze.QueueStats) string {
 		return ""
 	}
 	return fmt.Sprintf(" %s[queue %s]%s", yellow, fmtDur(q.Median), reset)
-}
-
-func fmtTotalTime(ad analyze.Duration) string {
-	d := ad.Std()
-	h := int(d.Hours())
-	m := int(d.Minutes()) % 60
-	if h > 0 {
-		return fmt.Sprintf("%dh%dm", h, m)
-	}
-	return fmt.Sprintf("%dm", m)
 }
 
 func writeStepTable(w io.Writer, findings []analyze.Finding) {
@@ -658,19 +631,6 @@ func formatPersistence(d analyze.ChangePointDetail) string {
 	}
 }
 
-func fmtDur(ad analyze.Duration) string {
-	d := ad.Std().Round(time.Second)
-	if d < time.Minute {
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	}
-	m := int(d.Minutes())
-	s := int(d.Seconds()) % 60
-	if s == 0 {
-		return fmt.Sprintf("%dm", m)
-	}
-	return fmt.Sprintf("%dm%02ds", m, s)
-}
-
 // severityDot returns a colored dot. Single visible char so alignment is consistent.
 func severityDot(severity string) string {
 	switch severity {
@@ -681,13 +641,6 @@ func severityDot(severity string) string {
 	default:
 		return dim + "●" + reset
 	}
-}
-
-func truncSHA(sha string) string {
-	if len(sha) > 8 {
-		return sha[:8]
-	}
-	return sha
 }
 
 func writeLegend(w io.Writer, _, _, _ bool) {

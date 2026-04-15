@@ -189,10 +189,9 @@ func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 		bd, _ := b.Detail.(StepTimingDetail)
 		aKey := jobKey{0, ad.JobName}
 		bKey := jobKey{0, bd.JobName}
-		for jk, med := range jobMedians {
+		for jk := range jobMedians {
 			if jk.job == ad.JobName {
 				aKey = jk
-				_ = med
 			}
 			if jk.job == bd.JobName {
 				bKey = jk

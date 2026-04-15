@@ -35,30 +35,13 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 
 `, repo, result.Meta.TotalRuns, from, to)
 
-	// Group findings
-	var summaries, steps, outliers, changepoints, failures, costs []analyze.Finding
-	for _, f := range result.Findings {
-		switch f.Type {
-		case analyze.TypeSummary:
-			summaries = append(summaries, f)
-		case analyze.TypeSteps:
-			steps = append(steps, f)
-		case analyze.TypeOutlier:
-			outliers = append(outliers, f)
-		case analyze.TypeChangepoint:
-			changepoints = append(changepoints, f)
-		case analyze.TypeFailure:
-			failures = append(failures, f)
-		case analyze.TypeCost:
-			costs = append(costs, f)
-		}
-	}
+	g := groupByType(result.Findings)
 
 	// Priority findings
 	_, _ = fmt.Fprint(w, "## Priority Findings\n\n")
 	hasPriority := false
 
-	for _, f := range changepoints {
+	for _, f := range g.Changepoints {
 		d, ok := f.Detail.(analyze.ChangePointDetail)
 		if !ok || d.Category != analyze.CategoryRegression || d.Direction != analyze.DirectionSlowdown {
 			continue
@@ -74,7 +57,7 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 		_, _ = fmt.Fprintf(w, " (p=%.4f)\n", d.PValue)
 	}
 
-	for _, f := range failures {
+	for _, f := range g.Failures {
 		d, ok := f.Detail.(analyze.FailureDetail)
 		if !ok {
 			continue
@@ -94,9 +77,9 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 		_, _ = fmt.Fprint(w, "\n")
 	}
 
-	costLimit := min(3, len(costs))
+	costLimit := min(3, len(g.Costs))
 	for i := range costLimit {
-		d, ok := costs[i].Detail.(analyze.CostDetail)
+		d, ok := g.Costs[i].Detail.(analyze.CostDetail)
 		if !ok {
 			continue
 		}
@@ -117,7 +100,7 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 	_, _ = fmt.Fprint(w, "\n## Workflow Summaries\n\n")
 	_, _ = fmt.Fprint(w, "| Workflow | Runs | Median | P95 | Queue | Total | Volatility |\n")
 	_, _ = fmt.Fprint(w, "|----------|------|--------|-----|-------|-------|------------|\n")
-	for _, f := range summaries {
+	for _, f := range g.Summaries {
 		d, ok := f.Detail.(analyze.SummaryDetail)
 		if !ok {
 			continue
@@ -134,10 +117,10 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 	}
 
 	// Step timing breakdown
-	if len(steps) > 0 {
+	if len(g.Steps) > 0 {
 		_, _ = fmt.Fprint(w, "\n## Step-Level Timing\n\n")
-		shown := min(5, len(steps))
-		for _, f := range steps[:shown] {
+		shown := min(5, len(g.Steps))
+		for _, f := range g.Steps[:shown] {
 			d, ok := f.Detail.(analyze.StepTimingDetail)
 			if !ok {
 				continue
@@ -156,7 +139,7 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 	}
 
 	// Suggested investigations
-	suggestions := buildSuggestions(changepoints, failures, costs, outliers)
+	suggestions := buildSuggestions(g.Changepoints, g.Failures, g.Costs, g.Outliers)
 	if len(suggestions) > 0 {
 		_, _ = fmt.Fprint(w, "\n## Suggested Investigations\n\n")
 		for _, s := range suggestions {

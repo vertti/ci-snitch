@@ -20,19 +20,9 @@ func (MarkdownFormatter) Format(w io.Writer, result analyze.AnalysisResult) erro
 		result.Meta.TimeRange[0].Format("2006-01-02"),
 		result.Meta.TimeRange[1].Format("2006-01-02"))
 
-	var summaries, outliers, changepoints []analyze.Finding
-	for _, f := range result.Findings {
-		switch f.Type {
-		case "summary":
-			summaries = append(summaries, f)
-		case "outlier":
-			outliers = append(outliers, f)
-		case "changepoint":
-			changepoints = append(changepoints, f)
-		}
-	}
+	g := groupByType(result.Findings)
 
-	for _, f := range summaries {
+	for _, f := range g.Summaries {
 		d, ok := f.Detail.(analyze.SummaryDetail)
 		if !ok {
 			continue
@@ -54,9 +44,9 @@ func (MarkdownFormatter) Format(w io.Writer, result analyze.AnalysisResult) erro
 		}
 	}
 
-	if len(changepoints) > 0 {
+	if len(g.Changepoints) > 0 {
 		var notable []analyze.Finding
-		for _, f := range changepoints {
+		for _, f := range g.Changepoints {
 			if f.Severity != analyze.SeverityInfo {
 				notable = append(notable, f)
 			}
@@ -82,11 +72,11 @@ func (MarkdownFormatter) Format(w io.Writer, result analyze.AnalysisResult) erro
 		}
 	}
 
-	if len(outliers) > 0 {
-		_, _ = fmt.Fprintf(w, "## Outliers (%d)\n", len(outliers))
+	if len(g.Outliers) > 0 {
+		_, _ = fmt.Fprintf(w, "## Outliers (%d)\n", len(g.Outliers))
 		_, _ = fmt.Fprintln(w, "| Severity | Subject | Duration | Percentile | Commit |")
 		_, _ = fmt.Fprintln(w, "|----------|---------|----------|------------|--------|")
-		for _, f := range outliers {
+		for _, f := range g.Outliers {
 			d, ok := f.Detail.(analyze.OutlierDetail)
 			if !ok {
 				continue
