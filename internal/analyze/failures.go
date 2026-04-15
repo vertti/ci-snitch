@@ -81,7 +81,9 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 		default:
 			s.failures++
 			s.byConclusion[d.Run.Conclusion]++
-			// Attribute failure to specific steps
+			// Attribute failure to root-cause step (first failing step per job).
+			// Later failing steps are often cascades (e.g. "Stop Docker Compose"
+			// fails because a prior step already broke the environment).
 			for _, j := range d.Jobs {
 				if j.Conclusion != "failure" {
 					continue
@@ -89,6 +91,7 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 				for _, st := range j.Steps {
 					if st.Conclusion == "failure" {
 						s.failingSteps[stepKey{j.Name, st.Name}]++
+						break // only count the first (root-cause) failing step per job
 					}
 				}
 			}

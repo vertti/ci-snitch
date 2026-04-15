@@ -162,6 +162,45 @@ func TestFailureAnalyzer_FailingStepAttribution(t *testing.T) {
 	assert.Equal(t, 4, d.FailingSteps[0].Count)
 }
 
+func TestFailureAnalyzer_CascadeFiltering(t *testing.T) {
+	// When step "Run tests" fails, "Stop Docker Compose" also fails (cascade).
+	// Only the root cause (first failing step) should be counted.
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	var details []model.RunDetail
+
+	for i := range 10 {
+		start := base.Add(time.Duration(i) * time.Hour)
+		details = append(details, model.RunDetail{
+			Run: model.WorkflowRun{
+				ID: int64(4000 + i), WorkflowID: 400, WorkflowName: "Tests",
+				Status: "completed", Conclusion: conclusionFailure,
+				CreatedAt: start, StartedAt: start, UpdatedAt: start.Add(5 * time.Minute),
+			},
+			Jobs: []model.Job{{
+				Name: "integration", Status: "completed", Conclusion: conclusionFailure,
+				Steps: []model.Step{
+					{Name: "Checkout", Number: 1, Status: "completed", Conclusion: conclusionSuccess},
+					{Name: "Run tests", Number: 2, Status: "completed", Conclusion: conclusionFailure},
+					{Name: "Stop Docker Compose", Number: 3, Status: "completed", Conclusion: conclusionFailure}, // cascade
+				},
+			}},
+		})
+	}
+
+	analyzer := FailureAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{AllDetails: details})
+	require.NoError(t, err)
+	require.NotEmpty(t, findings)
+
+	d, ok := findings[0].Detail.(FailureDetail)
+	require.True(t, ok)
+
+	// Should only count "Run tests" (root cause), not "Stop Docker Compose" (cascade)
+	require.Len(t, d.FailingSteps, 1, "cascade steps should be filtered")
+	assert.Equal(t, "Run tests", d.FailingSteps[0].StepName)
+	assert.Equal(t, 10, d.FailingSteps[0].Count)
+}
+
 func TestFailureDetail_Type(t *testing.T) {
 	d := FailureDetail{}
 	assert.Equal(t, "failure", d.DetailType())

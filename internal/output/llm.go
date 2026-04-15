@@ -65,12 +65,7 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 		hasPriority = true
 		_, _ = fmt.Fprintf(w, "- **[FLAKY]** %s: %.0f%% failure rate (%d/%d runs)",
 			d.Workflow, d.FailureRate*100, d.FailureCount, d.TotalRuns)
-		if len(d.FailingSteps) > 0 {
-			_, _ = fmt.Fprintf(w, " -- fails at step %q", d.FailingSteps[0].StepName)
-			if d.FailingSteps[0].JobName != "" {
-				_, _ = fmt.Fprintf(w, " in job %q", d.FailingSteps[0].JobName)
-			}
-		}
+		_, _ = fmt.Fprint(w, failingStepHeadline(d))
 		if d.RetriedRuns > 0 {
 			_, _ = fmt.Fprintf(w, ", %d retried (+%d extra attempts)", d.RetriedRuns, d.ExtraAttempts)
 		}
@@ -139,7 +134,7 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 	}
 
 	// Suggested investigations
-	suggestions := buildSuggestions(g.Changepoints, g.Failures, g.Costs, g.Outliers)
+	suggestions := buildSuggestions(g.Changepoints, g.Failures, g.Costs, g.Outliers, g.Steps)
 	if len(suggestions) > 0 {
 		_, _ = fmt.Fprint(w, "\n## Suggested Investigations\n\n")
 		for _, s := range suggestions {
@@ -151,7 +146,12 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 	// Oscillating and minor changepoints are noise (can be 80+ entries);
 	// the narrative sections above already cover what matters.
 	compact := compactResult(result)
-	_, _ = fmt.Fprintf(w, "\n## Raw Data (%d findings)\n\n```json\n", len(compact.Findings))
+	omitted := len(result.Findings) - len(compact.Findings)
+	_, _ = fmt.Fprintf(w, "\n## Raw Data (%d findings)\n\n", len(compact.Findings))
+	if omitted > 0 {
+		_, _ = fmt.Fprintf(w, "_(%d oscillating/minor changepoints omitted — these jobs have high inherent variance and are not commit-attributable)_\n\n", omitted)
+	}
+	_, _ = fmt.Fprint(w, "```json\n")
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(compact); err != nil {
@@ -189,7 +189,55 @@ func compactResult(result analyze.AnalysisResult) analyze.AnalysisResult {
 	}
 }
 
-func buildSuggestions(changepoints, failures, costs, outliers []analyze.Finding) []string {
+// failingStepHeadline summarizes the failure pattern.
+// Single dominant step: "fails at step X in job Y (N/M failures)"
+// Distributed failures: "failures spread across N steps (top: X Nx, Y Nx)"
+func failingStepHeadline(d analyze.FailureDetail) string {
+	if len(d.FailingSteps) == 0 {
+		return ""
+	}
+	top := d.FailingSteps[0]
+	// Single dominant step: top step accounts for >60% of failures
+	if len(d.FailingSteps) == 1 || float64(top.Count) > float64(d.FailureCount)*0.6 {
+		s := fmt.Sprintf(" -- fails at step %q", top.StepName)
+		if top.JobName != "" {
+			s += fmt.Sprintf(" in job %q", top.JobName)
+		}
+		s += fmt.Sprintf(" (%d/%d failures)", top.Count, d.FailureCount)
+		return s
+	}
+	// Distributed: show count of steps + top 2
+	s := fmt.Sprintf(" -- failures spread across %d steps (top: %q %dx",
+		len(d.FailingSteps), top.StepName, top.Count)
+	if len(d.FailingSteps) > 1 {
+		s += fmt.Sprintf(", %q %dx", d.FailingSteps[1].StepName, d.FailingSteps[1].Count)
+	}
+	s += ")"
+	return s
+}
+
+func buildSuggestions(changepoints, failures, costs, outliers, steps []analyze.Finding) []string {
+	// Build step volatility index for enriching outlier suggestions
+	type volatileStep struct {
+		name       string
+		volatility float64
+	}
+	jobVolatileSteps := make(map[string]volatileStep) // job name -> most volatile step
+	for _, f := range steps {
+		d, ok := f.Detail.(analyze.StepTimingDetail)
+		if !ok {
+			continue
+		}
+		for _, st := range d.Steps {
+			if st.Volatility >= 2.0 {
+				key := d.JobName
+				if existing, ok := jobVolatileSteps[key]; !ok || st.Volatility > existing.volatility {
+					jobVolatileSteps[key] = volatileStep{st.Name, st.Volatility}
+				}
+			}
+		}
+	}
+
 	var suggestions []string
 
 	for _, f := range changepoints {
@@ -212,7 +260,7 @@ func buildSuggestions(changepoints, failures, costs, outliers []analyze.Finding)
 				d.Workflow, d.DailySavingsEstimate))
 	}
 
-	// Frequent outlier groups
+	// Frequent outlier groups — reference volatile steps when available
 	for _, f := range outliers {
 		d, ok := f.Detail.(analyze.OutlierGroupDetail)
 		if !ok || d.Count < 5 {
@@ -222,9 +270,13 @@ func buildSuggestions(changepoints, failures, costs, outliers []analyze.Finding)
 		if d.JobName != "" {
 			subject = d.JobName
 		}
+		hint := "check for resource contention or flaky infrastructure"
+		if vs, ok := jobVolatileSteps[d.JobName]; ok {
+			hint = fmt.Sprintf("step %q is %.1fx volatile and likely the cause", vs.name, vs.volatility)
+		}
 		suggestions = append(suggestions,
-			fmt.Sprintf("%q has %d outliers (worst %s) -- check for resource contention or flaky infrastructure",
-				subject, d.Count, fmtDur(d.WorstDuration)))
+			fmt.Sprintf("%q has %d outliers (worst %s) -- %s",
+				subject, d.Count, fmtDur(d.WorstDuration), hint))
 	}
 
 	for _, f := range failures {
