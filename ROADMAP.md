@@ -175,7 +175,7 @@ _Focus: answer "why is this slow/failing?", add step-level visibility, and make 
 - New `internal/output/llm.go`, registered as `--format llm`
 - Designed for copy-paste to Claude Code — narrative + structured data
 
-### 3.2 Step-level timing analyzer [M]
+### ~~3.2 Step-level timing analyzer [M]~~ DONE
 - Steps are already fetched and stored in SQLite but never analyzed
 - New `internal/analyze/steps.go` implementing `Analyzer`
 - Per job: identify top 3 slowest steps by median duration, flag steps with high variance
@@ -183,21 +183,21 @@ _Focus: answer "why is this slow/failing?", add step-level visibility, and make 
 - Surface in all formatters: nested under job in summary, inline in LLM output
 - **Files:** `internal/analyze/steps.go` (new), formatters
 
-### 3.3 Failing step attribution [S]
+### ~~3.3 Failing step attribution [S]~~ DONE
 - When a job fails, identify which step has `conclusion: failure`
 - Add `FailingSteps []FailingStep` to `FailureDetail` with step name, conclusion, frequency
 - Transforms "95% failure rate" into "95% failure rate — fails at 'Run integration tests'"
 - Data already available in `model.Job.Steps` — just needs analysis
 - **Files:** `internal/analyze/failures.go`, formatters
 
-### 3.4 Queue/wait time analysis [S]
+### ~~3.4 Queue/wait time analysis [S]~~ DONE
 - `CreatedAt` to `StartedAt` gap = runner wait time (queued, waiting for runner)
 - Surface as separate metric in summary: median queue time, p95 queue time per workflow
 - Distinguishes "slow job" from "no runners available" — different root causes, different fixes
 - Data already in `model.WorkflowRun` — just needs extraction
 - **Files:** `internal/analyze/summary.go`, formatters
 
-### 3.5 Compact LLM mode — reduce noise [S]
+### ~~3.5 Compact LLM mode — reduce noise [S]~~ DONE
 - Real-world test: 54k token report → ~5k useful tokens. Most JSON is oscillating/minor changepoints
 - `--format llm` should omit oscillating and minor changepoints from embedded JSON
 - Only include actionable findings (regressions, speedups, high-severity outliers, failure details)
@@ -229,7 +229,20 @@ _Focus: answer "why is this slow/failing?", add step-level visibility, and make 
 - Simple but changes the urgency of findings significantly
 - **Files:** `internal/analyze/failures.go`
 
-### 3.10 Drift detection (separate from step-change) [M]
+### ~~3.10 Outlier-resistant changepoint detection [M]~~ DONE
+- Real case: single 38-min outlier in a 10-min deploy job caused false "persistent regression" with p=0.0000
+- Pre-filter: clamp extreme values via IQR fences (Q3 + 4×IQR) before CUSUM — prevents single outliers from poisoning detection
+- Post-detection robustness: compute overlap ratio (fraction of after-points within before IQR). High overlap (>50%) → downgrade to minor
+- CUSUM detects on clamped data; Mann-Whitney test and reported means use raw data for accuracy
+- **Files:** `internal/stats/outlier.go`, `internal/analyze/changepoint.go`, `internal/analyze/postprocess.go`
+
+### 3.11 Failure error deduplication [S]
+- When all failures in a workflow hit the same step, report: "all N failures occur at step X — likely single root cause"
+- Distinguishes systematic issues (100% same step) from random flakiness (varied failing steps)
+- Builds on 3.3 failing step attribution data
+- **Files:** `internal/analyze/failures.go`, `internal/output/llm.go`
+
+### 3.12 Drift detection (separate from step-change) [M]
 - CUSUM targets step-like mean shifts; gradual drift is a different phenomenon
 - Add linear regression over sliding windows to detect steady trends
 - Different operator guidance: "pipeline gradually slowing — look for repo growth, cache degradation, dependency bloat" vs "step change at commit X"

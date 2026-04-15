@@ -69,6 +69,48 @@ func TestPostProcess_GroupOutliers(t *testing.T) {
 	assert.Equal(t, SeverityCritical, groups[0].MaxSeverity)
 }
 
+func TestPostProcess_HighOverlapDowngradedToMinor(t *testing.T) {
+	// A changepoint where >50% of after-points are within the before IQR
+	// should be downgraded to minor (likely outlier-driven, not a real shift)
+	findings := []Finding{
+		{Type: TypeChangepoint, Severity: SeverityWarning, Detail: ChangePointDetail{
+			JobName: "deploy", Direction: DirectionSlowdown,
+			Persistence: PersistencePersistent, PctChange: 30,
+			OverlapRatio: 0.7, // 70% overlap — not a real shift
+		}},
+	}
+
+	result := postProcess(findings)
+	var cps []ChangePointDetail
+	for _, f := range result {
+		if d, ok := f.Detail.(ChangePointDetail); ok {
+			cps = append(cps, d)
+		}
+	}
+	require.Len(t, cps, 1)
+	assert.Equal(t, CategoryMinor, cps[0].Category, "high overlap should be downgraded to minor")
+}
+
+func TestPostProcess_LowOverlapKeepsRegression(t *testing.T) {
+	findings := []Finding{
+		{Type: TypeChangepoint, Severity: SeverityWarning, Detail: ChangePointDetail{
+			JobName: "build", Direction: DirectionSlowdown,
+			Persistence: PersistencePersistent, PctChange: 25,
+			OverlapRatio: 0.1, // 10% overlap — genuine shift
+		}},
+	}
+
+	result := postProcess(findings)
+	var cps []ChangePointDetail
+	for _, f := range result {
+		if d, ok := f.Detail.(ChangePointDetail); ok {
+			cps = append(cps, d)
+		}
+	}
+	require.Len(t, cps, 1)
+	assert.Equal(t, CategoryRegression, cps[0].Category, "low overlap should remain regression")
+}
+
 func TestPostProcess_FilterLowFailureRate(t *testing.T) {
 	findings := []Finding{
 		{Type: TypeFailure, Severity: SeverityInfo, Detail: FailureDetail{Workflow: "cleanup", FailureRate: 0.01}},

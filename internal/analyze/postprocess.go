@@ -74,6 +74,10 @@ func categorizeChangePoints(findings []Finding) []Finding {
 			d.Category = CategoryMinor
 		case jobCounts[d.JobName] >= 3:
 			d.Category = CategoryOscillating
+		case d.OverlapRatio > 0.5:
+			// >50% of after-points fall within the before-segment's IQR.
+			// The "shift" is likely driven by outliers, not a level change.
+			d.Category = CategoryMinor
 		case d.Direction == DirectionSpeedup:
 			d.Category = CategorySpeedup
 		default:

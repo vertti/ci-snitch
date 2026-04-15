@@ -105,6 +105,37 @@ func MADOutliers(data []float64, threshold float64) (outliers []OutlierResult) {
 	return outliers
 }
 
+// ClampOutliers replaces isolated extreme values with the nearest fence value.
+// Uses the IQR method: values beyond Q3 + multiplier×IQR (or below Q1 - multiplier×IQR)
+// are clamped to the fence. This prevents single extreme outliers from poisoning
+// downstream analysis while preserving genuine level shifts (which move the IQR).
+func ClampOutliers(data []float64, multiplier float64) []float64 {
+	if len(data) < 5 {
+		return data
+	}
+
+	q1, q3, iqr := IQR(data)
+	if iqr == 0 {
+		return data
+	}
+
+	lower := q1 - multiplier*iqr
+	upper := q3 + multiplier*iqr
+
+	result := make([]float64, len(data))
+	for i, v := range data {
+		switch {
+		case v > upper:
+			result[i] = upper
+		case v < lower:
+			result[i] = lower
+		default:
+			result[i] = v
+		}
+	}
+	return result
+}
+
 // percentileRank returns what percentile a value falls at in a sorted slice (0-100).
 func percentileRank(sorted []float64, value float64) float64 {
 	n := len(sorted)
