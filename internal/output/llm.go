@@ -36,11 +36,13 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 `, repo, result.Meta.TotalRuns, from, to)
 
 	// Group findings
-	var summaries, outliers, changepoints, failures, costs []analyze.Finding
+	var summaries, steps, outliers, changepoints, failures, costs []analyze.Finding
 	for _, f := range result.Findings {
 		switch f.Type {
 		case analyze.TypeSummary:
 			summaries = append(summaries, f)
+		case analyze.TypeSteps:
+			steps = append(steps, f)
 		case analyze.TypeOutlier:
 			outliers = append(outliers, f)
 		case analyze.TypeChangepoint:
@@ -80,6 +82,12 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 		hasPriority = true
 		_, _ = fmt.Fprintf(w, "- **[FLAKY]** %s: %.0f%% failure rate (%d/%d runs)",
 			d.Workflow, d.FailureRate*100, d.FailureCount, d.TotalRuns)
+		if len(d.FailingSteps) > 0 {
+			_, _ = fmt.Fprintf(w, " -- fails at step %q", d.FailingSteps[0].StepName)
+			if d.FailingSteps[0].JobName != "" {
+				_, _ = fmt.Fprintf(w, " in job %q", d.FailingSteps[0].JobName)
+			}
+		}
 		if d.RetriedRuns > 0 {
 			_, _ = fmt.Fprintf(w, ", %d retried (+%d extra attempts)", d.RetriedRuns, d.ExtraAttempts)
 		}
@@ -118,6 +126,28 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 			d.Workflow, d.Stats.TotalRuns,
 			fmtDur(d.Stats.Median), fmtDur(d.Stats.P95),
 			fmtTotalTime(d.Stats.TotalTime), d.Stats.VolatilityLabel)
+	}
+
+	// Step timing breakdown
+	if len(steps) > 0 {
+		_, _ = fmt.Fprint(w, "\n## Step-Level Timing\n\n")
+		shown := min(5, len(steps))
+		for _, f := range steps[:shown] {
+			d, ok := f.Detail.(analyze.StepTimingDetail)
+			if !ok {
+				continue
+			}
+			_, _ = fmt.Fprintf(w, "**%s / %s** (%d runs):\n", d.WorkflowName, d.JobName, d.TotalRuns)
+			for _, st := range d.Steps {
+				_, _ = fmt.Fprintf(w, "- %s: median %s, p95 %s (%.0f%% of job)",
+					st.Name, fmtDur(st.Median), fmtDur(st.P95), st.PctOfJob)
+				if st.Volatility >= 2.0 {
+					_, _ = fmt.Fprintf(w, " **[%.1fx volatile]**", st.Volatility)
+				}
+				_, _ = fmt.Fprint(w, "\n")
+			}
+			_, _ = fmt.Fprint(w, "\n")
+		}
 	}
 
 	// Suggested investigations

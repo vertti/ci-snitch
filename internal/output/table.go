@@ -24,11 +24,13 @@ func (t TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error
 	}
 
 	// Group findings by type
-	var summaries, outliers, changepoints, failures, costs []analyze.Finding
+	var summaries, steps, outliers, changepoints, failures, costs []analyze.Finding
 	for _, f := range result.Findings {
 		switch f.Type {
 		case "summary":
 			summaries = append(summaries, f)
+		case analyze.TypeSteps:
+			steps = append(steps, f)
 		case "outlier":
 			outliers = append(outliers, f)
 		case "changepoint":
@@ -45,6 +47,10 @@ func (t TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error
 		if err := writeSummaryTable(w, summaries); err != nil {
 			return err
 		}
+	}
+
+	if len(steps) > 0 {
+		writeStepTable(w, steps)
 	}
 
 	if len(costs) > 0 {
@@ -288,6 +294,39 @@ func fmtTotalTime(ad analyze.Duration) string {
 	return fmt.Sprintf("%dm", m)
 }
 
+func writeStepTable(w io.Writer, findings []analyze.Finding) {
+	shown := min(5, len(findings))
+	_, _ = fmt.Fprintf(w, "%s── Step Breakdown (top %d jobs) ──%s\n", dim, shown, reset)
+
+	for _, f := range findings[:shown] {
+		d, ok := f.Detail.(analyze.StepTimingDetail)
+		if !ok {
+			continue
+		}
+
+		_, _ = fmt.Fprintf(w, "  %s%s%s %s/ %s%s\n",
+			bold, d.WorkflowName, reset, dim, d.JobName, reset)
+
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		for _, st := range d.Steps {
+			volTag := ""
+			if st.Volatility >= 2.0 {
+				volTag = fmt.Sprintf(" %s[%.1fx]%s", yellow, st.Volatility, reset)
+			}
+			_, _ = fmt.Fprintf(tw, "    %s\tmedian %s\tp95 %s\t%s%.0f%% of job%s%s\n",
+				st.Name,
+				fmtDur(st.Median), fmtDur(st.P95),
+				dim, st.PctOfJob, reset,
+				volTag)
+		}
+		_ = tw.Flush()
+	}
+	if len(findings) > shown {
+		_, _ = fmt.Fprintf(w, "  %s(%d more jobs not shown)%s\n", dim, len(findings)-shown, reset)
+	}
+	_, _ = fmt.Fprintln(w)
+}
+
 func writeCostTable(w io.Writer, findings []analyze.Finding) {
 	shown := min(5, len(findings))
 	header := fmt.Sprintf("%d workflows", len(findings))
@@ -379,12 +418,21 @@ func writeFailureTable(w io.Writer, findings []analyze.Finding) {
 			cancelNote = fmt.Sprintf("\t%s+%d cancelled (%.0f%%)%s", dim, d.CancellationCount, d.CancellationRate*100, reset)
 		}
 
-		_, _ = fmt.Fprintf(tw, "  %s%s%s\t%s%.0f%%%s\t%s(%d/%d runs)%s\t%s%s%s%s\n",
+		failsAt := ""
+		if len(d.FailingSteps) > 0 {
+			top := d.FailingSteps[0]
+			failsAt = fmt.Sprintf("\tfails at: %s%s%s", yellow, top.StepName, reset)
+			if len(d.FailingSteps) > 1 {
+				failsAt += fmt.Sprintf(" %s(+%d more)%s", dim, len(d.FailingSteps)-1, reset)
+			}
+		}
+
+		_, _ = fmt.Fprintf(tw, "  %s%s%s\t%s%.0f%%%s\t%s(%d/%d runs)%s\t%s%s%s%s%s\n",
 			bold, d.Workflow, reset,
 			rateColor, d.FailureRate*100, reset,
 			dim, d.FailureCount, d.TotalRuns, reset,
 			dim, strings.Join(parts, ", "), reset,
-			cancelNote)
+			cancelNote, failsAt)
 	}
 	_ = tw.Flush()
 	if len(findings) > shown {
