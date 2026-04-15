@@ -236,23 +236,31 @@ _Focus: answer "why is this slow/failing?", add step-level visibility, and make 
 - CUSUM detects on clamped data; Mann-Whitney test and reported means use raw data for accuracy
 - **Files:** `internal/stats/outlier.go`, `internal/analyze/changepoint.go`, `internal/analyze/postprocess.go`
 
-### 3.11 Failure error deduplication [S]
-- When all failures in a workflow hit the same step, report: "all N failures occur at step X — likely single root cause"
-- Distinguishes systematic issues (100% same step) from random flakiness (varied failing steps)
-- Builds on 3.3 failing step attribution data
+### 3.11 Systematic vs flaky failure classification [S]
+- When 100% of failures hit the same step (e.g. "Run Code Review" 115/115), label as `[SYSTEMATIC]` not `[FLAKY]`
+- Flaky implies random; systematic means one deterministic bug — different urgency and investigation approach
+- Threshold: >90% same root-cause step → systematic; otherwise flaky
+- Builds on 3.3 failing step attribution + cascade filtering
 - **Files:** `internal/analyze/failures.go`, `internal/output/llm.go`
 
-### 3.12 Drift detection (separate from step-change) [M]
+### 3.12 Failure clustering by category [M]
+- Group failing steps into categories: infra (step name contains "Setup"/"runner"), build ("Compile"/"Lint"/"Build"), test ("test"/"E2E")
+- Headline becomes: "23% failure rate: 40% infra, 35% build, 25% test failures"
+- Even simple heuristics on step names give much better signal than a flat list
+- **Files:** `internal/analyze/failures.go`, `internal/output/llm.go`
+
+### 3.13 Drift detection (separate from step-change) [M]
 - CUSUM targets step-like mean shifts; gradual drift is a different phenomenon
 - Add linear regression over sliding windows to detect steady trends
 - Different operator guidance: "pipeline gradually slowing — look for repo growth, cache degradation, dependency bloat" vs "step change at commit X"
 - **Files:** `internal/stats/drift.go` (new), `internal/analyze/changepoint.go` or new analyzer
 
 ### Implementation priority
-1. **3.2** (step timing) + **3.3** (failing step) — highest impact, data already available
-2. **3.4** (queue time) + **3.5** (compact LLM) — quick wins, immediate signal-to-noise improvement
-3. **3.6** (raw output) + **3.9** (failure trend) — small but valuable
-4. **3.7** (explain) + **3.8** (compare) + **3.10** (drift) — larger features
+1. ~~**3.2** (step timing) + **3.3** (failing step)~~ DONE
+2. ~~**3.4** (queue time) + **3.5** (compact LLM) + **3.10** (outlier-resistant changepoints)~~ DONE
+3. **3.11** (systematic vs flaky) + **3.12** (failure clustering) — next: improve failure signal quality
+4. **3.6** (raw output) + **3.9** (failure trend) — small but valuable
+5. **3.7** (explain) + **3.8** (compare) + **3.13** (drift) — larger features
 
 ---
 
@@ -304,10 +312,12 @@ _Depends on Releases 1-3 for data richness. A TUI over today's data would be und
 - Uses `compare` logic (PR branch vs base branch)
 - Ship as reusable GitHub Action
 
-### 5.3 Workflow YAML diff at change points [M]
-- When change point detected, fetch `.github/workflows/*.yml` at that commit vs previous
-- If CI config changed: include diff in change point evidence
-- Distinguishes "CI config change" from "application code change" as root cause
+### 5.3 Workflow config diff at change points [S]
+- When a changepoint is detected, use GitHub API `git diff --name-only` for that commit
+- Check if `.github/workflows/*.yml` changed — if yes, label as "CI config change" vs "application code change"
+- Cheap to implement: commit SHA is already captured, just need one API call per regression
+- Would have immediately explained real-world regressions (commit was code change, not CI)
+- **Files:** `internal/github/client.go`, `internal/analyze/changepoint.go`, formatters
 
 ### 5.4 Reusable workflow call chain dedup [M]
 - `deploy-test.yml` calls `tests.yml` via `workflow_call` — findings are duplicated across both
