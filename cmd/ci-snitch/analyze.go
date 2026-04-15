@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sync"
@@ -15,6 +16,22 @@ import (
 	"github.com/vertti/ci-snitch/internal/preprocess"
 	"github.com/vertti/ci-snitch/internal/store"
 )
+
+// workflowFetcher abstracts the GitHub API client for testability.
+type workflowFetcher interface {
+	ListWorkflows(ctx context.Context) ([]model.Workflow, error)
+	FetchRuns(ctx context.Context, workflowID int64, since time.Time, branch string) ([]model.WorkflowRun, []github.Warning, error)
+	FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) ([]model.RunDetail, []github.Warning)
+}
+
+// runStore abstracts the SQLite store for testability.
+type runStore interface {
+	RunsSince(workflowID int64, since time.Time) ([]model.WorkflowRun, error)
+	IncompleteRunIDs() ([]int64, error)
+	LoadRunDetail(runID int64) (*model.RunDetail, error)
+	SaveRunDetails(details []model.RunDetail) error
+	Close() error
+}
 
 func newAnalyzeCmd() *cobra.Command {
 	var (
@@ -90,30 +107,58 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 	}
 
 	// Open store
-	var s *store.Store
+	var s runStore
 	if !opts.noCache {
 		dbPath, err := store.DefaultPath()
 		if err != nil {
 			return err
 		}
-		s, err = store.Open(dbPath)
+		st, err := store.Open(dbPath)
 		if err != nil {
 			return err
 		}
-		defer s.Close() //nolint:errcheck // error on deferred close has no actionable caller
+		defer st.Close() //nolint:errcheck // error on deferred close has no actionable caller
 		if opts.verbose {
 			prog.Log("Cache: %s", dbPath)
 		}
+		s = st
 	}
 
-	ctx := cmd.Context()
+	result, err := fetchAndAnalyze(cmd.Context(), client, s, opts, sinceTime, prog)
+	if err != nil {
+		return err
+	}
 
+	for _, w := range result.Warnings {
+		prog.Log("Analysis warning: %s", w.Message)
+	}
+
+	// Blank line before output
+	_, _ = fmt.Fprintln(os.Stderr)
+
+	// Output
+	formatStart := time.Now()
+	formatter, ok := output.Get(opts.format, output.Options{Verbose: opts.verbose})
+	if !ok {
+		return fmt.Errorf("unknown format %q (supported: table, json, markdown)", opts.format)
+	}
+	err = formatter.Format(cmd.OutOrStdout(), result)
+	if opts.verbose {
+		prog.Log("Format: %s", time.Since(formatStart))
+	}
+	prog.Log("Total: %s", time.Since(totalStart))
+	return err
+}
+
+// fetchAndAnalyze contains the core pipeline: fetch workflows, hydrate runs, preprocess, analyze.
+// Extracted from runAnalyze for testability — accepts interfaces instead of concrete types.
+func fetchAndAnalyze(ctx context.Context, client workflowFetcher, s runStore, opts analyzeOpts, sinceTime time.Time, prog *output.Progress) (analyze.AnalysisResult, error) {
 	// Fetch workflows
 	prog.Status("Discovering workflows...")
 	workflows, err := client.ListWorkflows(ctx)
 	if err != nil {
 		prog.Done()
-		return fmt.Errorf("list workflows: %w", err)
+		return analyze.AnalysisResult{}, fmt.Errorf("list workflows: %w", err)
 	}
 	if opts.verbose {
 		prog.Log("Found %d workflows", len(workflows))
@@ -125,14 +170,12 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 		mu         sync.Mutex
 		sem        = make(chan struct{}, 4) // max parallel workflows
 	)
-	fetchedWorkflows := 0
 
 	var wg sync.WaitGroup
 	for _, wf := range workflows {
 		if opts.workflow != "" && wf.Name != opts.workflow {
 			continue
 		}
-		fetchedWorkflows++
 
 		wg.Go(func() {
 			sem <- struct{}{}
@@ -140,10 +183,13 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 
 			prog.Status("Fetching %q...", wf.Name)
 			fetchStart := time.Now()
-			runs, err := client.FetchRuns(ctx, wf.ID, sinceTime, opts.branch)
+			runs, fetchWarnings, err := client.FetchRuns(ctx, wf.ID, sinceTime, opts.branch)
 			if err != nil {
 				prog.Log("WARNING: failed to fetch runs for %q: %v", wf.Name, err)
 				return
+			}
+			for _, w := range fetchWarnings {
+				prog.Log("WARNING: %s", w.Message)
 			}
 			if opts.verbose {
 				prog.Log("  %q: fetched %d runs in %s", wf.Name, len(runs), time.Since(fetchStart))
@@ -217,7 +263,7 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 	prog.Done()
 
 	if len(allDetails) == 0 {
-		return fmt.Errorf("no runs found for %s since %s", opts.repo, sinceTime.Format("2006-01-02"))
+		return analyze.AnalysisResult{}, fmt.Errorf("no runs found for %s since %s", opts.repo, sinceTime.Format("2006-01-02"))
 	}
 
 	// Compute rerun stats before deduplication (needs to see all attempts)
@@ -243,21 +289,14 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 	}
 
 	if len(filtered) == 0 {
-		return fmt.Errorf("all %d runs were filtered out during preprocessing", len(allDetails))
+		return analyze.AnalysisResult{}, fmt.Errorf("all %d runs were filtered out during preprocessing", len(allDetails))
 	}
 
 	prog.Status("Analyzing %d runs...", len(filtered))
 
 	// Run analysis
 	analyzeStart := time.Now()
-	engine := analyze.NewEngine(
-		analyze.SummaryAnalyzer{},
-		analyze.StepAnalyzer{},
-		analyze.OutlierAnalyzer{},
-		analyze.ChangePointAnalyzer{},
-		analyze.FailureAnalyzer{},
-		analyze.CostAnalyzer{},
-	)
+	engine := analyze.NewEngine(analyze.DefaultAnalyzers()...)
 	workflowNames := make(map[int64]string, len(workflows))
 	for _, wf := range workflows {
 		workflowNames[wf.ID] = wf.Name
@@ -269,28 +308,14 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 		prog.Log("Analyze: %s", time.Since(analyzeStart))
 	}
 
-	for _, w := range result.Warnings {
-		prog.Log("Analysis warning: %s", w.Message)
-	}
-
-	// Blank line before output
-	_, _ = fmt.Fprintln(os.Stderr)
-
-	// Output
-	formatStart := time.Now()
-	formatter, ok := output.Get(opts.format, output.Options{Verbose: opts.verbose})
-	if !ok {
-		return fmt.Errorf("unknown format %q (supported: table, json, markdown)", opts.format)
-	}
-	err = formatter.Format(cmd.OutOrStdout(), result)
-	if opts.verbose {
-		prog.Log("Format: %s", time.Since(formatStart))
-	}
-	prog.Log("Total: %s", time.Since(totalStart))
-	return err
+	return result, nil
 }
 
 func parseSince(s string) (time.Time, error) {
+	return parseSinceFrom(s, time.Now().UTC())
+}
+
+func parseSinceFrom(s string, now time.Time) (time.Time, error) {
 	// Try absolute date first
 	if t, err := time.Parse("2006-01-02", s); err == nil {
 		return t, nil
@@ -301,7 +326,6 @@ func parseSince(s string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("unrecognized format %q", s)
 	}
 
-	now := time.Now().UTC()
 	suffix := s[len(s)-1]
 	numStr := s[:len(s)-1]
 

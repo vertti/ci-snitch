@@ -86,8 +86,9 @@ const dateWindowSize = 7
 // FetchRuns fetches completed workflow runs for a specific workflow since the given time.
 // Uses sliding date windows to avoid the GitHub API 1,000-result cap.
 // If branch is empty, runs from all branches are returned.
-func (c *Client) FetchRuns(ctx context.Context, workflowID int64, since time.Time, branch string) ([]model.WorkflowRun, error) {
+func (c *Client) FetchRuns(ctx context.Context, workflowID int64, since time.Time, branch string) ([]model.WorkflowRun, []Warning, error) {
 	var all []model.WorkflowRun
+	var warnings []Warning
 	now := time.Now().UTC()
 	windowStart := since
 
@@ -97,21 +98,23 @@ func (c *Client) FetchRuns(ctx context.Context, workflowID int64, since time.Tim
 			windowEnd = now
 		}
 
-		runs, err := c.fetchRunsWindow(ctx, workflowID, windowStart, windowEnd, branch)
+		runs, windowWarnings, err := c.fetchRunsWindow(ctx, workflowID, windowStart, windowEnd, branch)
 		if err != nil {
-			return all, fmt.Errorf("fetch runs for window %s..%s: %w",
+			return all, warnings, fmt.Errorf("fetch runs for window %s..%s: %w",
 				windowStart.Format("2006-01-02"), windowEnd.Format("2006-01-02"), err)
 		}
 		all = append(all, runs...)
+		warnings = append(warnings, windowWarnings...)
 
 		windowStart = windowEnd
 	}
 
-	return all, nil
+	return all, warnings, nil
 }
 
-func (c *Client) fetchRunsWindow(ctx context.Context, workflowID int64, start, end time.Time, branch string) ([]model.WorkflowRun, error) {
+func (c *Client) fetchRunsWindow(ctx context.Context, workflowID int64, start, end time.Time, branch string) ([]model.WorkflowRun, []Warning, error) {
 	var all []model.WorkflowRun
+	var warnings []Warning
 	created := fmt.Sprintf("%s..%s", start.Format("2006-01-02"), end.Format("2006-01-02"))
 
 	opts := &gh.ListWorkflowRunsOptions{
@@ -128,12 +131,14 @@ func (c *Client) fetchRunsWindow(ctx context.Context, workflowID int64, start, e
 	for {
 		result, resp, err := c.gh.Actions.ListWorkflowRunsByID(ctx, c.owner, c.repo, workflowID, opts)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		if result.GetTotalCount() > 1000 {
-			log.Printf("WARNING: workflow %d has %d runs in window %s, results may be truncated (GitHub API cap is 1000)",
-				workflowID, result.GetTotalCount(), created)
+			warnings = append(warnings, Warning{
+				Message: fmt.Sprintf("workflow %d has %d runs in window %s, results may be truncated (GitHub API cap is 1000)",
+					workflowID, result.GetTotalCount(), created),
+			})
 		}
 
 		for _, r := range result.WorkflowRuns {
@@ -152,7 +157,7 @@ func (c *Client) fetchRunsWindow(ctx context.Context, workflowID int64, start, e
 				log.Printf("Rate limit low (%d remaining), sleeping %s until reset", remaining, wait.Round(time.Second))
 				select {
 				case <-ctx.Done():
-					return all, ctx.Err()
+					return all, warnings, ctx.Err()
 				case <-time.After(wait):
 				}
 			}
@@ -161,7 +166,7 @@ func (c *Client) fetchRunsWindow(ctx context.Context, workflowID int64, start, e
 		opts.Page = resp.NextPage
 	}
 
-	return all, nil
+	return all, warnings, nil
 }
 
 // Warning represents a non-fatal issue encountered during data fetching.

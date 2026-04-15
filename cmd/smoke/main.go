@@ -59,9 +59,12 @@ func run() error {
 
 	wf := workflows[0]
 	since := time.Now().AddDate(0, 0, -3)
-	runs, err := c.FetchRuns(ctx, wf.ID, since, "")
+	runs, fetchWarnings, err := c.FetchRuns(ctx, wf.ID, since, "")
 	if err != nil {
 		return err
+	}
+	for _, w := range fetchWarnings {
+		fmt.Printf("WARNING: %s\n", w.Message)
 	}
 	fmt.Printf("Workflow %q: %d runs in last 3 days\n", wf.Name, len(runs))
 

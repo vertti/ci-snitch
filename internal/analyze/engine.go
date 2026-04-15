@@ -34,6 +34,18 @@ type Engine struct {
 	analyzers []Analyzer
 }
 
+// DefaultAnalyzers returns the standard set of analyzers in their canonical order.
+func DefaultAnalyzers() []Analyzer {
+	return []Analyzer{
+		SummaryAnalyzer{},
+		StepAnalyzer{},
+		OutlierAnalyzer{},
+		ChangePointAnalyzer{},
+		FailureAnalyzer{},
+		CostAnalyzer{},
+	}
+}
+
 // NewEngine creates an engine with the given analyzers.
 func NewEngine(analyzers ...Analyzer) *Engine {
 	return &Engine{analyzers: analyzers}

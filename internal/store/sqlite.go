@@ -4,7 +4,6 @@ package store
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,7 +118,6 @@ func migrate(db *sql.DB) error {
 		if _, err := db.Exec(`ALTER TABLE runs ADD COLUMN event TEXT NOT NULL DEFAULT ''`); err != nil {
 			return fmt.Errorf("add event column: %w", err)
 		}
-		log.Println("Migrated: added event column to runs table")
 	}
 	// Add runner metadata columns to jobs table (added in v0.8.0).
 	for _, col := range []string{"runner_name", "runner_group_name", "labels"} {
@@ -127,7 +125,6 @@ func migrate(db *sql.DB) error {
 			if _, err := db.Exec(fmt.Sprintf(`ALTER TABLE jobs ADD COLUMN %s TEXT NOT NULL DEFAULT ''`, col)); err != nil {
 				return fmt.Errorf("add %s column: %w", col, err)
 			}
-			log.Printf("Migrated: added %s column to jobs table", col)
 		}
 	}
 	return nil
@@ -396,10 +393,6 @@ func parseTime(s string) time.Time {
 	if s == "" {
 		return time.Time{}
 	}
-	t, err := time.Parse(timeFormat, s)
-	if err != nil {
-		log.Printf("WARNING: failed to parse time %q: %v", s, err)
-		return time.Time{}
-	}
+	t, _ := time.Parse(timeFormat, s)
 	return t
 }
