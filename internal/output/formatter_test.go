@@ -158,6 +158,39 @@ func TestMarkdownFormatter(t *testing.T) {
 	assert.Contains(t, out, "|---")
 }
 
+func TestCompactResult_FiltersNoise(t *testing.T) {
+	result := analyze.AnalysisResult{
+		Findings: []analyze.Finding{
+			{Type: analyze.TypeSummary, Detail: analyze.SummaryDetail{Workflow: "CI"}},
+			{Type: analyze.TypeChangepoint, Detail: analyze.ChangePointDetail{Category: analyze.CategoryRegression}},
+			{Type: analyze.TypeChangepoint, Detail: analyze.ChangePointDetail{Category: analyze.CategorySpeedup}},
+			{Type: analyze.TypeChangepoint, Detail: analyze.ChangePointDetail{Category: analyze.CategoryOscillating}},
+			{Type: analyze.TypeChangepoint, Detail: analyze.ChangePointDetail{Category: analyze.CategoryMinor}},
+			{Type: analyze.TypeChangepoint, Detail: analyze.ChangePointDetail{Category: analyze.CategoryMinor}},
+			{Type: analyze.TypeFailure, Detail: analyze.FailureDetail{Workflow: "CI"}},
+			{Type: analyze.TypeCost, Detail: analyze.CostDetail{Workflow: "CI"}},
+		},
+		Meta: analyze.ResultMeta{TotalRuns: 100},
+	}
+
+	compact := compactResult(result)
+
+	// Should keep: summary, 2 actionable changepoints, failure, cost = 5
+	// Should drop: 1 oscillating + 2 minor = 3
+	assert.Len(t, compact.Findings, 5)
+	assert.Equal(t, 100, compact.Meta.TotalRuns)
+
+	// Verify no oscillating or minor changepoints remain
+	for _, f := range compact.Findings {
+		if f.Type == analyze.TypeChangepoint {
+			d, ok := f.Detail.(analyze.ChangePointDetail)
+			require.True(t, ok)
+			assert.NotEqual(t, analyze.CategoryOscillating, d.Category)
+			assert.NotEqual(t, analyze.CategoryMinor, d.Category)
+		}
+	}
+}
+
 func TestFmtDur(t *testing.T) {
 	tests := []struct {
 		dur  analyze.Duration
