@@ -11,6 +11,8 @@ import (
 type groupedFindings struct {
 	Summaries    []analyze.Finding
 	Steps        []analyze.Finding
+	Pipelines    []analyze.Finding
+	Runners      []analyze.Finding
 	Outliers     []analyze.Finding
 	Changepoints []analyze.Finding
 	Failures     []analyze.Finding
@@ -26,6 +28,10 @@ func groupByType(findings []analyze.Finding) groupedFindings {
 			g.Summaries = append(g.Summaries, f)
 		case analyze.TypeSteps:
 			g.Steps = append(g.Steps, f)
+		case analyze.TypePipeline:
+			g.Pipelines = append(g.Pipelines, f)
+		case analyze.TypeRunner:
+			g.Runners = append(g.Runners, f)
 		case analyze.TypeOutlier:
 			g.Outliers = append(g.Outliers, f)
 		case analyze.TypeChangepoint:

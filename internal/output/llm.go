@@ -130,6 +130,48 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 			fmtTotalTime(d.Stats.TotalTime), d.Stats.VolatilityLabel)
 	}
 
+	// Pipeline structure
+	if len(g.Pipelines) > 0 {
+		_, _ = fmt.Fprint(w, "\n## Pipeline Structure\n\n")
+		for _, f := range g.Pipelines {
+			d, ok := f.Detail.(analyze.PipelineDetail)
+			if !ok {
+				continue
+			}
+			_, _ = fmt.Fprintf(w, "**%s** — %.0f%% parallel efficiency, wall-clock %s, total job time %s\n",
+				d.Workflow, d.Parallelism*100, fmtDur(d.MedianWallClock), fmtDur(d.MedianJobSum))
+			for _, stage := range d.Stages {
+				marker := ""
+				if stage.Name == d.CriticalPath {
+					marker = " **<< critical path**"
+				}
+				if stage.Sequential {
+					marker += " _(waits for previous)_"
+				}
+				_, _ = fmt.Fprintf(w, "- %s: %s (%.0f%%, %d jobs)%s\n",
+					stage.Name, fmtDur(stage.Duration), stage.PctOfPipeline, len(stage.Jobs), marker)
+			}
+			_, _ = fmt.Fprint(w, "\n")
+		}
+	}
+
+	// Runner sizing
+	if len(g.Runners) > 0 {
+		_, _ = fmt.Fprint(w, "\n## Runner Sizing\n\n")
+		for _, f := range g.Runners {
+			d, ok := f.Detail.(analyze.RunnerDetail)
+			if !ok {
+				continue
+			}
+			icon := "▼"
+			if d.Issue == "undersized" {
+				icon = "▲"
+			}
+			_, _ = fmt.Fprintf(w, "- %s **%s / %s** (%s, %d cores): %s\n",
+				icon, d.WorkflowName, d.JobName, d.RunnerLabel, d.Cores, d.Suggestion)
+		}
+	}
+
 	// Step timing breakdown
 	if len(g.Steps) > 0 {
 		_, _ = fmt.Fprint(w, "\n## Step-Level Timing\n\n")

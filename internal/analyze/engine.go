@@ -39,6 +39,8 @@ func DefaultAnalyzers() []Analyzer {
 	return []Analyzer{
 		SummaryAnalyzer{},
 		StepAnalyzer{},
+		PipelineAnalyzer{},
+		RunnerAnalyzer{},
 		OutlierAnalyzer{},
 		ChangePointAnalyzer{},
 		FailureAnalyzer{},
