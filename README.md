@@ -25,7 +25,7 @@ ci-snitch analyzes your workflow history and surfaces what matters: where your C
 - **Local SQLite cache** — completed runs cached permanently, incremental fetches only
 
 ```
-ci-snitch analyze --repo cli/cli --since 7d
+ci-snitch analyze cli/cli --since 7d
 
 Unit and Integration Tests  73 runs, median 8m33s, p95 15m01s, total 11h53m
   ├─ Integration tests (2, 3)  73 runs  median 7m29s  p95 13m58s
@@ -63,7 +63,11 @@ Authenticates via `GITHUB_TOKEN` env var, or falls back to the [GitHub CLI](http
 ## Quick start
 
 ```bash
-ci-snitch analyze --repo your-org/your-repo
+# From inside a GitHub repo — auto-detects owner/repo from git remote
+ci-snitch analyze
+
+# Or specify explicitly
+ci-snitch analyze your-org/your-repo
 ```
 
 That's it. Fetches the last 60 days of workflow data and shows you what matters.
@@ -80,23 +84,23 @@ That's it. Fetches the last 60 days of workflow data and shows you what matters.
 
 ```bash
 # Human-readable table (default)
-ci-snitch analyze --repo owner/repo
+ci-snitch analyze owner/repo
 
 # JSON — pipe to jq, feed to an LLM, build dashboards
-ci-snitch analyze --repo owner/repo --format json
+ci-snitch analyze owner/repo --format json
 
 # Markdown — paste into GitHub issues or PR comments
-ci-snitch analyze --repo owner/repo --format markdown
+ci-snitch analyze owner/repo --format markdown
 
 # LLM — structured context for Claude Code or similar tools
-ci-snitch analyze --repo owner/repo --format llm
+ci-snitch analyze owner/repo --format llm
 ```
 
 ## Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--repo` | (required) | Repository in `owner/repo` format |
+| `[owner/repo]` | auto-detect | Repository to analyze; if omitted, detected from git remote |
 | `--since` | `60d` | How far back: `7d`, `2w`, `3mo`, or `2026-01-01` |
 | `--branch` | all | Filter to a specific branch |
 | `--workflow` | all | Filter to a specific workflow name |

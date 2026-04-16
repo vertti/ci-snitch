@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,7 +39,6 @@ type runStore interface {
 
 func newAnalyzeCmd() *cobra.Command {
 	var (
-		repo            string
 		branch          string
 		since           string
 		workflow        string
@@ -47,10 +50,24 @@ func newAnalyzeCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "analyze",
+		Use:   "analyze [owner/repo]",
 		Short: "Analyze CI workflow performance",
-		Long:  "Fetch workflow run data and compute performance statistics, outliers, and trends.",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Long: `Fetch workflow run data and compute performance statistics, outliers, and trends.
+
+If no repository is specified, detects the GitHub remote from the current directory.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var repo string
+			if len(args) > 0 {
+				repo = args[0]
+			} else {
+				detected, err := detectGitHubRepo()
+				if err != nil {
+					cmd.SilenceUsage = true
+					return errors.New("provide a repository: ci-snitch analyze <owner/repo>\nor run from inside a GitHub repo directory")
+				}
+				repo = detected
+			}
 			return runAnalyze(cmd, analyzeOpts{
 				repo:            repo,
 				branch:          branch,
@@ -65,7 +82,6 @@ func newAnalyzeCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&repo, "repo", "", "repository in owner/repo format (required)")
 	cmd.Flags().StringVar(&branch, "branch", "", "filter to this branch (default: all branches)")
 	cmd.Flags().StringVar(&since, "since", "60d", "how far back to analyze (e.g. 60d, 2026-01-01)")
 	cmd.Flags().StringVar(&workflow, "workflow", "", "filter to this workflow name")
@@ -74,7 +90,6 @@ func newAnalyzeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "bypass local cache, fetch fresh data")
 	cmd.Flags().BoolVar(&includeFailures, "include-failures", false, "include failed runs in analysis")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "verbose output (show fetch details)")
-	_ = cmd.MarkFlagRequired("repo")
 
 	return cmd
 }
@@ -94,6 +109,7 @@ type analyzeOpts struct {
 func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 	totalStart := time.Now()
 	prog := output.NewProgress()
+	prog.Log("Snitching on %s", opts.repo)
 
 	sinceTime, err := parseSince(opts.since)
 	if err != nil {
@@ -313,6 +329,22 @@ func fetchAndAnalyze(ctx context.Context, client workflowFetcher, s runStore, op
 	}
 
 	return result, nil
+}
+
+var gitHubRemoteRe = regexp.MustCompile(`github\.com[:/]([^/]+/[^/.]+?)(?:\.git)?$`)
+
+// detectGitHubRepo extracts owner/repo from the git remote in the current directory.
+func detectGitHubRepo() (string, error) {
+	out, err := exec.Command("git", "remote", "get-url", "origin").Output()
+	if err != nil {
+		return "", errors.New("not a git repository or no 'origin' remote")
+	}
+	url := strings.TrimSpace(string(out))
+	m := gitHubRemoteRe.FindStringSubmatch(url)
+	if m == nil {
+		return "", fmt.Errorf("remote %q is not a GitHub repository", url)
+	}
+	return m[1], nil
 }
 
 func parseSince(s string) (time.Time, error) {
