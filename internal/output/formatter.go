@@ -14,7 +14,8 @@ type Formatter interface {
 
 // Options controls formatter behavior.
 type Options struct {
-	Verbose bool
+	Verbose       bool
+	RawOutputPath string // if set, write full JSON to this file instead of embedding
 }
 
 // Get returns a formatter by name. Supported: "json", "table", "markdown"/"md", "llm".
@@ -25,12 +26,12 @@ func Get(name string, opts Options) (Formatter, bool) {
 	case "json":
 		return JSONFormatter{}, true
 	case "markdown", "md":
-		return MarkdownFormatter(opts), true
+		return MarkdownFormatter{Verbose: opts.Verbose}, true
 	case "llm":
-		return LLMFormatter{}, true
+		return LLMFormatter{RawOutputPath: opts.RawOutputPath}, true
 	case "table":
-		return TableFormatter(opts), true
+		return TableFormatter{Verbose: opts.Verbose}, true
 	default:
-		return TableFormatter(opts), false
+		return TableFormatter{Verbose: opts.Verbose}, false
 	}
 }
