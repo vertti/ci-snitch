@@ -49,6 +49,34 @@ func TestParseSinceFrom(t *testing.T) {
 	}
 }
 
+func TestGitHubRemoteRe(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+		want string
+		ok   bool
+	}{
+		{name: "ssh", url: "git@github.com:vertti/ci-snitch.git", want: "vertti/ci-snitch", ok: true},
+		{name: "https", url: "https://github.com/vertti/ci-snitch.git", want: "vertti/ci-snitch", ok: true},
+		{name: "https no .git", url: "https://github.com/vertti/ci-snitch", want: "vertti/ci-snitch", ok: true},
+		{name: "ssh no .git", url: "git@github.com:org/repo", want: "org/repo", ok: true},
+		{name: "not github", url: "git@gitlab.com:org/repo.git", ok: false},
+		{name: "bare path", url: "/tmp/some-repo", ok: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := gitHubRemoteRe.FindStringSubmatch(tt.url)
+			if !tt.ok {
+				assert.Nil(t, m)
+				return
+			}
+			require.NotNil(t, m)
+			assert.Equal(t, tt.want, m[1])
+		})
+	}
+}
+
 // stubFetcher implements workflowFetcher for testing.
 type stubFetcher struct {
 	workflows []model.Workflow

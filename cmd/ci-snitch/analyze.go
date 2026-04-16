@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,13 +50,25 @@ func newAnalyzeCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "analyze <owner/repo>",
+		Use:   "analyze [owner/repo]",
 		Short: "Analyze CI workflow performance",
-		Long:  "Fetch workflow run data and compute performance statistics, outliers, and trends.",
-		Args:  cobra.ExactArgs(1),
+		Long: `Fetch workflow run data and compute performance statistics, outliers, and trends.
+
+If no repository is specified, detects the GitHub remote from the current directory.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			var repo string
+			if len(args) > 0 {
+				repo = args[0]
+			} else {
+				detected, err := detectGitHubRepo()
+				if err != nil {
+					return fmt.Errorf("no repository specified and could not detect from current directory: %w\n\nUsage: ci-snitch analyze <owner/repo>", err)
+				}
+				repo = detected
+			}
 			return runAnalyze(cmd, analyzeOpts{
-				repo:            args[0],
+				repo:            repo,
 				branch:          branch,
 				since:           since,
 				workflow:        workflow,
@@ -311,6 +327,22 @@ func fetchAndAnalyze(ctx context.Context, client workflowFetcher, s runStore, op
 	}
 
 	return result, nil
+}
+
+var gitHubRemoteRe = regexp.MustCompile(`github\.com[:/]([^/]+/[^/.]+?)(?:\.git)?$`)
+
+// detectGitHubRepo extracts owner/repo from the git remote in the current directory.
+func detectGitHubRepo() (string, error) {
+	out, err := exec.Command("git", "remote", "get-url", "origin").Output()
+	if err != nil {
+		return "", errors.New("not a git repository or no 'origin' remote")
+	}
+	url := strings.TrimSpace(string(out))
+	m := gitHubRemoteRe.FindStringSubmatch(url)
+	if m == nil {
+		return "", fmt.Errorf("remote %q is not a GitHub repository", url)
+	}
+	return m[1], nil
 }
 
 func parseSince(s string) (time.Time, error) {

@@ -63,6 +63,10 @@ Authenticates via `GITHUB_TOKEN` env var, or falls back to the [GitHub CLI](http
 ## Quick start
 
 ```bash
+# From inside a GitHub repo — auto-detects owner/repo from git remote
+ci-snitch analyze
+
+# Or specify explicitly
 ci-snitch analyze your-org/your-repo
 ```
 
@@ -96,7 +100,7 @@ ci-snitch analyze owner/repo --format llm
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `<owner/repo>` | (required) | Repository to analyze (positional argument) |
+| `[owner/repo]` | auto-detect | Repository to analyze; if omitted, detected from git remote |
 | `--since` | `60d` | How far back: `7d`, `2w`, `3mo`, or `2026-01-01` |
 | `--branch` | all | Filter to a specific branch |
 | `--workflow` | all | Filter to a specific workflow name |
