@@ -24,29 +24,9 @@ ci-snitch analyzes your workflow history and surfaces what matters: where your C
 - **Multiple formats** — table (ANSI), JSON, markdown, and LLM
 - **Local SQLite cache** — completed runs cached permanently, incremental fetches only
 
-```
-ci-snitch analyze cli/cli --since 7d
-
-Unit and Integration Tests  73 runs, median 8m33s, p95 15m01s, total 11h53m
-  ├─ Integration tests (2, 3)  73 runs  median 7m29s  p95 13m58s
-  ├─ Integration tests (1, 3)  73 runs  median 7m11s  p95 13m26s
-  ├─ Integration tests (3, 3)  73 runs  median 6m29s  p95 12m37s
-  ├─ Unit tests                73 runs  median 3m15s  p95 3m53s
-  └─ Merge artifacts           73 runs  median 14s    p95 20s
-
-Deploy Test Environment  23 runs, median 23m17s, p95 48m34s, total 11h2m
-  ├─ Deploy to Test              23 runs  median 10m40s  p95 29m40s
-  ├─ tests / Integration (2, 3) 23 runs  median 7m18s   p95 13m29s
-  └─ ...
-
-── Change Points (3) ──
-DIR  JOB                  CHANGE  BEFORE  AFTER  DATE        COMMIT    P-VALUE
-▲    Unit tests           +16%    3m22s   3m54s  2026-04-09  1330e058  0.0258
-▼    Integration (3, 3)   -20%    8m27s   6m44s  2026-04-09  31f2edc5  0.0014
-▲    Build and push admin +40%    2m45s   3m51s  2026-04-10  af9a58c1  0.0660
-
-390 runs analyzed (2026-04-05 to 2026-04-11)
-```
+<picture>
+  <img alt="ci-snitch analyzing cli/cli" src="doc/demo.svg">
+</picture>
 
 ## Install
 

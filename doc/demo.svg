@@ -1,0 +1,65 @@
+<svg width="154ch" height="45em" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve">
+    <style>
+        * {
+            font-family: Courier, monospace;
+            font-size: 13px;
+        }
+        tspan, text {
+            font-variant-ligatures: none;
+            dominant-baseline: central;
+            white-space: pre;
+            fill: #f8f8f2;
+        }
+        .bg {
+            stroke-width: "0.5px";
+        }
+        .bold {
+            font-weight: bold;
+        }
+        .dim {
+            opacity: 0.5;
+        }
+        <!-- Foreground ANSI colors -->
+        .fa1 { fill: #ff5555; }
+        .fa2 { fill: #50fa7b; }
+        .fa3 { fill: #f1fa8c; }
+        .fa6 { fill: #8be9fd; }
+    </style>
+    <rect width="100%" height="100%" x="0" y="0" style="fill: #1e1f29"/>
+<text x="1ch" y="1em"><tspan class="dim">$ ci-snitch analyze cli/cli --since 14d</tspan></text>
+<text x="1ch" y="3em"><tspan class="dim">── Triage ──</tspan></text>
+<text x="1ch" y="4em"><tspan>  </tspan><tspan class="dim">Top CI time:  </tspan><tspan class="bold">Unit and Integration Tests </tspan><tspan class="dim">(12h20m)  </tspan><tspan class="bold">Code Scanning </tspan><tspan class="dim">(3h20m)  </tspan><tspan class="bold">Lint </tspan><tspan class="dim">(2h6m)</tspan></text>
+<text x="1ch" y="5em"><tspan>  </tspan><tspan class="dim">Regressions:  </tspan><tspan class="fa1">Agent &#43;117%</tspan><tspan>, </tspan><tspan class="fa1">govulncheck &#43;61%</tspan><tspan>, </tspan><tspan class="fa1">integration-tests (windows-latest) &#43;21%</tspan></text>
+<text x="1ch" y="6em"><tspan>  </tspan><tspan class="dim">Flaky:  </tspan><tspan class="fa1">Bump Go </tspan><tspan class="dim">(47%)</tspan><tspan>, </tspan><tspan class="fa1">Copilot code review </tspan><tspan class="dim">(33%)</tspan><tspan>, </tspan><tspan class="fa1">Lint </tspan><tspan class="dim">(23%)</tspan></text>
+<text x="1ch" y="8em"><tspan class="bold">Unit and Integration Tests  </tspan><tspan>84 runs, median </tspan><tspan class="fa6">8m39s</tspan><tspan>, p95 </tspan><tspan class="fa6">10m34s</tspan><tspan>, total </tspan><tspan class="bold">12h20m </tspan><tspan class="fa1">&lt;&lt; most CI time</tspan></text>
+<text x="1ch" y="9em"><tspan>  </tspan><tspan class="dim">|- </tspan><tspan>build (3 variants)              252 runs  median 5m18s  p95 9m18s  min 4m15s  max 14m08s </tspan><tspan class="dim">[variable]</tspan></text>
+<text x="1ch" y="10em"><tspan>  </tspan><tspan class="dim">`- </tspan><tspan>integration-tests (3 variants)  252 runs  median 1m46s  p95 3m21s  min 58s    max 5m31s </tspan><tspan class="dim">[variable]</tspan></text>
+<text x="1ch" y="12em"><tspan class="bold">Lint  </tspan><tspan>56 runs, median </tspan><tspan class="fa6">2m18s</tspan><tspan>, p95 </tspan><tspan class="fa6">2m34s</tspan><tspan>, total </tspan><tspan class="bold">2h6m</tspan></text>
+<text x="1ch" y="13em"><tspan>  </tspan><tspan class="dim">|- </tspan><tspan>lint         56 runs  median 2m14s  p95 2m30s  min 1m46s  max 2m31s</tspan></text>
+<text x="1ch" y="14em"><tspan>  </tspan><tspan class="dim">`- </tspan><tspan>govulncheck  56 runs  median 39s    p95 50s    min 18s    max 1m27s</tspan></text>
+<text x="1ch" y="16em"><tspan class="bold">Code Scanning           </tspan><tspan>61 runs  median </tspan><tspan class="fa6">3m17s  </tspan><tspan>p95 </tspan><tspan class="fa6">3m30s  </tspan><tspan>total </tspan><tspan class="bold">3h20m</tspan></text>
+<text x="1ch" y="17em"><tspan class="bold">Dependabot Updates      </tspan><tspan>17 runs  median </tspan><tspan class="fa6">55s    </tspan><tspan>p95 </tspan><tspan class="fa6">1m45s  </tspan><tspan>total </tspan><tspan class="bold">17m </tspan><tspan class="dim">[variable]</tspan></text>
+<text x="1ch" y="18em"><tspan class="bold">Spam Issue Detection    </tspan><tspan>41 runs  median </tspan><tspan class="fa6">13s    </tspan><tspan>p95 </tspan><tspan class="fa6">17s    </tspan><tspan>total </tspan><tspan class="bold">9m </tspan><tspan class="dim">[variable]</tspan></text>
+<text x="1ch" y="19em"><tspan class="bold">Dependency Graph        </tspan><tspan>10 runs  median </tspan><tspan class="fa6">45s    </tspan><tspan>p95 </tspan><tspan class="fa6">50s    </tspan><tspan>total </tspan><tspan class="bold">7m</tspan></text>
+<text x="1ch" y="21em"><tspan class="dim">── CI Cost (top 5 of 12) ──</tspan></text>
+<text x="1ch" y="22em"><tspan>  </tspan><tspan class="bold">Unit and Integration Tests                               </tspan><tspan class="fa6">9613 mins  </tspan><tspan class="dim">(664/day)  84 runs  </tspan><tspan class="fa2">save ~23 mins/day</tspan></text>
+<text x="1ch" y="23em"><tspan>    </tspan><tspan class="dim">build (macos-latest)                                   4950 mins </tspan><tspan class="fa3">(10x)</tspan></text>
+<text x="1ch" y="24em"><tspan>    </tspan><tspan class="dim">integration-tests (macos-latest)                       1950 mins </tspan><tspan class="fa3">(10x)</tspan></text>
+<text x="1ch" y="25em"><tspan>    </tspan><tspan class="dim">build (windows-latest)                                 1558 mins </tspan><tspan class="fa3">(2x)</tspan></text>
+<text x="1ch" y="26em"><tspan>  </tspan><tspan class="bold">Triage Scheduled Tasks                                   </tspan><tspan class="fa6">482 mins  </tspan><tspan class="dim">(33/day)  482 runs</tspan></text>
+<text x="1ch" y="27em"><tspan>    </tspan><tspan class="dim">no-response / noResponse                               467 mins</tspan></text>
+<text x="1ch" y="29em"><tspan class="dim">── Failure Rates (5) ──</tspan></text>
+<text x="1ch" y="30em"><tspan>  </tspan><tspan class="bold">Bump Go                     </tspan><tspan class="fa1">47%  </tspan><tspan class="dim">(7/15 runs)   failure: 7                                                 </tspan><tspan>fails at: </tspan><tspan class="fa3">Bump Go version</tspan></text>
+<text x="1ch" y="31em"><tspan>  </tspan><tspan class="bold">Copilot code review         </tspan><tspan class="fa1">33%  </tspan><tspan class="dim">(8/24 runs)   failure: 8                                                 </tspan><tspan>fails at: </tspan><tspan class="fa3">Delete artifacts</tspan></text>
+<text x="1ch" y="32em"><tspan>  </tspan><tspan class="bold">Lint                        </tspan><tspan class="fa1">23%  </tspan><tspan class="dim">(17/73 runs)  action_required: 3, failure: 14, retried: 1 (&#43;1 attempts)  </tspan><tspan>fails at: </tspan><tspan class="fa3">Check Go vulnerabilities </tspan><tspan class="dim">(&#43;2 more)</tspan></text>
+<text x="1ch" y="33em"><tspan>  </tspan><tspan class="bold">PR Triaging                 </tspan><tspan class="fa3">7%   </tspan><tspan class="dim">(9/127 runs)  failure: 9, retried: 1 (&#43;1 attempts)                       </tspan><tspan>fails at: </tspan><tspan class="fa3">Check PR requirements</tspan></text>
+<text x="1ch" y="35em"><tspan class="dim">── Change Points (6) ──</tspan></text>
+<text x="1ch" y="36em"><tspan>  </tspan><tspan class="dim">DIR     JOB                                 CHANGE          BEFORE  AFTER  DATE        COMMIT            P-VALUE          STATUS</tspan></text>
+<text x="1ch" y="37em"><tspan>  </tspan><tspan class="fa2">▼  </tspan><tspan>lint                                </tspan><tspan class="fa2">-13%   </tspan><tspan>2m15s   1m58s  2026-04-15  </tspan><tspan class="dim">e04dceb3  </tspan><tspan class="fa2">0.0001  ✓ 12 runs</tspan></text>
+<text x="1ch" y="38em"><tspan>  </tspan><tspan class="fa1">▲  </tspan><tspan>Agent                               </tspan><tspan class="fa1">&#43;117%  </tspan><tspan>1m36s   3m29s  2026-04-15  </tspan><tspan class="dim">1d21aa62  </tspan><tspan class="fa2">0.0033  </tspan><tspan class="dim">? 9 runs</tspan></text>
+<text x="1ch" y="39em"><tspan>  </tspan><tspan class="fa1">▲  </tspan><tspan>govulncheck                         </tspan><tspan class="fa1">&#43;61%   </tspan><tspan>23s     37s    2026-04-04  </tspan><tspan class="dim">57b24777  </tspan><tspan class="fa2">0.0098  ✓ 33 runs</tspan></text>
+<text x="1ch" y="40em"><tspan>  </tspan><tspan class="fa2">▼  </tspan><tspan>govulncheck                         </tspan><tspan class="fa2">-22%   </tspan><tspan>38s     30s    2026-04-15  </tspan><tspan class="dim">aa9914b6  </tspan><tspan class="fa2">0.0011  </tspan><tspan class="fa3">transient (16 runs)</tspan></text>
+<text x="1ch" y="41em"><tspan>  </tspan><tspan class="fa1">▲  </tspan><tspan>integration-tests (windows-latest)  </tspan><tspan class="fa1">&#43;21%   </tspan><tspan>2m22s   2m53s  2026-04-08  </tspan><tspan class="dim">49ff9070  </tspan><tspan class="fa3">0.0272  transient (14 runs)</tspan></text>
+<text x="1ch" y="42em"><tspan>  </tspan><tspan class="fa2">▼  </tspan><tspan>integration-tests (windows-latest)  </tspan><tspan class="fa2">-28%   </tspan><tspan>2m56s   2m06s  2026-04-15  </tspan><tspan class="dim">f2d978d9  </tspan><tspan class="fa2">0.0001  ✓ 12 runs</tspan></text>
+<text x="1ch" y="44em"><tspan class="dim">939 runs analyzed </tspan><tspan>(2026-04-02 to 2026-04-16)</tspan></text>
+</svg>
