@@ -35,7 +35,6 @@ type runStore interface {
 
 func newAnalyzeCmd() *cobra.Command {
 	var (
-		repo            string
 		branch          string
 		since           string
 		workflow        string
@@ -47,12 +46,13 @@ func newAnalyzeCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "analyze",
+		Use:   "analyze <owner/repo>",
 		Short: "Analyze CI workflow performance",
 		Long:  "Fetch workflow run data and compute performance statistics, outliers, and trends.",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAnalyze(cmd, analyzeOpts{
-				repo:            repo,
+				repo:            args[0],
 				branch:          branch,
 				since:           since,
 				workflow:        workflow,
@@ -65,7 +65,6 @@ func newAnalyzeCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&repo, "repo", "", "repository in owner/repo format (required)")
 	cmd.Flags().StringVar(&branch, "branch", "", "filter to this branch (default: all branches)")
 	cmd.Flags().StringVar(&since, "since", "60d", "how far back to analyze (e.g. 60d, 2026-01-01)")
 	cmd.Flags().StringVar(&workflow, "workflow", "", "filter to this workflow name")
@@ -74,7 +73,6 @@ func newAnalyzeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "bypass local cache, fetch fresh data")
 	cmd.Flags().BoolVar(&includeFailures, "include-failures", false, "include failed runs in analysis")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "verbose output (show fetch details)")
-	_ = cmd.MarkFlagRequired("repo")
 
 	return cmd
 }

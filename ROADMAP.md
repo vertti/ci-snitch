@@ -368,6 +368,6 @@ Tag a new minor version after each PR merge to main. Every PR delivers value, so
 Each PR:
 1. `mise run check` (fmt + lint + test)
 2. `go run ./cmd/smoke` — update smoke test to exercise new features
-3. `./bin/ci-snitch analyze --repo cli/cli --since 7d` — verify output
+3. `./bin/ci-snitch analyze cli/cli --since 7d` — verify output
 4. For new analyzers: golden file tests in `internal/*/testdata/` with anonymized data
 5. For TUI: manual interactive testing
