@@ -40,6 +40,7 @@ func newAnalyzeCmd() *cobra.Command {
 		since           string
 		workflow        string
 		format          string
+		rawOutput       string
 		noCache         bool
 		includeFailures bool
 		verbose         bool
@@ -56,6 +57,7 @@ func newAnalyzeCmd() *cobra.Command {
 				since:           since,
 				workflow:        workflow,
 				format:          format,
+				rawOutput:       rawOutput,
 				noCache:         noCache,
 				includeFailures: includeFailures,
 				verbose:         verbose,
@@ -67,7 +69,8 @@ func newAnalyzeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&branch, "branch", "", "filter to this branch (default: all branches)")
 	cmd.Flags().StringVar(&since, "since", "60d", "how far back to analyze (e.g. 60d, 2026-01-01)")
 	cmd.Flags().StringVar(&workflow, "workflow", "", "filter to this workflow name")
-	cmd.Flags().StringVar(&format, "format", "table", "output format: table, json, markdown")
+	cmd.Flags().StringVar(&format, "format", "table", "output format: table, json, markdown, llm")
+	cmd.Flags().StringVar(&rawOutput, "raw-output", "", "write full JSON to file (useful with --format llm to keep report compact)")
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "bypass local cache, fetch fresh data")
 	cmd.Flags().BoolVar(&includeFailures, "include-failures", false, "include failed runs in analysis")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "verbose output (show fetch details)")
@@ -82,6 +85,7 @@ type analyzeOpts struct {
 	since           string
 	workflow        string
 	format          string
+	rawOutput       string
 	noCache         bool
 	includeFailures bool
 	verbose         bool
@@ -138,9 +142,9 @@ func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 
 	// Output
 	formatStart := time.Now()
-	formatter, ok := output.Get(opts.format, output.Options{Verbose: opts.verbose})
+	formatter, ok := output.Get(opts.format, output.Options{Verbose: opts.verbose, RawOutputPath: opts.rawOutput})
 	if !ok {
-		return fmt.Errorf("unknown format %q (supported: table, json, markdown)", opts.format)
+		return fmt.Errorf("unknown format %q (supported: table, json, markdown, llm)", opts.format)
 	}
 	err = formatter.Format(cmd.OutOrStdout(), result)
 	if opts.verbose {

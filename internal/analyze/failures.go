@@ -5,6 +5,14 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
+)
+
+// Failure trend directions.
+const (
+	FailureTrendImproving = "improving"
+	FailureTrendWorsening = "worsening"
+	FailureTrendStable    = "stable"
 )
 
 const (
@@ -33,6 +41,8 @@ type FailureDetail struct {
 	FailureCount      int            `json:"failure_count"`
 	FailureRate       float64        `json:"failure_rate"`
 	FailureKind       string         `json:"failure_kind"`
+	Trend             string         `json:"trend"`               // improving, worsening, stable
+	RecentFailureRate float64        `json:"recent_failure_rate"` // failure rate in last 7 days
 	CancellationCount int            `json:"cancellation_count"`
 	CancellationRate  float64        `json:"cancellation_rate"`
 	ByConclusion      map[string]int `json:"by_conclusion"`
@@ -72,12 +82,23 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 		step string
 	}
 	type wfStat struct {
-		total         int
-		failures      int
-		cancellations int
-		byConclusion  map[string]int
-		failingSteps  map[stepKey]int
+		total          int
+		failures       int
+		cancellations  int
+		recentTotal    int // runs in last 7 days
+		recentFailures int
+		byConclusion   map[string]int
+		failingSteps   map[stepKey]int
 	}
+
+	// Find the latest run time to compute "recent" window
+	var latest time.Time
+	for _, d := range ac.AllDetails {
+		if d.Run.CreatedAt.After(latest) {
+			latest = d.Run.CreatedAt
+		}
+	}
+	recentCutoff := latest.AddDate(0, 0, -7)
 
 	wfStats := make(map[int64]*wfStat)
 	for _, d := range ac.AllDetails {
@@ -90,6 +111,10 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 		}
 		s := wfStats[wfID]
 		s.total++
+		isRecent := d.Run.CreatedAt.After(recentCutoff)
+		if isRecent {
+			s.recentTotal++
+		}
 		switch d.Run.Conclusion {
 		case "success", "skipped":
 			// not a failure
@@ -98,6 +123,9 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 			s.byConclusion[d.Run.Conclusion]++
 		default:
 			s.failures++
+			if isRecent {
+				s.recentFailures++
+			}
 			s.byConclusion[d.Run.Conclusion]++
 			// Attribute failure to root-cause step (first failing step per job).
 			// Later failing steps are often cascades (e.g. "Stop Docker Compose"
@@ -163,12 +191,28 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 			}
 		}
 
+		// Compute trend: compare recent 7d failure rate to overall
+		var recentRate float64
+		trend := FailureTrendStable
+		if s.recentTotal >= 5 {
+			recentRate = float64(s.recentFailures) / float64(s.recentTotal)
+			diff := recentRate - failRate
+			// Meaningful change: at least 5 percentage points difference
+			if diff <= -0.05 {
+				trend = FailureTrendImproving
+			} else if diff >= 0.05 {
+				trend = FailureTrendWorsening
+			}
+		}
+
 		detail := FailureDetail{
 			Workflow:          wfName,
 			TotalRuns:         s.total,
 			FailureCount:      s.failures,
 			FailureRate:       failRate,
 			FailureKind:       kind,
+			Trend:             trend,
+			RecentFailureRate: recentRate,
 			CancellationCount: s.cancellations,
 			CancellationRate:  cancelRate,
 			ByConclusion:      s.byConclusion,

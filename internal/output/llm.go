@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"slices"
 	"strings"
 
@@ -12,10 +13,12 @@ import (
 
 // LLMFormatter produces structured output optimized for LLM consumption.
 // Combines narrative context with raw JSON data.
-type LLMFormatter struct{}
+type LLMFormatter struct {
+	RawOutputPath string // if set, write full JSON to file instead of embedding
+}
 
 // Format implements Formatter.
-func (LLMFormatter) Format(w io.Writer, result analyze.AnalysisResult) error {
+func (l LLMFormatter) Format(w io.Writer, result analyze.AnalysisResult) error {
 	repo := result.Meta.Repo
 	from := result.Meta.TimeRange[0].Format("2006-01-02")
 	to := result.Meta.TimeRange[1].Format("2006-01-02")
@@ -69,8 +72,15 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 		if d.FailureKind == analyze.FailureKindSystematic {
 			tag = "SYSTEMATIC"
 		}
-		_, _ = fmt.Fprintf(w, "- **[%s]** %s: %.0f%% failure rate (%d/%d runs)",
-			tag, d.Workflow, d.FailureRate*100, d.FailureCount, d.TotalRuns)
+		trendNote := ""
+		switch d.Trend {
+		case analyze.FailureTrendImproving:
+			trendNote = fmt.Sprintf(", **improving** (recent 7d: %.0f%%)", d.RecentFailureRate*100)
+		case analyze.FailureTrendWorsening:
+			trendNote = fmt.Sprintf(", **worsening** (recent 7d: %.0f%%)", d.RecentFailureRate*100)
+		}
+		_, _ = fmt.Fprintf(w, "- **[%s]** %s: %.0f%% failure rate (%d/%d runs)%s",
+			tag, d.Workflow, d.FailureRate*100, d.FailureCount, d.TotalRuns, trendNote)
 		_, _ = fmt.Fprint(w, failingStepHeadline(d))
 		if len(d.ByCategory) > 1 {
 			_, _ = fmt.Fprint(w, categoryBreakdown(d))
@@ -152,23 +162,44 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 	}
 
 	// Raw JSON — filtered to actionable findings only.
-	// Oscillating and minor changepoints are noise (can be 80+ entries);
-	// the narrative sections above already cover what matters.
 	compact := compactResult(result)
 	omitted := len(result.Findings) - len(compact.Findings)
-	_, _ = fmt.Fprintf(w, "\n## Raw Data (%d findings)\n\n", len(compact.Findings))
-	if omitted > 0 {
-		_, _ = fmt.Fprintf(w, "_(%d oscillating/minor changepoints omitted — these jobs have high inherent variance and are not commit-attributable)_\n\n", omitted)
+
+	if l.RawOutputPath != "" {
+		// Write full (unfiltered) JSON to file; keep report compact
+		if err := writeJSONFile(l.RawOutputPath, result); err != nil {
+			return fmt.Errorf("write raw output: %w", err)
+		}
+		_, _ = fmt.Fprintf(w, "\n## Raw Data\n\nFull JSON written to `%s` (%d findings).\n", l.RawOutputPath, len(result.Findings))
+		if omitted > 0 {
+			_, _ = fmt.Fprintf(w, "_(%d oscillating/minor changepoints omitted from this report but included in the file)_\n", omitted)
+		}
+	} else {
+		_, _ = fmt.Fprintf(w, "\n## Raw Data (%d findings)\n\n", len(compact.Findings))
+		if omitted > 0 {
+			_, _ = fmt.Fprintf(w, "_(%d oscillating/minor changepoints omitted — these jobs have high inherent variance and are not commit-attributable)_\n\n", omitted)
+		}
+		_, _ = fmt.Fprint(w, "```json\n")
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(compact); err != nil {
+			return fmt.Errorf("encode JSON: %w", err)
+		}
+		_, _ = fmt.Fprint(w, "```\n")
 	}
-	_, _ = fmt.Fprint(w, "```json\n")
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(compact); err != nil {
-		return fmt.Errorf("encode JSON: %w", err)
-	}
-	_, _ = fmt.Fprint(w, "```\n")
 
 	return nil
+}
+
+func writeJSONFile(path string, result analyze.AnalysisResult) error {
+	f, err := os.Create(path) //nolint:gosec // path comes from user's --raw-output flag
+	if err != nil {
+		return err
+	}
+	defer f.Close() //nolint:errcheck
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	return enc.Encode(result)
 }
 
 // compactResult strips noise from the analysis result for LLM consumption.
