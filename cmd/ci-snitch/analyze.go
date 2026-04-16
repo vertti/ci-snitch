@@ -63,7 +63,8 @@ If no repository is specified, detects the GitHub remote from the current direct
 			} else {
 				detected, err := detectGitHubRepo()
 				if err != nil {
-					return fmt.Errorf("no repository specified and could not detect from current directory: %w\n\nUsage: ci-snitch analyze <owner/repo>", err)
+					cmd.SilenceUsage = true
+					return errors.New("provide a repository: ci-snitch analyze <owner/repo>\nor run from inside a GitHub repo directory")
 				}
 				repo = detected
 			}
