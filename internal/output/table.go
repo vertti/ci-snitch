@@ -36,6 +36,14 @@ func (t TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error
 		writeStepTable(w, g.Steps)
 	}
 
+	if len(g.Pipelines) > 0 {
+		writePipelineTable(w, g.Pipelines)
+	}
+
+	if len(g.Runners) > 0 {
+		writeRunnerTable(w, g.Runners)
+	}
+
 	if len(g.Costs) > 0 {
 		writeCostTable(w, g.Costs)
 	}
@@ -307,6 +315,70 @@ func writeStepTable(w io.Writer, findings []analyze.Finding) {
 	if len(findings) > shown {
 		_, _ = fmt.Fprintf(w, "  %s(%d more jobs not shown)%s\n", dim, len(findings)-shown, reset)
 	}
+	_, _ = fmt.Fprintln(w)
+}
+
+func writePipelineTable(w io.Writer, findings []analyze.Finding) {
+	_, _ = fmt.Fprintf(w, "%s── Pipeline Structure ──%s\n", dim, reset)
+
+	for _, f := range findings {
+		d, ok := f.Detail.(analyze.PipelineDetail)
+		if !ok {
+			continue
+		}
+
+		_, _ = fmt.Fprintf(w, "  %s%s%s  %s%.0f%% parallel%s, wall-clock %s%s%s, total job time %s%s%s\n",
+			bold, d.Workflow, reset,
+			cyan, d.Parallelism*100, reset,
+			cyan, fmtDur(d.MedianWallClock), reset,
+			dim, fmtDur(d.MedianJobSum), reset)
+
+		for i, stage := range d.Stages {
+			prefix := "  |-"
+			if i == len(d.Stages)-1 {
+				prefix = "  `-"
+			}
+			arrow := ""
+			if stage.Sequential {
+				arrow = " " + yellow + "<< waits" + reset
+			}
+			jobCount := ""
+			if len(stage.Jobs) > 1 {
+				jobCount = fmt.Sprintf(" %s(%d parallel)%s", dim, len(stage.Jobs), reset)
+			}
+			critical := ""
+			if stage.Name == d.CriticalPath {
+				critical = " " + red + "<< critical path" + reset
+			}
+			_, _ = fmt.Fprintf(w, "  %s%s%s %s  %s  %.0f%%%s%s%s\n",
+				dim, prefix, reset,
+				stage.Name, fmtDur(stage.Duration), stage.PctOfPipeline,
+				jobCount, arrow, critical)
+		}
+		_, _ = fmt.Fprintln(w)
+	}
+}
+
+func writeRunnerTable(w io.Writer, findings []analyze.Finding) {
+	_, _ = fmt.Fprintf(w, "%s── Runner Sizing ──%s\n", dim, reset)
+
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	for _, f := range findings {
+		d, ok := f.Detail.(analyze.RunnerDetail)
+		if !ok {
+			continue
+		}
+		icon := yellow + "▼" + reset // oversized: downsize
+		if d.Issue == "undersized" {
+			icon = cyan + "▲" + reset // undersized: upsize
+		}
+		_, _ = fmt.Fprintf(tw, "  %s %s / %s\t%s%d cores%s\tmedian %s\t%s\n",
+			icon, d.WorkflowName, d.JobName,
+			bold, d.Cores, reset,
+			fmtDur(d.MedianDur),
+			d.Suggestion)
+	}
+	_ = tw.Flush()
 	_, _ = fmt.Fprintln(w)
 }
 
