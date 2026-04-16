@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
+	"strings"
 
 	"github.com/vertti/ci-snitch/internal/analyze"
 )
@@ -63,9 +65,16 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 			continue
 		}
 		hasPriority = true
-		_, _ = fmt.Fprintf(w, "- **[FLAKY]** %s: %.0f%% failure rate (%d/%d runs)",
-			d.Workflow, d.FailureRate*100, d.FailureCount, d.TotalRuns)
+		tag := "FLAKY"
+		if d.FailureKind == analyze.FailureKindSystematic {
+			tag = "SYSTEMATIC"
+		}
+		_, _ = fmt.Fprintf(w, "- **[%s]** %s: %.0f%% failure rate (%d/%d runs)",
+			tag, d.Workflow, d.FailureRate*100, d.FailureCount, d.TotalRuns)
 		_, _ = fmt.Fprint(w, failingStepHeadline(d))
+		if len(d.ByCategory) > 1 {
+			_, _ = fmt.Fprint(w, categoryBreakdown(d))
+		}
 		if d.RetriedRuns > 0 {
 			_, _ = fmt.Fprintf(w, ", %d retried (+%d extra attempts)", d.RetriedRuns, d.ExtraAttempts)
 		}
@@ -214,6 +223,40 @@ func failingStepHeadline(d analyze.FailureDetail) string {
 	}
 	s += ")"
 	return s
+}
+
+// categoryBreakdown returns a compact summary like " (40% infra, 35% build, 25% test)".
+func categoryBreakdown(d analyze.FailureDetail) string {
+	total := 0
+	for _, count := range d.ByCategory {
+		total += count
+	}
+	if total == 0 {
+		return ""
+	}
+
+	// Sort categories by count descending
+	type catCount struct {
+		name  string
+		count int
+	}
+	var cats []catCount
+	for name, count := range d.ByCategory {
+		cats = append(cats, catCount{name, count})
+	}
+	slices.SortFunc(cats, func(a, b catCount) int { return b.count - a.count })
+
+	var parts []string
+	for _, c := range cats {
+		pct := float64(c.count) / float64(total) * 100
+		if pct >= 5 { // skip tiny categories
+			parts = append(parts, fmt.Sprintf("%.0f%% %s", pct, c.name))
+		}
+	}
+	if len(parts) <= 1 {
+		return "" // single category, not interesting
+	}
+	return fmt.Sprintf(" (%s)", strings.Join(parts, ", "))
 }
 
 func buildSuggestions(changepoints, failures, costs, outliers, steps []analyze.Finding) []string {
