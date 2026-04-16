@@ -108,6 +108,7 @@ type analyzeOpts struct {
 func runAnalyze(cmd *cobra.Command, opts analyzeOpts) error {
 	totalStart := time.Now()
 	prog := output.NewProgress()
+	prog.Log("Snitching on %s", opts.repo)
 
 	sinceTime, err := parseSince(opts.since)
 	if err != nil {
