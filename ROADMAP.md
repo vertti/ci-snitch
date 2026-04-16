@@ -204,99 +204,48 @@ _Focus: answer "why is this slow/failing?", add step-level visibility, and make 
 - Keep the narrative section unchanged (already well-filtered by postprocessor)
 - **Files:** `internal/output/llm.go`
 
-### 3.6 Raw JSON to separate file [S]
-- `--raw-output report.json` writes full JSON to file instead of embedding in LLM output
-- LLM reads the narrative; only fetches JSON if it needs to dig deeper
-- Keeps the context window clean while preserving full data access
-- **Files:** `cmd/ci-snitch/analyze.go`, `internal/output/llm.go`
-
-### 3.7 LLM explain mode [M]
-- `--format llm --run-id X` or `--commit SHA`: focused on a single incident
-- Shows: this run's timing vs baseline, which jobs/steps were slow, step-level attribution, recent change points affecting those jobs
-- Minimal output, maximum context density for LLM reasoning
-
-### 3.8 `ci-snitch compare` subcommand [M]
-- Compare two time periods: `--before 7d --after 7d`
-- Compare two branches: `--base main --head feature-x`
-- Runs analysis engine twice, diffs results
-- Shows: what improved, degraded, new, gone — with significance tests
-- Supports all output formats
-- **Files:** new subcommand in `cmd/ci-snitch/compare.go`, new `internal/analyze/compare.go`
-
-### 3.9 Failure rate trend [S]
-- Add directional indicator: "23% and improving" vs "23% and getting worse"
-- Compare recent window (last 7d) failure rate against full-period rate
-- Simple but changes the urgency of findings significantly
-- **Files:** `internal/analyze/failures.go`
-
+### ~~3.6 Raw JSON to separate file [S]~~ DONE
+### ~~3.9 Failure rate trend [S]~~ DONE
 ### ~~3.10 Outlier-resistant changepoint detection [M]~~ DONE
-- Real case: single 38-min outlier in a 10-min deploy job caused false "persistent regression" with p=0.0000
-- Pre-filter: clamp extreme values via IQR fences (Q3 + 4×IQR) before CUSUM — prevents single outliers from poisoning detection
-- Post-detection robustness: compute overlap ratio (fraction of after-points within before IQR). High overlap (>50%) → downgrade to minor
-- CUSUM detects on clamped data; Mann-Whitney test and reported means use raw data for accuracy
-- **Files:** `internal/stats/outlier.go`, `internal/analyze/changepoint.go`, `internal/analyze/postprocess.go`
-
-### 3.11 Systematic vs flaky failure classification [S]
-- When 100% of failures hit the same step (e.g. "Run Code Review" 115/115), label as `[SYSTEMATIC]` not `[FLAKY]`
-- Flaky implies random; systematic means one deterministic bug — different urgency and investigation approach
-- Threshold: >90% same root-cause step → systematic; otherwise flaky
-- Builds on 3.3 failing step attribution + cascade filtering
-- **Files:** `internal/analyze/failures.go`, `internal/output/llm.go`
-
-### 3.12 Failure clustering by category [M]
-- Group failing steps into categories: infra (step name contains "Setup"/"runner"), build ("Compile"/"Lint"/"Build"), test ("test"/"E2E")
-- Headline becomes: "23% failure rate: 40% infra, 35% build, 25% test failures"
-- Even simple heuristics on step names give much better signal than a flat list
-- **Files:** `internal/analyze/failures.go`, `internal/output/llm.go`
-
-### 3.13 Drift detection (separate from step-change) [M]
-- CUSUM targets step-like mean shifts; gradual drift is a different phenomenon
-- Add linear regression over sliding windows to detect steady trends
-- Different operator guidance: "pipeline gradually slowing — look for repo growth, cache degradation, dependency bloat" vs "step change at commit X"
-- **Files:** `internal/stats/drift.go` (new), `internal/analyze/changepoint.go` or new analyzer
-
-### Implementation priority
-1. ~~**3.2** (step timing) + **3.3** (failing step)~~ DONE
-2. ~~**3.4** (queue time) + **3.5** (compact LLM) + **3.10** (outlier-resistant changepoints)~~ DONE
-3. **3.11** (systematic vs flaky) + **3.12** (failure clustering) — next: improve failure signal quality
-4. **3.6** (raw output) + **3.9** (failure trend) — small but valuable
-5. **3.7** (explain) + **3.8** (compare) + **3.13** (drift) — larger features
+### ~~3.11 Systematic vs flaky failure classification [S]~~ DONE
+### ~~3.12 Failure clustering by category [M]~~ DONE
 
 ---
 
-## Release 4: Interactive TUI
+## Release 4: Pipeline Structure & Runner Intelligence
 
-_Depends on Releases 1-3 for data richness. A TUI over today's data would be underwhelming; a TUI over data with failure rates, cost, volatility, and trustworthy change points is genuinely useful._
+_Focus: analyze pipeline structure (sequential chains, parallelism efficiency) and runner allocation. Answers "where is wall-clock time wasted?" and "are runners right-sized?"_
 
-### 4.1 TUI foundation & navigation [L]
-- New subcommand: `ci-snitch tui --repo owner/repo [--since 30d]`
-- **Dependencies:** bubbletea v2, lipgloss v2, bubbles
-- New package `internal/tui/`
-- Layout: workflow list → job list → job detail → step detail
-- Inline summary stats in list views (median, p95, failure rate, volatility label, cost rank)
-- Keyboard: j/k, enter, esc/backspace, /, q
-- Reads from SQLite cache (analyze populates it; optionally auto-fetch on launch)
+### 4.1 Pipeline critical path analysis [M]
+- For each workflow, detect sequential dependency chains by comparing job start/end times
+- Compute parallelism efficiency: `1 - (wall_clock / sum_of_jobs)`. Deploy workflow achieves 45% but sometimes drops to 1-5%
+- Identify the critical path: which job(s) determine the wall-clock finish time?
+- Surface: "tests run in parallel (66% efficiency), then deploy runs serially (85% of remaining time)"
+- Data already available in `job.StartedAt`/`CompletedAt` — just needs overlap analysis
+- **Files:** `internal/analyze/pipeline.go` (new), formatters
 
-### 4.2 Duration sparklines & timeline charts [M]
-- Unicode block character sparklines inline in list views (compact trend at a glance)
-- Full-width scatter plot in detail view: duration over time, change point markers, outlier highlights
-- Wire up `model.TimeSeries` (defined in `internal/model/timeseries.go`, currently unused)
+### 4.2 Sequential stage detection [S]
+- Group jobs into stages based on temporal overlap (jobs starting within a few seconds of each other = same stage)
+- Detect sequential dependencies: stage B starts only after stage A finishes
+- Report: "3 stages: tests (4 parallel jobs, 9m) → builds (2 parallel, 4m) → deploy (1 serial, 10m)"
+- **Files:** `internal/analyze/pipeline.go`
 
-### 4.3 Cost breakdown view [S]
-- Horizontal stacked bar: proportional CI time/cost per workflow
-- Color-coded by runner type
-- Sortable by total cost, cost-per-run, improvement potential
-- Terminal-adapted "pie chart"
+### 4.3 Runner sizing recommendations [M]
+- Match runner labels to job durations: flag over-provisioned runners (large runner, short job) and under-provisioned (small runner, long job)
+- Thresholds: 16-core runner for <2min job → "downsize to 4-core, save 4x cost"; 4-core runner for >15min job → "consider 16-core to reduce wait"
+- Surface billable cost impact of resizing
+- **Files:** `internal/analyze/runners.go` (new), `internal/cost/model.go`, formatters
 
-### 4.4 "Explain this run" [M]
-- Select any run in the TUI → see which jobs/steps were unusually slow vs their baselines
-- Step-level timing already in SQLite; compare each step duration to its historical distribution
-- Highlight the critical path and which steps deviated most
+### 4.4 Parallelism opportunity detection [S]
+- When a sequential chain is detected, estimate time savings from parallelization
+- Example: "builds stage (4m) waits for tests (9m). If builds ran in parallel with tests, workflow would save ~4m (from 23m to 19m)"
+- Conservative: only flag when both stages have no data dependency (different job names, no artifact passing)
+- **Files:** `internal/analyze/pipeline.go`
 
-### 4.5 Findings browser [S]
-- Filterable list of all findings (outliers, change points, failures, cost)
-- Filter by severity, type, workflow, date range
-- Jump to related workflow/job detail from any finding
+### Implementation priority
+1. **4.1** (critical path) + **4.2** (stage detection) — core pipeline analysis
+2. **4.3** (runner sizing) — cost optimization
+3. **4.4** (parallelism opportunities) — requires 4.1+4.2
 
 ---
 
