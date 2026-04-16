@@ -201,6 +201,113 @@ func TestFailureAnalyzer_CascadeFiltering(t *testing.T) {
 	assert.Equal(t, 10, d.FailingSteps[0].Count)
 }
 
+func TestFailureAnalyzer_SystematicClassification(t *testing.T) {
+	// All 20 failures hit the same step -> systematic
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	var details []model.RunDetail
+	for i := range 30 {
+		start := base.Add(time.Duration(i) * time.Hour)
+		conclusion := conclusionSuccess
+		if i < 20 {
+			conclusion = conclusionFailure
+		}
+		run := model.RunDetail{
+			Run: model.WorkflowRun{
+				ID: int64(5000 + i), WorkflowID: 500, WorkflowName: "Review",
+				Status: "completed", Conclusion: conclusion,
+				CreatedAt: start, StartedAt: start, UpdatedAt: start.Add(2 * time.Minute),
+			},
+		}
+		if conclusion == conclusionFailure {
+			run.Jobs = []model.Job{{
+				Name: "review", Status: "completed", Conclusion: conclusionFailure,
+				Steps: []model.Step{
+					{Name: "Checkout", Number: 1, Conclusion: conclusionSuccess},
+					{Name: "Run Review Bot", Number: 2, Conclusion: conclusionFailure},
+				},
+			}}
+		}
+		details = append(details, run)
+	}
+
+	analyzer := FailureAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{AllDetails: details})
+	require.NoError(t, err)
+	require.NotEmpty(t, findings)
+
+	d, ok := findings[0].Detail.(FailureDetail)
+	require.True(t, ok)
+	assert.Equal(t, FailureKindSystematic, d.FailureKind, "100% same step should be systematic")
+}
+
+func TestFailureAnalyzer_FlakyClassification(t *testing.T) {
+	// Failures spread across multiple steps -> flaky
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	var details []model.RunDetail
+	failSteps := []string{"Setup runner", "Compile TS", "Run tests", "Lint check"}
+	for i := range 20 {
+		start := base.Add(time.Duration(i) * time.Hour)
+		conclusion := conclusionSuccess
+		if i < 12 {
+			conclusion = conclusionFailure
+		}
+		run := model.RunDetail{
+			Run: model.WorkflowRun{
+				ID: int64(6000 + i), WorkflowID: 600, WorkflowName: "Tests",
+				Status: "completed", Conclusion: conclusion,
+				CreatedAt: start, StartedAt: start, UpdatedAt: start.Add(5 * time.Minute),
+			},
+		}
+		if conclusion == conclusionFailure {
+			failStep := failSteps[i%len(failSteps)]
+			run.Jobs = []model.Job{{
+				Name: "build", Status: "completed", Conclusion: conclusionFailure,
+				Steps: []model.Step{
+					{Name: "Checkout", Number: 1, Conclusion: conclusionSuccess},
+					{Name: failStep, Number: 2, Conclusion: conclusionFailure},
+				},
+			}}
+		}
+		details = append(details, run)
+	}
+
+	analyzer := FailureAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{AllDetails: details})
+	require.NoError(t, err)
+	require.NotEmpty(t, findings)
+
+	d, ok := findings[0].Detail.(FailureDetail)
+	require.True(t, ok)
+	assert.Equal(t, FailureKindFlaky, d.FailureKind, "distributed failures should be flaky")
+	assert.Greater(t, len(d.ByCategory), 1, "should have multiple categories")
+}
+
+func TestCategorizeStep(t *testing.T) {
+	tests := []struct {
+		name string
+		want string
+	}{
+		{"Setup runner", FailureCategoryInfra},
+		{"Setup runner (mise, yarn)", FailureCategoryInfra},
+		{"Checkout", FailureCategoryInfra},
+		{"Install dependencies", FailureCategoryInfra},
+		{"Compile TypeScript code", FailureCategoryBuild},
+		{"Lint and Format Check", FailureCategoryBuild},
+		{"Build binary", FailureCategoryBuild},
+		{"Run tests", FailureCategoryTest},
+		{"E2E tests \"hedera-lab\"", FailureCategoryTest},
+		{"Integration tests", FailureCategoryTest},
+		{"Run SOUP tests (jest runner)", FailureCategoryTest},
+		{"Run Code Review with Claude", FailureCategoryOther},
+		{"Deploy infrastructure", FailureCategoryOther},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, categorizeStep(tt.name))
+		})
+	}
+}
+
 func TestFailureDetail_Type(t *testing.T) {
 	d := FailureDetail{}
 	assert.Equal(t, "failure", d.DetailType())

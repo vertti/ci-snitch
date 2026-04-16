@@ -4,11 +4,26 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 const (
 	criticalFailureRate = 0.20
 	warningFailureRate  = 0.05
+)
+
+// Failure kind classifications.
+const (
+	FailureKindSystematic = "systematic" // >90% of failures hit the same root-cause step
+	FailureKindFlaky      = "flaky"      // failures spread across multiple steps
+)
+
+// Failure category classifications based on step name heuristics.
+const (
+	FailureCategoryInfra = "infra" // setup, runner, environment steps
+	FailureCategoryBuild = "build" // compile, lint, build steps
+	FailureCategoryTest  = "test"  // test, e2e, integration steps
+	FailureCategoryOther = "other"
 )
 
 // FailureDetail contains reliability information for a workflow.
@@ -17,9 +32,11 @@ type FailureDetail struct {
 	TotalRuns         int            `json:"total_runs"`
 	FailureCount      int            `json:"failure_count"`
 	FailureRate       float64        `json:"failure_rate"`
+	FailureKind       string         `json:"failure_kind"`
 	CancellationCount int            `json:"cancellation_count"`
 	CancellationRate  float64        `json:"cancellation_rate"`
 	ByConclusion      map[string]int `json:"by_conclusion"`
+	ByCategory        map[string]int `json:"by_category,omitempty"`
 	FailingSteps      []FailingStep  `json:"failing_steps,omitempty"`
 	RetriedRuns       int            `json:"retried_runs"`
 	ExtraAttempts     int            `json:"extra_attempts"`
@@ -31,6 +48,7 @@ type FailingStep struct {
 	JobName  string `json:"job_name"`
 	StepName string `json:"step_name"`
 	Count    int    `json:"count"`
+	Category string `json:"category"`
 }
 
 // DetailType implements FindingDetail.
@@ -118,12 +136,16 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 		}
 
 		var failingSteps []FailingStep
+		byCategory := make(map[string]int)
 		for k, count := range s.failingSteps {
+			cat := categorizeStep(k.step)
 			failingSteps = append(failingSteps, FailingStep{
 				JobName:  k.job,
 				StepName: k.step,
 				Count:    count,
+				Category: cat,
 			})
+			byCategory[cat] += count
 		}
 		slices.SortFunc(failingSteps, func(a, b FailingStep) int {
 			if b.Count != a.Count {
@@ -132,14 +154,25 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 			return 0
 		})
 
+		// Classify as systematic (single root cause) vs flaky (distributed)
+		kind := FailureKindFlaky
+		if len(failingSteps) > 0 && s.failures > 0 {
+			topRatio := float64(failingSteps[0].Count) / float64(s.failures)
+			if topRatio >= 0.9 {
+				kind = FailureKindSystematic
+			}
+		}
+
 		detail := FailureDetail{
 			Workflow:          wfName,
 			TotalRuns:         s.total,
 			FailureCount:      s.failures,
 			FailureRate:       failRate,
+			FailureKind:       kind,
 			CancellationCount: s.cancellations,
 			CancellationRate:  cancelRate,
 			ByConclusion:      s.byConclusion,
+			ByCategory:        byCategory,
 			FailingSteps:      failingSteps,
 		}
 		if rs, ok := ac.RerunStats[wfID]; ok {
@@ -172,4 +205,33 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 	})
 
 	return findings, nil
+}
+
+// categorizeStep classifies a step name into infra/build/test/other.
+func categorizeStep(name string) string {
+	lower := strings.ToLower(name)
+	// Check test first — more specific, avoids false infra matches on "runner" in "jest runner"
+	switch {
+	case strings.Contains(lower, "test") ||
+		strings.Contains(lower, "e2e") ||
+		strings.Contains(lower, "integration") ||
+		strings.Contains(lower, "spec") ||
+		strings.Contains(lower, "jest") ||
+		strings.Contains(lower, "pytest"):
+		return FailureCategoryTest
+	case strings.Contains(lower, "compile") ||
+		strings.Contains(lower, "lint") ||
+		strings.Contains(lower, "build") ||
+		strings.Contains(lower, "format"):
+		return FailureCategoryBuild
+	case strings.Contains(lower, "setup") ||
+		strings.Contains(lower, "runner") ||
+		strings.Contains(lower, "checkout") ||
+		strings.Contains(lower, "cache") ||
+		strings.Contains(lower, "install") ||
+		strings.Contains(lower, "docker compose"):
+		return FailureCategoryInfra
+	default:
+		return FailureCategoryOther
+	}
 }
