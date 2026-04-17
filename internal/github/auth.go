@@ -1,12 +1,12 @@
-// Package github provides a client for fetching GitHub Actions workflow data.
 package github
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"strings"
+
+	"github.com/vertti/ci-snitch/internal/system"
 )
 
 // ResolveToken returns a GitHub API token.
@@ -16,16 +16,14 @@ func ResolveToken() (string, error) {
 		return token, nil
 	}
 
-	if _, err := exec.LookPath("gh"); err != nil {
-		return "", errors.New("GitHub CLI (gh) not found in PATH. Install it from https://cli.github.com or set GITHUB_TOKEN")
-	}
-
-	out, err := exec.Command("gh", "auth", "token").Output()
+	token, err := system.Run(context.Background(), "gh", "auth", "token")
 	if err != nil {
+		if errors.Is(err, system.ErrCommandNotFound) {
+			return "", errors.New("GitHub CLI (gh) not found in PATH. Install it from https://cli.github.com or set GITHUB_TOKEN")
+		}
 		return "", fmt.Errorf("not authenticated with GitHub CLI. Run `gh auth login` or set GITHUB_TOKEN: %w", err)
 	}
 
-	token := strings.TrimSpace(string(out))
 	if token == "" {
 		return "", errors.New("gh auth token returned empty string — try `gh auth login`")
 	}

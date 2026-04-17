@@ -5,10 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"regexp"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +18,7 @@ import (
 	"github.com/vertti/ci-snitch/internal/output"
 	"github.com/vertti/ci-snitch/internal/preprocess"
 	"github.com/vertti/ci-snitch/internal/store"
+	"github.com/vertti/ci-snitch/internal/system"
 )
 
 // workflowFetcher abstracts the GitHub API client for testability.
@@ -338,11 +337,10 @@ var gitHubRemoteRe = regexp.MustCompile(`github\.com[:/]([^/]+/[^/.]+?)(?:\.git)
 
 // detectGitHubRepo extracts owner/repo from the git remote in the current directory.
 func detectGitHubRepo() (string, error) {
-	out, err := exec.Command("git", "remote", "get-url", "origin").Output()
+	url, err := system.Run(context.Background(), "git", "remote", "get-url", "origin")
 	if err != nil {
 		return "", errors.New("not a git repository or no 'origin' remote")
 	}
-	url := strings.TrimSpace(string(out))
 	m := gitHubRemoteRe.FindStringSubmatch(url)
 	if m == nil {
 		return "", fmt.Errorf("remote %q is not a GitHub repository", url)

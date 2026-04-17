@@ -3,7 +3,7 @@ package github
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +20,7 @@ type Client struct {
 	owner  string
 	repo   string
 	jobSem chan struct{}
+	logger *slog.Logger
 }
 
 // ClientOption configures optional Client behaviour.
@@ -29,6 +30,13 @@ type ClientOption func(*Client)
 func WithMaxConcurrentJobs(n int) ClientOption {
 	return func(c *Client) {
 		c.jobSem = make(chan struct{}, n)
+	}
+}
+
+// WithLogger sets a structured logger for the client.
+func WithLogger(l *slog.Logger) ClientOption {
+	return func(c *Client) {
+		c.logger = l
 	}
 }
 
@@ -49,6 +57,12 @@ func NewClient(token, ownerRepo string, opts ...ClientOption) (*Client, error) {
 		o(c)
 	}
 	return c, nil
+}
+
+func (c *Client) log(msg string, args ...any) {
+	if c.logger != nil {
+		c.logger.Info(msg, args...)
+	}
 }
 
 // ListWorkflows returns all workflows in the repository.
@@ -154,7 +168,8 @@ func (c *Client) fetchRunsWindow(ctx context.Context, workflowID int64, start, e
 			sleepUntil := resp.Rate.Reset.Time
 			wait := time.Until(sleepUntil)
 			if wait > 0 {
-				log.Printf("Rate limit low (%d remaining), sleeping %s until reset", remaining, wait.Round(time.Second))
+				c.log("Rate limit low, sleeping until reset",
+					"remaining", remaining, "wait", wait.Round(time.Second))
 				select {
 				case <-ctx.Done():
 					return all, warnings, ctx.Err()
