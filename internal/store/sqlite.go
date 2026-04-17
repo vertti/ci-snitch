@@ -145,30 +145,38 @@ func loadColumnSets(db *sql.DB, tables ...string) (map[string]map[string]bool, e
 		if !validTables[table] {
 			return nil, fmt.Errorf("unknown table %q", table)
 		}
-		rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+		colSet, err := loadTableColumns(db, table)
 		if err != nil {
-			return nil, err
-		}
-		colSet := make(map[string]bool)
-		for rows.Next() {
-			var cid int
-			var name, typ string
-			var notNull int
-			var dfltValue sql.NullString
-			var pk int
-			if err := rows.Scan(&cid, &name, &typ, &notNull, &dfltValue, &pk); err != nil {
-				rows.Close() //nolint:errcheck
-				return nil, err
-			}
-			colSet[name] = true
-		}
-		rows.Close() //nolint:errcheck
-		if err := rows.Err(); err != nil {
 			return nil, err
 		}
 		result[table] = colSet
 	}
 	return result, nil
+}
+
+func loadTableColumns(db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+
+	colSet := make(map[string]bool)
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var dfltValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dfltValue, &pk); err != nil {
+			return nil, err
+		}
+		colSet[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return colSet, nil
 }
 
 // Close closes the database connection.

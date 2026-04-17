@@ -8,7 +8,7 @@ import (
 
 // Duration wraps time.Duration with human-readable JSON marshaling.
 // Serializes as "5m30s" instead of nanoseconds.
-type Duration time.Duration
+type Duration time.Duration //nolint:recvcheck // MarshalJSON uses value receiver, UnmarshalJSON requires pointer
 
 // Std returns the underlying time.Duration.
 func (d Duration) Std() time.Duration { return time.Duration(d) }
