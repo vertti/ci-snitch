@@ -144,18 +144,27 @@ func TestTableFormatter_Empty(t *testing.T) {
 
 func TestMarkdownFormatter(t *testing.T) {
 	var buf bytes.Buffer
-	err := MarkdownFormatter{}.Format(&buf, testResult())
+	err := MarkdownFormatter{}.Format(&buf, richTestResult())
 	require.NoError(t, err)
 
 	out := buf.String()
+
+	// Summary section
 	assert.Contains(t, out, "# CI Performance Report")
 	assert.Contains(t, out, "**50 runs**")
 	assert.Contains(t, out, "### CI")
 	assert.Contains(t, out, "| build |")
+
+	// Changepoint section renders arrow icons, not literal direction strings
 	assert.Contains(t, out, "## Performance Changes")
-	assert.Contains(t, out, "## Outliers")
-	// Markdown table headers
-	assert.Contains(t, out, "|---")
+	assert.Contains(t, out, "▲")
+	assert.NotContains(t, out, "**slowdown")
+
+	// Outlier section renders grouped data with table rows
+	assert.Contains(t, out, "## Outliers (2 groups)")
+	assert.Contains(t, out, "| Count |")
+	assert.Contains(t, out, "| critical | CI / build | 5 | 15m")
+	assert.Contains(t, out, "p99")
 }
 
 func TestCompactResult_FiltersNoise(t *testing.T) {
@@ -246,15 +255,33 @@ func TestTableFormatter_AllSections(t *testing.T) {
 	assert.Contains(t, out, "Volatility")
 }
 
-func TestMarkdownFormatter_AllSections(t *testing.T) {
+func TestMarkdownFormatter_SpeedupArrow(t *testing.T) {
+	result := analyze.AnalysisResult{
+		Findings: []analyze.Finding{
+			{
+				Type: "changepoint", Severity: analyze.SeverityWarning,
+				Detail: analyze.ChangePointDetail{
+					JobName: "deploy", ChangeIdx: 10,
+					BeforeMean: dur(10 * time.Minute), AfterMean: dur(7 * time.Minute),
+					PctChange: -30, Direction: analyze.DirectionSpeedup,
+					PValue: 0.01, CommitSHA: "11223344aabbccdd",
+					Date: time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC),
+				},
+			},
+		},
+		Meta: analyze.ResultMeta{
+			TotalRuns: 50,
+			TimeRange: [2]time.Time{time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)},
+		},
+	}
+
 	var buf bytes.Buffer
-	err := MarkdownFormatter{}.Format(&buf, richTestResult())
+	err := MarkdownFormatter{}.Format(&buf, result)
 	require.NoError(t, err)
 
 	out := buf.String()
-	assert.Contains(t, out, "CI")
-	assert.Contains(t, out, "Performance Changes")
-	assert.Contains(t, out, "Outliers")
+	assert.Contains(t, out, "▼")
+	assert.NotContains(t, out, "speedup")
 }
 
 func TestLLMFormatter_AllSections(t *testing.T) {

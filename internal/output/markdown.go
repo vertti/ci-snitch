@@ -59,9 +59,9 @@ func (MarkdownFormatter) Format(w io.Writer, result analyze.AnalysisResult) erro
 				if !ok {
 					continue
 				}
-				icon := analyze.DirectionSlowdown
+				icon := "▲"
 				if d.Direction == analyze.DirectionSpeedup {
-					icon = analyze.DirectionSpeedup
+					icon = "▼"
 				}
 				_, _ = fmt.Fprintf(w, "- **%s %+.0f%%** in `%s` at `%s` — %s -> %s (p=%.4f, %s, %d runs after)\n",
 					icon, d.PctChange, d.JobName, truncSHA(d.CommitSHA),
@@ -73,11 +73,11 @@ func (MarkdownFormatter) Format(w io.Writer, result analyze.AnalysisResult) erro
 	}
 
 	if len(g.Outliers) > 0 {
-		_, _ = fmt.Fprintf(w, "## Outliers (%d)\n", len(g.Outliers))
-		_, _ = fmt.Fprintln(w, "| Severity | Subject | Duration | Percentile | Commit |")
-		_, _ = fmt.Fprintln(w, "|----------|---------|----------|------------|--------|")
+		_, _ = fmt.Fprintf(w, "## Outliers (%d groups)\n", len(g.Outliers))
+		_, _ = fmt.Fprintln(w, "| Severity | Subject | Count | Worst Duration | Percentile | Commit |")
+		_, _ = fmt.Fprintln(w, "|----------|---------|-------|----------------|------------|--------|")
 		for _, f := range g.Outliers {
-			d, ok := f.Detail.(analyze.OutlierDetail)
+			d, ok := f.Detail.(analyze.OutlierGroupDetail)
 			if !ok {
 				continue
 			}
@@ -85,8 +85,8 @@ func (MarkdownFormatter) Format(w io.Writer, result analyze.AnalysisResult) erro
 			if d.JobName != "" {
 				subject += " / " + d.JobName
 			}
-			_, _ = fmt.Fprintf(w, "| %s | %s | %s | p%.0f | `%s` |\n",
-				f.Severity, subject, fmtDur(d.Duration), d.Percentile, truncSHA(d.CommitSHA))
+			_, _ = fmt.Fprintf(w, "| %s | %s | %d | %s | p%.0f | `%s` |\n",
+				d.MaxSeverity, subject, d.Count, fmtDur(d.WorstDuration), d.WorstPercentile, truncSHA(d.WorstCommitSHA))
 		}
 		_, _ = fmt.Fprintln(w)
 	}
