@@ -1,6 +1,7 @@
 package analyze
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -151,7 +152,7 @@ func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 
 		// Sort by median descending (slowest first)
 		slices.SortFunc(summaries, func(a, b StepSummary) int {
-			return int(b.Median - a.Median)
+			return cmp.Compare(b.Median, a.Median)
 		})
 
 		// Keep top N
@@ -184,7 +185,7 @@ func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 	slices.SortFunc(findings, func(a, b Finding) int {
 		ad, _ := a.Detail.(StepTimingDetail)
 		bd, _ := b.Detail.(StepTimingDetail)
-		return int(medianByJob[bd.JobName] - medianByJob[ad.JobName])
+		return cmp.Compare(medianByJob[bd.JobName], medianByJob[ad.JobName])
 	})
 
 	return findings, nil

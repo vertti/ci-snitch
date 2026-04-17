@@ -40,7 +40,10 @@ func TestSummaryAnalyzer_BasicStats(t *testing.T) {
 	details := makeDetails(10, 5*time.Minute, 3*time.Minute)
 
 	analyzer := SummaryAnalyzer{}
-	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{Details: details})
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{
+		Details:       details,
+		WorkflowNames: map[int64]string{100: "CI"},
+	})
 	require.NoError(t, err)
 
 	// One finding per workflow (jobs nested inside)
@@ -86,7 +89,10 @@ func TestSummaryAnalyzer_SortedByTotalTime(t *testing.T) {
 	}
 
 	analyzer := SummaryAnalyzer{}
-	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{Details: details})
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{
+		Details:       details,
+		WorkflowNames: map[int64]string{1: "Fast", 2: "Slow"},
+	})
 	require.NoError(t, err)
 	require.Len(t, findings, 2)
 

@@ -113,15 +113,20 @@ func Open(path string) (*Store, error) {
 
 // migrate applies schema migrations for existing databases.
 func migrate(db *sql.DB) error {
+	cols, err := loadColumnSets(db, "runs", "jobs")
+	if err != nil {
+		return fmt.Errorf("load column info: %w", err)
+	}
+
 	// Add event column to runs table (added in v0.7.0).
-	if !columnExists(db, "runs", "event") {
+	if !cols["runs"]["event"] {
 		if _, err := db.Exec(`ALTER TABLE runs ADD COLUMN event TEXT NOT NULL DEFAULT ''`); err != nil {
 			return fmt.Errorf("add event column: %w", err)
 		}
 	}
 	// Add runner metadata columns to jobs table (added in v0.8.0).
 	for _, col := range []string{"runner_name", "runner_group_name", "labels"} {
-		if !columnExists(db, "jobs", col) {
+		if !cols["jobs"][col] {
 			if _, err := db.Exec(fmt.Sprintf(`ALTER TABLE jobs ADD COLUMN %s TEXT NOT NULL DEFAULT ''`, col)); err != nil {
 				return fmt.Errorf("add %s column: %w", col, err)
 			}
@@ -132,15 +137,31 @@ func migrate(db *sql.DB) error {
 
 var validTables = map[string]bool{"runs": true, "jobs": true, "steps": true}
 
-func columnExists(db *sql.DB, table, column string) bool {
-	if !validTables[table] {
-		return false
+// loadColumnSets queries PRAGMA table_info once per table and returns
+// a map of table → set of column names.
+func loadColumnSets(db *sql.DB, tables ...string) (map[string]map[string]bool, error) {
+	result := make(map[string]map[string]bool, len(tables))
+	for _, table := range tables {
+		if !validTables[table] {
+			return nil, fmt.Errorf("unknown table %q", table)
+		}
+		colSet, err := loadTableColumns(db, table)
+		if err != nil {
+			return nil, err
+		}
+		result[table] = colSet
 	}
+	return result, nil
+}
+
+func loadTableColumns(db *sql.DB, table string) (map[string]bool, error) {
 	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
 	if err != nil {
-		return false
+		return nil, err
 	}
 	defer rows.Close() //nolint:errcheck
+
+	colSet := make(map[string]bool)
 	for rows.Next() {
 		var cid int
 		var name, typ string
@@ -148,16 +169,14 @@ func columnExists(db *sql.DB, table, column string) bool {
 		var dfltValue sql.NullString
 		var pk int
 		if err := rows.Scan(&cid, &name, &typ, &notNull, &dfltValue, &pk); err != nil {
-			return false
+			return nil, err
 		}
-		if name == column {
-			return true
-		}
+		colSet[name] = true
 	}
-	// Column not found. Check rows.Err() to satisfy the linter,
-	// but either way the column doesn't exist.
-	_ = rows.Err()
-	return false
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return colSet, nil
 }
 
 // Close closes the database connection.

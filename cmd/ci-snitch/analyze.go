@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -353,41 +354,27 @@ func parseSince(s string) (time.Time, error) {
 	return parseSinceFrom(s, time.Now().UTC())
 }
 
+var sinceRe = regexp.MustCompile(`^(\d+)(d|w|mo)$`)
+
 func parseSinceFrom(s string, now time.Time) (time.Time, error) {
 	// Try absolute date first
 	if t, err := time.Parse("2006-01-02", s); err == nil {
 		return t, nil
 	}
 
-	// Try relative duration (e.g. "60d", "2w", "3mo")
-	if len(s) < 2 {
-		return time.Time{}, fmt.Errorf("unrecognized format %q", s)
+	m := sinceRe.FindStringSubmatch(s)
+	if m == nil {
+		return time.Time{}, fmt.Errorf("unrecognized format %q (use Nd, Nw, Nmo, or YYYY-MM-DD)", s)
 	}
 
-	suffix := s[len(s)-1]
-	numStr := s[:len(s)-1]
-
-	// Handle "mo" suffix
-	if len(s) >= 3 && s[len(s)-2:] == "mo" {
-		numStr = s[:len(s)-2]
-		var n int
-		if _, err := fmt.Sscanf(numStr, "%d", &n); err != nil {
-			return time.Time{}, fmt.Errorf("unrecognized format %q", s)
-		}
+	n, _ := strconv.Atoi(m[1]) // regex guarantees digits
+	switch m[2] {
+	case "d":
+		return now.AddDate(0, 0, -n), nil
+	case "w":
+		return now.AddDate(0, 0, -n*7), nil
+	case "mo":
 		return now.AddDate(0, -n, 0), nil
 	}
-
-	var n int
-	if _, err := fmt.Sscanf(numStr, "%d", &n); err != nil {
-		return time.Time{}, fmt.Errorf("unrecognized format %q", s)
-	}
-
-	switch suffix {
-	case 'd':
-		return now.AddDate(0, 0, -n), nil
-	case 'w':
-		return now.AddDate(0, 0, -n*7), nil
-	default:
-		return time.Time{}, fmt.Errorf("unrecognized suffix %q in %q (use d, w, or mo)", string(suffix), s)
-	}
+	return time.Time{}, fmt.Errorf("unrecognized format %q", s)
 }

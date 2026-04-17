@@ -4,6 +4,7 @@ package preprocess
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/vertti/ci-snitch/internal/model"
 )
@@ -150,20 +151,9 @@ func ComputeRerunStats(details []model.RunDetail) map[int64]RerunStats {
 // base="test" and variant="ubuntu-latest, 20".
 // If there are no parentheses, variant is empty.
 func ParseMatrixJobName(name string) (base, variant string) {
-	for i, ch := range name {
-		if ch == '(' {
-			base = name[:i]
-			// Trim trailing space from base
-			for len(base) > 0 && base[len(base)-1] == ' ' {
-				base = base[:len(base)-1]
-			}
-			// Extract variant (strip parens)
-			variant = name[i+1:]
-			if len(variant) > 0 && variant[len(variant)-1] == ')' {
-				variant = variant[:len(variant)-1]
-			}
-			return base, variant
-		}
+	before, after, found := strings.Cut(name, "(")
+	if !found {
+		return name, ""
 	}
-	return name, ""
+	return strings.TrimSpace(before), strings.TrimSuffix(after, ")")
 }

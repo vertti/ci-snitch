@@ -24,20 +24,9 @@ type AnalysisContext struct {
 }
 
 // WorkflowName resolves the canonical workflow name for a given ID.
-// Falls back to scanning Details/AllDetails for a matching WorkflowID.
 func (ac *AnalysisContext) WorkflowName(id int64) string {
 	if name, ok := ac.WorkflowNames[id]; ok {
 		return name
-	}
-	for _, d := range ac.Details {
-		if d.Run.WorkflowID == id {
-			return d.Run.WorkflowName
-		}
-	}
-	for _, d := range ac.AllDetails {
-		if d.Run.WorkflowID == id {
-			return d.Run.WorkflowName
-		}
 	}
 	return fmt.Sprintf("workflow-%d", id)
 }

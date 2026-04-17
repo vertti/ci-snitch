@@ -43,7 +43,10 @@ func TestCostAnalyzer_ComputesCost(t *testing.T) {
 	details := makeCostDetails()
 
 	analyzer := CostAnalyzer{}
-	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{Details: details})
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{
+		Details:       details,
+		WorkflowNames: map[int64]string{100: "CI"},
+	})
 	require.NoError(t, err)
 	require.NotEmpty(t, findings)
 
