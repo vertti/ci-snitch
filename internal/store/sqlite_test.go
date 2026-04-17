@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -294,4 +295,47 @@ func TestRunsSince_CorruptTimeReturnsError(t *testing.T) {
 	_, err = s.RunsSince(100, time.Time{})
 	require.Error(t, err, "corrupt time string in runs should return an error")
 	assert.Contains(t, err.Error(), "parse time")
+}
+
+func BenchmarkSaveRunDetails(b *testing.B) {
+	path := filepath.Join(b.TempDir(), "bench.db")
+	s, err := Open(path)
+	require.NoError(b, err)
+	b.Cleanup(func() { _ = s.Close() })
+
+	// Build 500 run details with 1 job and 2 steps each.
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	details := make([]model.RunDetail, 500)
+	for i := range details {
+		details[i] = model.RunDetail{
+			Run: model.WorkflowRun{
+				ID: int64(10000 + i), WorkflowID: 100, WorkflowName: "CI",
+				Name: "push", Event: "push", Status: "completed", Conclusion: "success",
+				HeadBranch: "main", HeadSHA: fmt.Sprintf("sha%d", i), RunAttempt: 1,
+				CreatedAt: base.Add(time.Duration(i) * time.Minute),
+				StartedAt: base.Add(time.Duration(i)*time.Minute + 5*time.Second),
+				UpdatedAt: base.Add(time.Duration(i)*time.Minute + 3*time.Minute),
+			},
+			Jobs: []model.Job{{
+				ID: int64(20000 + i), RunID: int64(10000 + i),
+				Name: "build", Status: "completed", Conclusion: "success",
+				StartedAt:   base.Add(time.Duration(i)*time.Minute + 10*time.Second),
+				CompletedAt: base.Add(time.Duration(i)*time.Minute + 2*time.Minute),
+				Labels:      []string{"ubuntu-latest"},
+				Steps: []model.Step{
+					{Name: "Checkout", Number: 1, Status: "completed", Conclusion: "success",
+						StartedAt: base, CompletedAt: base.Add(5 * time.Second)},
+					{Name: "Build", Number: 2, Status: "completed", Conclusion: "success",
+						StartedAt: base.Add(5 * time.Second), CompletedAt: base.Add(2 * time.Minute)},
+				},
+			}},
+		}
+	}
+
+	b.ResetTimer()
+	for range b.N {
+		if err := s.SaveRunDetails(details); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
