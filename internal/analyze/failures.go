@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/vertti/ci-snitch/internal/model"
 )
 
 // Failure trend directions.
@@ -71,42 +73,70 @@ type FailureAnalyzer struct{}
 // Name implements Analyzer.
 func (FailureAnalyzer) Name() string { return TypeFailure }
 
+type failureStepKey struct {
+	job  string
+	step string
+}
+
+type workflowFailureStat struct {
+	total          int
+	failures       int
+	cancellations  int
+	recentTotal    int
+	recentFailures int
+	byConclusion   map[string]int
+	failingSteps   map[failureStepKey]int
+}
+
 // Analyze implements Analyzer.
 func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, error) {
 	if len(ac.AllDetails) == 0 {
 		return nil, nil
 	}
 
-	type stepKey struct {
-		job  string
-		step string
-	}
-	type wfStat struct {
-		total          int
-		failures       int
-		cancellations  int
-		recentTotal    int // runs in last 7 days
-		recentFailures int
-		byConclusion   map[string]int
-		failingSteps   map[stepKey]int
+	wfStats := collectFailureStats(ac.AllDetails)
+
+	const minRunsForFailureRate = 5
+	var findings []Finding
+	for wfID, s := range wfStats {
+		if (s.failures == 0 && s.cancellations == 0) || s.total < minRunsForFailureRate {
+			continue
+		}
+		finding := buildFailureFinding(ac, wfID, s)
+		findings = append(findings, finding)
 	}
 
-	// Find the latest run time to compute "recent" window
+	slices.SortFunc(findings, func(a, b Finding) int {
+		ad, _ := a.Detail.(FailureDetail)
+		bd, _ := b.Detail.(FailureDetail)
+		if bd.FailureRate > ad.FailureRate {
+			return 1
+		}
+		if bd.FailureRate < ad.FailureRate {
+			return -1
+		}
+		return 0
+	})
+
+	return findings, nil
+}
+
+func collectFailureStats(details []model.RunDetail) map[int64]*workflowFailureStat {
 	var latest time.Time
-	for _, d := range ac.AllDetails {
+	for _, d := range details {
 		if d.Run.CreatedAt.After(latest) {
 			latest = d.Run.CreatedAt
 		}
 	}
 	recentCutoff := latest.AddDate(0, 0, -7)
 
-	wfStats := make(map[int64]*wfStat)
-	for _, d := range ac.AllDetails {
+	wfStats := make(map[int64]*workflowFailureStat)
+	for _, d := range details {
 		wfID := d.Run.WorkflowID
 		if wfStats[wfID] == nil {
-			wfStats[wfID] = &wfStat{
+			wfStats[wfID] = &workflowFailureStat{
 				byConclusion: make(map[string]int),
-				failingSteps: make(map[stepKey]int),
+				failingSteps: make(map[failureStepKey]int),
 			}
 		}
 		s := wfStats[wfID]
@@ -127,128 +157,98 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 				s.recentFailures++
 			}
 			s.byConclusion[d.Run.Conclusion]++
-			// Attribute failure to root-cause step (first failing step per job).
-			// Later failing steps are often cascades (e.g. "Stop Docker Compose"
-			// fails because a prior step already broke the environment).
 			for _, j := range d.Jobs {
 				if j.Conclusion != "failure" {
 					continue
 				}
 				for _, st := range j.Steps {
 					if st.Conclusion == "failure" {
-						s.failingSteps[stepKey{j.Name, st.Name}]++
-						break // only count the first (root-cause) failing step per job
+						s.failingSteps[failureStepKey{j.Name, st.Name}]++
+						break
 					}
 				}
 			}
 		}
 	}
+	return wfStats
+}
 
-	const minRunsForFailureRate = 5
+func buildFailureFinding(ac *AnalysisContext, wfID int64, s *workflowFailureStat) Finding {
+	wfName := ac.WorkflowName(wfID)
+	failRate := float64(s.failures) / float64(s.total)
+	cancelRate := float64(s.cancellations) / float64(s.total)
 
-	var findings []Finding
-	for wfID, s := range wfStats {
-		if (s.failures == 0 && s.cancellations == 0) || s.total < minRunsForFailureRate {
-			continue
-		}
-		wfName := ac.WorkflowName(wfID)
-		failRate := float64(s.failures) / float64(s.total)
-		cancelRate := float64(s.cancellations) / float64(s.total)
-
-		severity := SeverityInfo
-		switch {
-		case failRate >= criticalFailureRate:
-			severity = SeverityCritical
-		case failRate >= warningFailureRate:
-			severity = SeverityWarning
-		}
-
-		var failingSteps []FailingStep
-		byCategory := make(map[string]int)
-		for k, count := range s.failingSteps {
-			cat := categorizeStep(k.step)
-			failingSteps = append(failingSteps, FailingStep{
-				JobName:  k.job,
-				StepName: k.step,
-				Count:    count,
-				Category: cat,
-			})
-			byCategory[cat] += count
-		}
-		slices.SortFunc(failingSteps, func(a, b FailingStep) int {
-			if b.Count != a.Count {
-				return b.Count - a.Count
-			}
-			return 0
-		})
-
-		// Classify as systematic (single root cause) vs flaky (distributed)
-		kind := FailureKindFlaky
-		if len(failingSteps) > 0 && s.failures > 0 {
-			topRatio := float64(failingSteps[0].Count) / float64(s.failures)
-			if topRatio >= 0.9 {
-				kind = FailureKindSystematic
-			}
-		}
-
-		// Compute trend: compare recent 7d failure rate to overall
-		var recentRate float64
-		trend := FailureTrendStable
-		if s.recentTotal >= 5 {
-			recentRate = float64(s.recentFailures) / float64(s.recentTotal)
-			diff := recentRate - failRate
-			// Meaningful change: at least 5 percentage points difference
-			if diff <= -0.05 {
-				trend = FailureTrendImproving
-			} else if diff >= 0.05 {
-				trend = FailureTrendWorsening
-			}
-		}
-
-		detail := FailureDetail{
-			Workflow:          wfName,
-			TotalRuns:         s.total,
-			FailureCount:      s.failures,
-			FailureRate:       failRate,
-			FailureKind:       kind,
-			Trend:             trend,
-			RecentFailureRate: recentRate,
-			CancellationCount: s.cancellations,
-			CancellationRate:  cancelRate,
-			ByConclusion:      s.byConclusion,
-			ByCategory:        byCategory,
-			FailingSteps:      failingSteps,
-		}
-		if rs, ok := ac.RerunStats[wfID]; ok {
-			detail.RetriedRuns = rs.RetriedRuns
-			detail.ExtraAttempts = rs.ExtraAttempts
-			detail.RerunRate = rs.RerunRate
-		}
-
-		findings = append(findings, Finding{
-			Type:     TypeFailure,
-			Severity: severity,
-			Title:    fmt.Sprintf("Workflow %q failure rate", wfName),
-			Description: fmt.Sprintf("%.0f%% failure rate (%d/%d runs)",
-				failRate*100, s.failures, s.total),
-			Detail: detail,
-		})
+	severity := SeverityInfo
+	switch {
+	case failRate >= criticalFailureRate:
+		severity = SeverityCritical
+	case failRate >= warningFailureRate:
+		severity = SeverityWarning
 	}
 
-	// Sort by failure rate descending
-	slices.SortFunc(findings, func(a, b Finding) int {
-		ad, _ := a.Detail.(FailureDetail)
-		bd, _ := b.Detail.(FailureDetail)
-		if bd.FailureRate > ad.FailureRate {
-			return 1
-		}
-		if bd.FailureRate < ad.FailureRate {
-			return -1
-		}
-		return 0
+	var failingSteps []FailingStep
+	byCategory := make(map[string]int)
+	for k, count := range s.failingSteps {
+		cat := categorizeStep(k.step)
+		failingSteps = append(failingSteps, FailingStep{
+			JobName:  k.job,
+			StepName: k.step,
+			Count:    count,
+			Category: cat,
+		})
+		byCategory[cat] += count
+	}
+	slices.SortFunc(failingSteps, func(a, b FailingStep) int {
+		return b.Count - a.Count
 	})
 
-	return findings, nil
+	kind := FailureKindFlaky
+	if len(failingSteps) > 0 && s.failures > 0 {
+		if float64(failingSteps[0].Count)/float64(s.failures) >= 0.9 {
+			kind = FailureKindSystematic
+		}
+	}
+
+	var recentRate float64
+	trend := FailureTrendStable
+	if s.recentTotal >= 5 {
+		recentRate = float64(s.recentFailures) / float64(s.recentTotal)
+		diff := recentRate - failRate
+		if diff <= -0.05 {
+			trend = FailureTrendImproving
+		} else if diff >= 0.05 {
+			trend = FailureTrendWorsening
+		}
+	}
+
+	detail := FailureDetail{
+		Workflow:          wfName,
+		TotalRuns:         s.total,
+		FailureCount:      s.failures,
+		FailureRate:       failRate,
+		FailureKind:       kind,
+		Trend:             trend,
+		RecentFailureRate: recentRate,
+		CancellationCount: s.cancellations,
+		CancellationRate:  cancelRate,
+		ByConclusion:      s.byConclusion,
+		ByCategory:        byCategory,
+		FailingSteps:      failingSteps,
+	}
+	if rs, ok := ac.RerunStats[wfID]; ok {
+		detail.RetriedRuns = rs.RetriedRuns
+		detail.ExtraAttempts = rs.ExtraAttempts
+		detail.RerunRate = rs.RerunRate
+	}
+
+	return Finding{
+		Type:     TypeFailure,
+		Severity: severity,
+		Title:    fmt.Sprintf("Workflow %q failure rate", wfName),
+		Description: fmt.Sprintf("%.0f%% failure rate (%d/%d runs)",
+			failRate*100, s.failures, s.total),
+		Detail: detail,
+	}
 }
 
 // categorizeStep classifies a step name into infra/build/test/other.

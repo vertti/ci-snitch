@@ -42,7 +42,24 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 
 	g := groupByType(result.Findings)
 
-	// Priority findings
+	llmWritePriorityFindings(w, g)
+	llmWriteSummaryTable(w, g.Summaries)
+	llmWritePipelines(w, g.Pipelines)
+	llmWriteRunners(w, g.Runners)
+	llmWriteSteps(w, g.Steps)
+
+	suggestions := buildSuggestions(g.Changepoints, g.Failures, g.Costs, g.Outliers, g.Steps)
+	if len(suggestions) > 0 {
+		_, _ = fmt.Fprint(w, "\n## Suggested Investigations\n\n")
+		for _, s := range suggestions {
+			_, _ = fmt.Fprintf(w, "- %s\n", s)
+		}
+	}
+
+	return l.writeRawData(w, result)
+}
+
+func llmWritePriorityFindings(w io.Writer, g groupedFindings) {
 	_, _ = fmt.Fprint(w, "## Priority Findings\n\n")
 	hasPriority := false
 
@@ -109,12 +126,13 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 	if !hasPriority {
 		_, _ = fmt.Fprint(w, "No critical findings.\n")
 	}
+}
 
-	// Workflow summaries
+func llmWriteSummaryTable(w io.Writer, summaries []analyze.Finding) {
 	_, _ = fmt.Fprint(w, "\n## Workflow Summaries\n\n")
 	_, _ = fmt.Fprint(w, "| Workflow | Runs | Median | P95 | Queue | Total | Volatility |\n")
 	_, _ = fmt.Fprint(w, "|----------|------|--------|-----|-------|-------|------------|\n")
-	for _, f := range g.Summaries {
+	for _, f := range summaries {
 		d, ok := f.Detail.(analyze.SummaryDetail)
 		if !ok {
 			continue
@@ -129,86 +147,83 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 			queueStr,
 			fmtTotalTime(d.Stats.TotalTime), d.Stats.VolatilityLabel)
 	}
+}
 
-	// Pipeline structure
-	if len(g.Pipelines) > 0 {
-		_, _ = fmt.Fprint(w, "\n## Pipeline Structure\n\n")
-		for _, f := range g.Pipelines {
-			d, ok := f.Detail.(analyze.PipelineDetail)
-			if !ok {
-				continue
+func llmWritePipelines(w io.Writer, pipelines []analyze.Finding) {
+	if len(pipelines) == 0 {
+		return
+	}
+	_, _ = fmt.Fprint(w, "\n## Pipeline Structure\n\n")
+	for _, f := range pipelines {
+		d, ok := f.Detail.(analyze.PipelineDetail)
+		if !ok {
+			continue
+		}
+		_, _ = fmt.Fprintf(w, "**%s** — %.0f%% parallel efficiency, wall-clock %s, total job time %s\n",
+			d.Workflow, d.Parallelism*100, fmtDur(d.MedianWallClock), fmtDur(d.MedianJobSum))
+		for _, stage := range d.Stages {
+			marker := ""
+			if stage.Name == d.CriticalPath {
+				marker = " **<< critical path**"
 			}
-			_, _ = fmt.Fprintf(w, "**%s** — %.0f%% parallel efficiency, wall-clock %s, total job time %s\n",
-				d.Workflow, d.Parallelism*100, fmtDur(d.MedianWallClock), fmtDur(d.MedianJobSum))
-			for _, stage := range d.Stages {
-				marker := ""
-				if stage.Name == d.CriticalPath {
-					marker = " **<< critical path**"
-				}
-				if stage.Sequential {
-					marker += " _(waits for previous)_"
-				}
-				_, _ = fmt.Fprintf(w, "- %s: %s (%.0f%%, %d jobs)%s\n",
-					stage.Name, fmtDur(stage.Duration), stage.PctOfPipeline, len(stage.Jobs), marker)
+			if stage.Sequential {
+				marker += " _(waits for previous)_"
+			}
+			_, _ = fmt.Fprintf(w, "- %s: %s (%.0f%%, %d jobs)%s\n",
+				stage.Name, fmtDur(stage.Duration), stage.PctOfPipeline, len(stage.Jobs), marker)
+		}
+		_, _ = fmt.Fprint(w, "\n")
+	}
+}
+
+func llmWriteRunners(w io.Writer, runners []analyze.Finding) {
+	if len(runners) == 0 {
+		return
+	}
+	_, _ = fmt.Fprint(w, "\n## Runner Sizing\n\n")
+	for _, f := range runners {
+		d, ok := f.Detail.(analyze.RunnerDetail)
+		if !ok {
+			continue
+		}
+		icon := "▼"
+		if d.Issue == "undersized" {
+			icon = "▲"
+		}
+		_, _ = fmt.Fprintf(w, "- %s **%s / %s** (%s, %d cores): %s\n",
+			icon, d.WorkflowName, d.JobName, d.RunnerLabel, d.Cores, d.Suggestion)
+	}
+}
+
+func llmWriteSteps(w io.Writer, steps []analyze.Finding) {
+	if len(steps) == 0 {
+		return
+	}
+	_, _ = fmt.Fprint(w, "\n## Step-Level Timing\n\n")
+	shown := min(5, len(steps))
+	for _, f := range steps[:shown] {
+		d, ok := f.Detail.(analyze.StepTimingDetail)
+		if !ok {
+			continue
+		}
+		_, _ = fmt.Fprintf(w, "**%s / %s** (%d runs):\n", d.WorkflowName, d.JobName, d.TotalRuns)
+		for _, st := range d.Steps {
+			_, _ = fmt.Fprintf(w, "- %s: median %s, p95 %s (%.0f%% of job)",
+				st.Name, fmtDur(st.Median), fmtDur(st.P95), st.PctOfJob)
+			if st.Volatility >= 2.0 {
+				_, _ = fmt.Fprintf(w, " **[%.1fx volatile]**", st.Volatility)
 			}
 			_, _ = fmt.Fprint(w, "\n")
 		}
+		_, _ = fmt.Fprint(w, "\n")
 	}
+}
 
-	// Runner sizing
-	if len(g.Runners) > 0 {
-		_, _ = fmt.Fprint(w, "\n## Runner Sizing\n\n")
-		for _, f := range g.Runners {
-			d, ok := f.Detail.(analyze.RunnerDetail)
-			if !ok {
-				continue
-			}
-			icon := "▼"
-			if d.Issue == "undersized" {
-				icon = "▲"
-			}
-			_, _ = fmt.Fprintf(w, "- %s **%s / %s** (%s, %d cores): %s\n",
-				icon, d.WorkflowName, d.JobName, d.RunnerLabel, d.Cores, d.Suggestion)
-		}
-	}
-
-	// Step timing breakdown
-	if len(g.Steps) > 0 {
-		_, _ = fmt.Fprint(w, "\n## Step-Level Timing\n\n")
-		shown := min(5, len(g.Steps))
-		for _, f := range g.Steps[:shown] {
-			d, ok := f.Detail.(analyze.StepTimingDetail)
-			if !ok {
-				continue
-			}
-			_, _ = fmt.Fprintf(w, "**%s / %s** (%d runs):\n", d.WorkflowName, d.JobName, d.TotalRuns)
-			for _, st := range d.Steps {
-				_, _ = fmt.Fprintf(w, "- %s: median %s, p95 %s (%.0f%% of job)",
-					st.Name, fmtDur(st.Median), fmtDur(st.P95), st.PctOfJob)
-				if st.Volatility >= 2.0 {
-					_, _ = fmt.Fprintf(w, " **[%.1fx volatile]**", st.Volatility)
-				}
-				_, _ = fmt.Fprint(w, "\n")
-			}
-			_, _ = fmt.Fprint(w, "\n")
-		}
-	}
-
-	// Suggested investigations
-	suggestions := buildSuggestions(g.Changepoints, g.Failures, g.Costs, g.Outliers, g.Steps)
-	if len(suggestions) > 0 {
-		_, _ = fmt.Fprint(w, "\n## Suggested Investigations\n\n")
-		for _, s := range suggestions {
-			_, _ = fmt.Fprintf(w, "- %s\n", s)
-		}
-	}
-
-	// Raw JSON — filtered to actionable findings only.
+func (l LLMFormatter) writeRawData(w io.Writer, result analyze.AnalysisResult) error {
 	compact := compactResult(result)
 	omitted := len(result.Findings) - len(compact.Findings)
 
 	if l.RawOutputPath != "" {
-		// Write full (unfiltered) JSON to file; keep report compact
 		if err := writeJSONFile(l.RawOutputPath, result); err != nil {
 			return fmt.Errorf("write raw output: %w", err)
 		}
@@ -238,7 +253,7 @@ func writeJSONFile(path string, result analyze.AnalysisResult) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close() //nolint:errcheck
+	defer f.Close() //nolint:errcheck // best-effort close on write path
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
 	return enc.Encode(result)
@@ -333,12 +348,22 @@ func categoryBreakdown(d analyze.FailureDetail) string {
 }
 
 func buildSuggestions(changepoints, failures, costs, outliers, steps []analyze.Finding) []string {
-	// Build step volatility index for enriching outlier suggestions
-	type volatileStep struct {
-		name       string
-		volatility float64
-	}
-	jobVolatileSteps := make(map[string]volatileStep) // job name -> most volatile step
+	volatileSteps := buildVolatileStepIndex(steps)
+	var suggestions []string
+	suggestions = append(suggestions, suggestFromChangepoints(changepoints)...)
+	suggestions = append(suggestions, suggestFromCosts(costs)...)
+	suggestions = append(suggestions, suggestFromOutliers(outliers, volatileSteps)...)
+	suggestions = append(suggestions, suggestFromFailures(failures)...)
+	return suggestions
+}
+
+type volatileStep struct {
+	name       string
+	volatility float64
+}
+
+func buildVolatileStepIndex(steps []analyze.Finding) map[string]volatileStep {
+	index := make(map[string]volatileStep)
 	for _, f := range steps {
 		d, ok := f.Detail.(analyze.StepTimingDetail)
 		if !ok {
@@ -346,38 +371,44 @@ func buildSuggestions(changepoints, failures, costs, outliers, steps []analyze.F
 		}
 		for _, st := range d.Steps {
 			if st.Volatility >= 2.0 {
-				key := d.JobName
-				if existing, ok := jobVolatileSteps[key]; !ok || st.Volatility > existing.volatility {
-					jobVolatileSteps[key] = volatileStep{st.Name, st.Volatility}
+				if existing, ok := index[d.JobName]; !ok || st.Volatility > existing.volatility {
+					index[d.JobName] = volatileStep{st.Name, st.Volatility}
 				}
 			}
 		}
 	}
+	return index
+}
 
-	var suggestions []string
-
-	for _, f := range changepoints {
+func suggestFromChangepoints(findings []analyze.Finding) []string {
+	var s []string
+	for _, f := range findings {
 		d, ok := f.Detail.(analyze.ChangePointDetail)
 		if !ok || d.Category != analyze.CategoryRegression || d.Direction != analyze.DirectionSlowdown {
 			continue
 		}
-		suggestions = append(suggestions,
-			fmt.Sprintf("What changed in commit `%s` (%s) that affected %q?",
-				truncSHA(d.CommitSHA), d.Date.Format("2006-01-02"), d.JobName))
+		s = append(s, fmt.Sprintf("What changed in commit `%s` (%s) that affected %q?",
+			truncSHA(d.CommitSHA), d.Date.Format("2006-01-02"), d.JobName))
 	}
+	return s
+}
 
-	for _, f := range costs {
+func suggestFromCosts(findings []analyze.Finding) []string {
+	var s []string
+	for _, f := range findings {
 		d, ok := f.Detail.(analyze.CostDetail)
 		if !ok || d.DailySavingsEstimate < 10 {
 			continue
 		}
-		suggestions = append(suggestions,
-			fmt.Sprintf("%q has high variance (save ~%.0f mins/day if stabilized) -- check for flaky tests, cache misses, or resource contention",
-				d.Workflow, d.DailySavingsEstimate))
+		s = append(s, fmt.Sprintf("%q has high variance (save ~%.0f mins/day if stabilized) -- check for flaky tests, cache misses, or resource contention",
+			d.Workflow, d.DailySavingsEstimate))
 	}
+	return s
+}
 
-	// Frequent outlier groups — reference volatile steps when available
-	for _, f := range outliers {
+func suggestFromOutliers(findings []analyze.Finding, volatileSteps map[string]volatileStep) []string {
+	var s []string
+	for _, f := range findings {
 		d, ok := f.Detail.(analyze.OutlierGroupDetail)
 		if !ok || d.Count < 5 {
 			continue
@@ -387,15 +418,18 @@ func buildSuggestions(changepoints, failures, costs, outliers, steps []analyze.F
 			subject = d.JobName
 		}
 		hint := "check for resource contention or flaky infrastructure"
-		if vs, ok := jobVolatileSteps[d.JobName]; ok {
+		if vs, ok := volatileSteps[d.JobName]; ok {
 			hint = fmt.Sprintf("step %q is %.1fx volatile and likely the cause", vs.name, vs.volatility)
 		}
-		suggestions = append(suggestions,
-			fmt.Sprintf("%q has %d outliers (worst %s) -- %s",
-				subject, d.Count, fmtDur(d.WorstDuration), hint))
+		s = append(s, fmt.Sprintf("%q has %d outliers (worst %s) -- %s",
+			subject, d.Count, fmtDur(d.WorstDuration), hint))
 	}
+	return s
+}
 
-	for _, f := range failures {
+func suggestFromFailures(findings []analyze.Finding) []string {
+	var s []string
+	for _, f := range findings {
 		d, ok := f.Detail.(analyze.FailureDetail)
 		if !ok || d.FailureRate < 0.1 {
 			continue
@@ -415,10 +449,8 @@ func buildSuggestions(changepoints, failures, costs, outliers, steps []analyze.F
 		case "timed_out":
 			conclusionHint = " (timed out -- likely hanging test or resource exhaustion)"
 		}
-		suggestions = append(suggestions,
-			fmt.Sprintf("%q has %.0f%% failure rate%s",
-				d.Workflow, d.FailureRate*100, conclusionHint))
+		s = append(s, fmt.Sprintf("%q has %.0f%% failure rate%s",
+			d.Workflow, d.FailureRate*100, conclusionHint))
 	}
-
-	return suggestions
+	return s
 }

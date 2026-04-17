@@ -88,8 +88,14 @@ const (
 
 func writeTriageHeader(w io.Writer, summaries, changepoints, failures []analyze.Finding) {
 	_, _ = fmt.Fprintf(w, "%s── Triage ──%s\n", dim, reset)
+	writeTriageTopCITime(w, summaries)
+	writeTriageVolatile(w, summaries)
+	writeTriageRegressions(w, changepoints)
+	writeTriageFlaky(w, failures)
+	_, _ = fmt.Fprintln(w)
+}
 
-	// Top 3 by total CI time (summaries are already sorted)
+func writeTriageTopCITime(w io.Writer, summaries []analyze.Finding) {
 	_, _ = fmt.Fprintf(w, "  %sTop CI time:%s  ", dim, reset)
 	count := min(3, len(summaries))
 	for i := range count {
@@ -103,8 +109,9 @@ func writeTriageHeader(w io.Writer, summaries, changepoints, failures []analyze.
 		_, _ = fmt.Fprintf(w, "%s%s%s %s(%s)%s", bold, d.Workflow, reset, dim, fmtTotalTime(d.Stats.TotalTime), reset)
 	}
 	_, _ = fmt.Fprintln(w)
+}
 
-	// Most volatile workflows
+func writeTriageVolatile(w io.Writer, summaries []analyze.Finding) {
 	var volatile []string
 	for _, f := range summaries {
 		d, ok := f.Detail.(analyze.SummaryDetail)
@@ -115,18 +122,20 @@ func writeTriageHeader(w io.Writer, summaries, changepoints, failures []analyze.
 			volatile = append(volatile, d.Workflow)
 		}
 	}
-	if len(volatile) > 0 {
-		_, _ = fmt.Fprintf(w, "  %sUnpredictable:%s  ", dim, reset)
-		for i, name := range volatile {
-			if i > 0 {
-				_, _ = fmt.Fprint(w, ", ")
-			}
-			_, _ = fmt.Fprintf(w, "%s%s%s", yellow, name, reset)
-		}
-		_, _ = fmt.Fprintln(w)
+	if len(volatile) == 0 {
+		return
 	}
+	_, _ = fmt.Fprintf(w, "  %sUnpredictable:%s  ", dim, reset)
+	for i, name := range volatile {
+		if i > 0 {
+			_, _ = fmt.Fprint(w, ", ")
+		}
+		_, _ = fmt.Fprintf(w, "%s%s%s", yellow, name, reset)
+	}
+	_, _ = fmt.Fprintln(w)
+}
 
-	// Active regressions (already deduplicated by postprocessor)
+func writeTriageRegressions(w io.Writer, changepoints []analyze.Finding) {
 	var regressions []analyze.ChangePointDetail
 	for _, f := range changepoints {
 		d, ok := f.Detail.(analyze.ChangePointDetail)
@@ -134,38 +143,39 @@ func writeTriageHeader(w io.Writer, summaries, changepoints, failures []analyze.
 			regressions = append(regressions, d)
 		}
 	}
-	if len(regressions) > 0 {
-		_, _ = fmt.Fprintf(w, "  %sRegressions:%s  ", dim, reset)
-		shown := min(5, len(regressions))
-		for i, d := range regressions[:shown] {
-			if i > 0 {
-				_, _ = fmt.Fprint(w, ", ")
-			}
-			_, _ = fmt.Fprintf(w, "%s%s %+.0f%%%s", red, d.JobName, d.PctChange, reset)
-		}
-		if len(regressions) > shown {
-			_, _ = fmt.Fprintf(w, "%s, +%d more%s", dim, len(regressions)-shown, reset)
-		}
-		_, _ = fmt.Fprintln(w)
+	if len(regressions) == 0 {
+		return
 	}
-
-	// Flaky workflows
-	if len(failures) > 0 {
-		_, _ = fmt.Fprintf(w, "  %sFlaky:%s  ", dim, reset)
-		count := min(3, len(failures))
-		for i := range count {
-			d, ok := failures[i].Detail.(analyze.FailureDetail)
-			if !ok {
-				continue
-			}
-			if i > 0 {
-				_, _ = fmt.Fprint(w, ", ")
-			}
-			_, _ = fmt.Fprintf(w, "%s%s%s %s(%.0f%%)%s", red, d.Workflow, reset, dim, d.FailureRate*100, reset)
+	_, _ = fmt.Fprintf(w, "  %sRegressions:%s  ", dim, reset)
+	shown := min(5, len(regressions))
+	for i, d := range regressions[:shown] {
+		if i > 0 {
+			_, _ = fmt.Fprint(w, ", ")
 		}
-		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintf(w, "%s%s %+.0f%%%s", red, d.JobName, d.PctChange, reset)
 	}
+	if len(regressions) > shown {
+		_, _ = fmt.Fprintf(w, "%s, +%d more%s", dim, len(regressions)-shown, reset)
+	}
+	_, _ = fmt.Fprintln(w)
+}
 
+func writeTriageFlaky(w io.Writer, failures []analyze.Finding) {
+	if len(failures) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "  %sFlaky:%s  ", dim, reset)
+	count := min(3, len(failures))
+	for i := range count {
+		d, ok := failures[i].Detail.(analyze.FailureDetail)
+		if !ok {
+			continue
+		}
+		if i > 0 {
+			_, _ = fmt.Fprint(w, ", ")
+		}
+		_, _ = fmt.Fprintf(w, "%s%s%s %s(%.0f%%)%s", red, d.Workflow, reset, dim, d.FailureRate*100, reset)
+	}
 	_, _ = fmt.Fprintln(w)
 }
 

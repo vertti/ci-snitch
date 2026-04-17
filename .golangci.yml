@@ -70,11 +70,6 @@ linters:
     # Testing
     - usetesting
   settings:
-    gocritic:
-      enabled-tags:
-        - diagnostic
-        - style
-        - performance
     exhaustive:
       default-signifies-exhaustive: true
     gocyclo:
