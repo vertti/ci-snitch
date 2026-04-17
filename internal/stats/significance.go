@@ -14,13 +14,21 @@ const (
 )
 
 // MannWhitneyU performs a two-sided Mann-Whitney U test comparing two samples.
+// Uses a fresh random source for the permutation path, so results are
+// non-deterministic. For deterministic tests use MannWhitneyURand.
+func MannWhitneyU(sample1, sample2 []float64) (u float64, pValue float64) {
+	return MannWhitneyURand(sample1, sample2, nil)
+}
+
+// MannWhitneyURand performs a two-sided Mann-Whitney U test comparing two samples.
 // Uses three strategies depending on sample size:
 //   - Exact enumeration when n1+n2 <= 20 (feasible combinatorics)
 //   - Monte Carlo permutation test when min(n1,n2) <= 20 (small sample, exact infeasible)
 //   - Normal approximation when both n1,n2 > 20
 //
+// If rng is nil, a fresh random source is used.
 // A small p-value (< 0.05) indicates the two samples likely come from different distributions.
-func MannWhitneyU(sample1, sample2 []float64) (u float64, pValue float64) {
+func MannWhitneyURand(sample1, sample2 []float64, rng *rand.Rand) (u float64, pValue float64) {
 	n1 := len(sample1)
 	n2 := len(sample2)
 	if n1 == 0 || n2 == 0 {
@@ -34,7 +42,7 @@ func MannWhitneyU(sample1, sample2 []float64) (u float64, pValue float64) {
 	case n <= maxExactN:
 		pValue = exactPValue(n1, n2, u)
 	case min(n1, n2) <= 20:
-		pValue = permutationPValue(sample1, sample2, u)
+		pValue = permutationPValue(sample1, sample2, u, rng)
 	default:
 		pValue = normalApproxPValue(n1, n2, u)
 	}
@@ -169,7 +177,11 @@ func binomial(n, k int) float64 {
 // permutationPValue estimates the two-sided p-value by randomly shuffling
 // group assignments and computing the proportion of permutations where
 // U <= observed U.
-func permutationPValue(sample1, sample2 []float64, observedU float64) float64 {
+func permutationPValue(sample1, sample2 []float64, observedU float64, rng *rand.Rand) float64 {
+	if rng == nil {
+		rng = rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())) //nolint:gosec // statistical shuffling, not crypto
+	}
+
 	n1 := len(sample1)
 	combined := make([]float64, 0, n1+len(sample2))
 	combined = append(combined, sample1...)
@@ -177,7 +189,7 @@ func permutationPValue(sample1, sample2 []float64, observedU float64) float64 {
 
 	count := 0
 	for range permutationReps {
-		rand.Shuffle(len(combined), func(i, j int) {
+		rng.Shuffle(len(combined), func(i, j int) {
 			combined[i], combined[j] = combined[j], combined[i]
 		})
 		u := computeU(combined[:n1], combined[n1:])
