@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vertti/ci-snitch/internal/app"
-	"github.com/vertti/ci-snitch/internal/github"
+	"github.com/vertti/ci-snitch/internal/diag"
 	"github.com/vertti/ci-snitch/internal/model"
 	"github.com/vertti/ci-snitch/internal/output"
 )
@@ -89,11 +89,11 @@ func (f *stubFetcher) ListWorkflows(_ context.Context) ([]model.Workflow, error)
 	return f.workflows, nil
 }
 
-func (f *stubFetcher) FetchRuns(_ context.Context, _ int64, _ time.Time, _ string) ([]model.WorkflowRun, []github.Warning, error) {
+func (f *stubFetcher) FetchRuns(_ context.Context, _ int64, _ time.Time, _ string) ([]model.WorkflowRun, []diag.Diagnostic, error) {
 	return f.runs, nil, nil
 }
 
-func (f *stubFetcher) FetchRunDetails(_ context.Context, _ []model.WorkflowRun) ([]model.RunDetail, []github.Warning) {
+func (f *stubFetcher) FetchRunDetails(_ context.Context, _ []model.WorkflowRun) ([]model.RunDetail, []diag.Diagnostic) {
 	return f.details, nil
 }
 

@@ -10,7 +10,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/vertti/ci-snitch/internal/analyze"
-	"github.com/vertti/ci-snitch/internal/github"
+	"github.com/vertti/ci-snitch/internal/diag"
 	"github.com/vertti/ci-snitch/internal/model"
 	"github.com/vertti/ci-snitch/internal/output"
 	"github.com/vertti/ci-snitch/internal/preprocess"
@@ -19,8 +19,8 @@ import (
 // WorkflowFetcher abstracts the GitHub API client.
 type WorkflowFetcher interface {
 	ListWorkflows(ctx context.Context) ([]model.Workflow, error)
-	FetchRuns(ctx context.Context, workflowID int64, since time.Time, branch string) ([]model.WorkflowRun, []github.Warning, error)
-	FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) ([]model.RunDetail, []github.Warning)
+	FetchRuns(ctx context.Context, workflowID int64, since time.Time, branch string) ([]model.WorkflowRun, []diag.Diagnostic, error)
+	FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) ([]model.RunDetail, []diag.Diagnostic)
 }
 
 // RunStore abstracts the SQLite store.

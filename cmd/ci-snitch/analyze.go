@@ -105,8 +105,8 @@ If no repository is specified, detects the GitHub remote from the current direct
 				return err
 			}
 
-			for _, w := range result.Warnings {
-				prog.Log("Analysis warning: %s", w.Message)
+			for _, d := range result.Diagnostics {
+				prog.Log("%s", d)
 			}
 
 			// Blank line before output
