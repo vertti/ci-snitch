@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vertti/ci-snitch/internal/app"
 	"github.com/vertti/ci-snitch/internal/github"
 	"github.com/vertti/ci-snitch/internal/model"
 	"github.com/vertti/ci-snitch/internal/output"
@@ -77,7 +78,7 @@ func TestGitHubRemoteRe(t *testing.T) {
 	}
 }
 
-// stubFetcher implements workflowFetcher for testing.
+// stubFetcher implements app.WorkflowFetcher for testing.
 type stubFetcher struct {
 	workflows []model.Workflow
 	runs      []model.WorkflowRun
@@ -96,7 +97,7 @@ func (f *stubFetcher) FetchRunDetails(_ context.Context, _ []model.WorkflowRun) 
 	return f.details, nil
 }
 
-func TestFetchAndAnalyze_BasicPipeline(t *testing.T) {
+func TestServiceRun_BasicPipeline(t *testing.T) {
 	now := time.Now()
 	wf := model.Workflow{ID: 1, Name: "CI"}
 	run := model.WorkflowRun{
@@ -119,40 +120,42 @@ func TestFetchAndAnalyze_BasicPipeline(t *testing.T) {
 		}},
 	}
 
-	fetcher := &stubFetcher{
-		workflows: []model.Workflow{wf},
-		runs:      []model.WorkflowRun{run},
-		details:   []model.RunDetail{detail},
+	svc := &app.Service{
+		Client: &stubFetcher{
+			workflows: []model.Workflow{wf},
+			runs:      []model.WorkflowRun{run},
+			details:   []model.RunDetail{detail},
+		},
+		Prog: output.NewProgress(),
 	}
 
-	opts := analyzeOpts{repo: "test/repo", since: "7d", format: "json"}
-	sinceTime := now.Add(-7 * 24 * time.Hour)
-	prog := output.NewProgress()
-
-	result, err := fetchAndAnalyze(context.Background(), fetcher, nil, opts, sinceTime, prog)
+	result, err := svc.Run(context.Background(), app.Options{
+		Repo:  "test/repo",
+		Since: now.Add(-7 * 24 * time.Hour),
+	})
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.Meta.TotalRuns)
 	assert.Equal(t, "test/repo", result.Meta.Repo)
 	assert.NotEmpty(t, result.Findings)
 }
 
-func TestFetchAndAnalyze_NoRunsError(t *testing.T) {
-	fetcher := &stubFetcher{
-		workflows: []model.Workflow{{ID: 1, Name: "CI"}},
-		runs:      nil,
-		details:   nil,
+func TestServiceRun_NoRunsError(t *testing.T) {
+	svc := &app.Service{
+		Client: &stubFetcher{
+			workflows: []model.Workflow{{ID: 1, Name: "CI"}},
+		},
+		Prog: output.NewProgress(),
 	}
 
-	opts := analyzeOpts{repo: "test/repo", since: "7d"}
-	sinceTime := time.Now().Add(-7 * 24 * time.Hour)
-	prog := output.NewProgress()
-
-	_, err := fetchAndAnalyze(context.Background(), fetcher, nil, opts, sinceTime, prog)
+	_, err := svc.Run(context.Background(), app.Options{
+		Repo:  "test/repo",
+		Since: time.Now().Add(-7 * 24 * time.Hour),
+	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no runs found")
 }
 
-func TestFetchAndAnalyze_WorkflowFilter(t *testing.T) {
+func TestServiceRun_WorkflowFilter(t *testing.T) {
 	now := time.Now()
 	run := model.WorkflowRun{
 		ID: 100, WorkflowID: 2, WorkflowName: "Deploy",
@@ -172,21 +175,23 @@ func TestFetchAndAnalyze_WorkflowFilter(t *testing.T) {
 		}},
 	}
 
-	fetcher := &stubFetcher{
-		workflows: []model.Workflow{
-			{ID: 1, Name: "CI"},
-			{ID: 2, Name: "Deploy"},
+	svc := &app.Service{
+		Client: &stubFetcher{
+			workflows: []model.Workflow{
+				{ID: 1, Name: "CI"},
+				{ID: 2, Name: "Deploy"},
+			},
+			runs:    []model.WorkflowRun{run},
+			details: []model.RunDetail{detail},
 		},
-		runs:    []model.WorkflowRun{run},
-		details: []model.RunDetail{detail},
+		Prog: output.NewProgress(),
 	}
 
-	// Filter to "Deploy" — should find runs from the stubbed fetcher
-	opts := analyzeOpts{repo: "test/repo", workflow: "Deploy"}
-	sinceTime := now.Add(-7 * 24 * time.Hour)
-	prog := output.NewProgress()
-
-	result, err := fetchAndAnalyze(context.Background(), fetcher, nil, opts, sinceTime, prog)
+	result, err := svc.Run(context.Background(), app.Options{
+		Repo:     "test/repo",
+		Workflow: "Deploy",
+		Since:    now.Add(-7 * 24 * time.Hour),
+	})
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.Meta.TotalRuns)
 }
