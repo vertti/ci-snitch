@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/vertti/ci-snitch/internal/analyze"
 	"github.com/vertti/ci-snitch/internal/github"
@@ -189,25 +190,21 @@ func fetchAndAnalyze(ctx context.Context, client workflowFetcher, s runStore, op
 	var (
 		allDetails []model.RunDetail
 		mu         sync.Mutex
-		sem        = make(chan struct{}, 4) // max parallel workflows
 	)
 
-	var wg sync.WaitGroup
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(4) // max parallel workflows
 	for _, wf := range workflows {
 		if opts.workflow != "" && wf.Name != opts.workflow {
 			continue
 		}
 
-		wg.Go(func() {
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
+		g.Go(func() error {
 			prog.Status("Fetching %q...", wf.Name)
 			fetchStart := time.Now()
-			runs, fetchWarnings, err := client.FetchRuns(ctx, wf.ID, sinceTime, opts.branch)
+			runs, fetchWarnings, err := client.FetchRuns(gctx, wf.ID, sinceTime, opts.branch)
 			if err != nil {
-				prog.Log("WARNING: failed to fetch runs for %q: %v", wf.Name, err)
-				return
+				return fmt.Errorf("fetch runs for %q: %w", wf.Name, err)
 			}
 			for _, w := range fetchWarnings {
 				prog.Log("WARNING: %s", w.Message)
@@ -222,16 +219,16 @@ func fetchAndAnalyze(ctx context.Context, client workflowFetcher, s runStore, op
 
 			if s != nil {
 				cachedSet := make(map[int64]bool)
-				cached, err := s.RunsSince(wf.ID, sinceTime)
-				if err == nil {
+				cached, cacheErr := s.RunsSince(wf.ID, sinceTime)
+				if cacheErr == nil {
 					for _, r := range cached {
 						cachedSet[r.ID] = true
 					}
 				}
 
 				incompleteSet := make(map[int64]bool)
-				incomplete, err := s.IncompleteRunIDs()
-				if err == nil {
+				incomplete, incErr := s.IncompleteRunIDs()
+				if incErr == nil {
 					for _, id := range incomplete {
 						incompleteSet[id] = true
 					}
@@ -239,8 +236,8 @@ func fetchAndAnalyze(ctx context.Context, client workflowFetcher, s runStore, op
 
 				for _, r := range runs {
 					if cachedSet[r.ID] && !incompleteSet[r.ID] {
-						d, err := s.LoadRunDetail(r.ID)
-						if err == nil {
+						d, loadErr := s.LoadRunDetail(r.ID)
+						if loadErr == nil {
 							details = append(details, *d)
 							continue
 						}
@@ -258,7 +255,7 @@ func fetchAndAnalyze(ctx context.Context, client workflowFetcher, s runStore, op
 			if len(needsFetch) > 0 {
 				prog.Status("Fetching %q — hydrating %d runs (%d cached)...", wf.Name, len(needsFetch), len(details))
 				hydrateStart := time.Now()
-				fetched, warnings := client.FetchRunDetails(ctx, needsFetch)
+				fetched, warnings := client.FetchRunDetails(gctx, needsFetch)
 				if opts.verbose {
 					prog.Log("  %q: hydrated %d runs in %s", wf.Name, len(fetched), time.Since(hydrateStart))
 				}
@@ -278,9 +275,13 @@ func fetchAndAnalyze(ctx context.Context, client workflowFetcher, s runStore, op
 			mu.Lock()
 			allDetails = append(allDetails, details...)
 			mu.Unlock()
+			return nil
 		})
 	}
-	wg.Wait()
+	if err := g.Wait(); err != nil {
+		prog.Done()
+		return analyze.AnalysisResult{}, err
+	}
 	prog.Done()
 
 	if len(allDetails) == 0 {
