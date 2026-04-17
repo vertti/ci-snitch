@@ -54,11 +54,17 @@ That's it. Fetches the last 60 days of workflow data and shows you what matters.
 
 ## What it finds
 
-**Where your CI time goes** — ranked breakdown of every workflow and job by total compute time, with median, p95, and volatility scoring.
+**Where your CI time goes** — ranked breakdown of every workflow and job by total compute time, with median, p95, and volatility scoring. Billable minutes by runner type with daily rate and "bang for buck" priority scoring.
 
-**Abnormally slow runs** — flags runs and jobs that took way longer than normal. Uses log-IQR to handle the right-skewed distributions typical of CI durations.
+**Pipeline critical path** — maps sequential and parallel stages within each workflow. Identifies what determines wall-clock time vs. what runs in parallel ("Deploy to Test: 43% of wall-clock, waits for tests").
 
-**Performance regressions (and improvements)** — detects the exact point where a job got slower or faster, the commit that caused it, and whether the change stuck. Statistical significance via Mann-Whitney U test so you're not chasing noise.
+**Performance regressions** — detects the exact commit where a job got slower or faster, and whether the change persisted. Volatile jobs that bounce up/down are separated from real regressions so you don't chase noise.
+
+**Failure hotspots** — failure rates with conclusion breakdowns (failure vs. cancelled vs. timed out), rerun tax, and failing step attribution. "tests: 23% failure rate — fails at: Lint and Format Check" gives an immediate triage target.
+
+**Step-level bottlenecks** — within each job, identifies which steps consume the most time and flags high-variance steps. "Docker build: 36% of job, 3.8x volatility" points at caching issues.
+
+**Outliers** — flags runs and jobs that took way longer than normal, grouped by job with worst-case summary.
 
 ## Output formats
 
