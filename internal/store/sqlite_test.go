@@ -277,7 +277,7 @@ func TestLoadRunDetail_CorruptTimeReturnsError(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = s.LoadRunDetail(999)
-	assert.Error(t, err, "corrupt time string should return an error")
+	require.Error(t, err, "corrupt time string should return an error")
 	assert.Contains(t, err.Error(), "parse time")
 }
 
@@ -292,6 +292,6 @@ func TestRunsSince_CorruptTimeReturnsError(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = s.RunsSince(100, time.Time{})
-	assert.Error(t, err, "corrupt time string in runs should return an error")
+	require.Error(t, err, "corrupt time string in runs should return an error")
 	assert.Contains(t, err.Error(), "parse time")
 }
