@@ -68,23 +68,23 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 	wfQueueTimes := make(map[int64][]time.Duration)
 	jobDurations := make(map[jobKey][]time.Duration)
 
-	for _, d := range ac.Details {
-		wfID := d.Run.WorkflowID
-		dur := d.Duration()
+	for i := range ac.Details {
+		wfID := ac.Details[i].Run.WorkflowID
+		dur := ac.Details[i].Duration()
 		if dur > 0 {
 			wfDurations[wfID] = append(wfDurations[wfID], dur)
 		}
 		// Queue time: how long the run waited before starting
-		if !d.Run.CreatedAt.IsZero() && !d.Run.StartedAt.IsZero() {
-			qt := d.Run.StartedAt.Sub(d.Run.CreatedAt)
+		if !ac.Details[i].Run.CreatedAt.IsZero() && !ac.Details[i].Run.StartedAt.IsZero() {
+			qt := ac.Details[i].Run.StartedAt.Sub(ac.Details[i].Run.CreatedAt)
 			if qt >= 0 {
 				wfQueueTimes[wfID] = append(wfQueueTimes[wfID], qt)
 			}
 		}
-		for _, j := range d.Jobs {
-			dur := j.Duration()
+		for j := range ac.Details[i].Jobs {
+			dur := ac.Details[i].Jobs[j].Duration()
 			if dur > 0 {
-				k := jobKey{wfID, j.Name}
+				k := jobKey{wfID, ac.Details[i].Jobs[j].Name}
 				jobDurations[k] = append(jobDurations[k], dur)
 			}
 		}

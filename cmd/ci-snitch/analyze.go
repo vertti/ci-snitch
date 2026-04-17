@@ -93,7 +93,7 @@ If no repository is specified, detects the GitHub remote from the current direct
 				Prog:   prog,
 			}
 
-			result, err := svc.Run(cmd.Context(), app.Options{
+			result, err := svc.Run(cmd.Context(), &app.Options{
 				Repo:            repo,
 				Branch:          branch,
 				Since:           sinceTime,
@@ -118,7 +118,7 @@ If no repository is specified, detects the GitHub remote from the current direct
 			if !ok {
 				return fmt.Errorf("unknown format %q (supported: table, json, markdown, llm)", format)
 			}
-			err = formatter.Format(cmd.OutOrStdout(), result)
+			err = formatter.Format(cmd.OutOrStdout(), &result)
 			if verbose {
 				prog.Log("Format: %s", time.Since(formatStart))
 			}

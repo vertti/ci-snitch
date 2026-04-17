@@ -17,7 +17,7 @@ type TableFormatter struct {
 }
 
 // Format implements Formatter.
-func (t TableFormatter) Format(w io.Writer, result analyze.AnalysisResult) error {
+func (t TableFormatter) Format(w io.Writer, result *analyze.AnalysisResult) error {
 	if len(result.Findings) == 0 {
 		_, err := fmt.Fprintln(w, "No findings.")
 		return err
@@ -148,11 +148,11 @@ func writeTriageRegressions(w io.Writer, changepoints []analyze.Finding) {
 	}
 	_, _ = fmt.Fprintf(w, "  %sRegressions:%s  ", dim, reset)
 	shown := min(5, len(regressions))
-	for i, d := range regressions[:shown] {
+	for i := range regressions[:shown] {
 		if i > 0 {
 			_, _ = fmt.Fprint(w, ", ")
 		}
-		_, _ = fmt.Fprintf(w, "%s%s %+.0f%%%s", red, d.JobName, d.PctChange, reset)
+		_, _ = fmt.Fprintf(w, "%s%s %+.0f%%%s", red, regressions[i].JobName, regressions[i].PctChange, reset)
 	}
 	if len(regressions) > shown {
 		_, _ = fmt.Fprintf(w, "%s, +%d more%s", dim, len(regressions)-shown, reset)
@@ -667,7 +667,7 @@ func writeChangePointRows(w io.Writer, findings []analyze.Finding) {
 			changeColor = red
 		}
 
-		status := formatPersistence(d)
+		status := formatPersistence(&d)
 
 		_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s%s%s\t%s\t%s\t%s\t%s%s%s\t%s\t%s\n",
 			icon, d.JobName,
@@ -700,7 +700,7 @@ func fmtPValueStr(p float64) string {
 	return esc(color) + s + esc(reset)
 }
 
-func formatPersistence(d analyze.ChangePointDetail) string {
+func formatPersistence(d *analyze.ChangePointDetail) string {
 	switch d.Persistence {
 	case "persistent":
 		return fmt.Sprintf("%s✓ %d runs%s", esc(green), d.PostChangeRuns, esc(reset))

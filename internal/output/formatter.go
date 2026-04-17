@@ -9,7 +9,7 @@ import (
 
 // Formatter writes analysis results to a writer.
 type Formatter interface {
-	Format(w io.Writer, result analyze.AnalysisResult) error
+	Format(w io.Writer, result *analyze.AnalysisResult) error
 }
 
 // Options controls formatter behavior.

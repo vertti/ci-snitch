@@ -78,9 +78,9 @@ func computeMeta(details []model.RunDetail) ResultMeta {
 	meta := ResultMeta{TotalRuns: len(details)}
 	wfSet := make(map[int64]bool)
 
-	for _, d := range details {
-		wfSet[d.Run.WorkflowID] = true
-		t := d.Run.CreatedAt
+	for i := range details {
+		wfSet[details[i].Run.WorkflowID] = true
+		t := details[i].Run.CreatedAt
 		if meta.TimeRange[0].IsZero() || t.Before(meta.TimeRange[0]) {
 			meta.TimeRange[0] = t
 		}

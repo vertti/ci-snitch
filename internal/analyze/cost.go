@@ -62,11 +62,11 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 	jobCosts := make(map[jobKey]*jobAccum)
 	var minTime, maxTime time.Time
 
-	for _, d := range ac.Details {
-		wfID := d.Run.WorkflowID
+	for i := range ac.Details {
+		wfID := ac.Details[i].Run.WorkflowID
 		wfRuns[wfID]++
 
-		t := d.Run.CreatedAt
+		t := ac.Details[i].Run.CreatedAt
 		if minTime.IsZero() || t.Before(minTime) {
 			minTime = t
 		}
@@ -75,17 +75,17 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 		}
 
 		var runBillable float64
-		for _, j := range d.Jobs {
-			k := jobKey{wfID, j.Name}
+		for j := range ac.Details[i].Jobs {
+			k := jobKey{wfID, ac.Details[i].Jobs[j].Name}
 			if jobCosts[k] == nil {
-				sh := cost.IsSelfHosted(j.Labels)
+				sh := cost.IsSelfHosted(ac.Details[i].Jobs[j].Labels)
 				jobCosts[k] = &jobAccum{
-					multiplier:   cost.LookupMultiplier(j.Labels),
+					multiplier:   cost.LookupMultiplier(ac.Details[i].Jobs[j].Labels),
 					isSelfHosted: sh,
 				}
 			}
 			jc := jobCosts[k]
-			rawMinutes := cost.BillableMinutes(j.Duration())
+			rawMinutes := cost.BillableMinutes(ac.Details[i].Jobs[j].Duration())
 			if jc.isSelfHosted {
 				jc.selfHosted += rawMinutes
 			} else {

@@ -186,7 +186,7 @@ func (s *Store) Close() error {
 
 // SaveRunDetail persists a run and its jobs and steps.
 // Uses INSERT OR REPLACE so re-fetched runs (e.g. previously in-progress) are updated.
-func (s *Store) SaveRunDetail(d model.RunDetail) error {
+func (s *Store) SaveRunDetail(d *model.RunDetail) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -212,25 +212,25 @@ func (s *Store) SaveRunDetail(d model.RunDetail) error {
 		return fmt.Errorf("delete old jobs for run %d: %w", r.ID, err)
 	}
 
-	for _, j := range d.Jobs {
+	for j := range d.Jobs {
 		_, err := tx.Exec(`INSERT INTO jobs (id, run_id, name, status, conclusion, started_at, completed_at, runner_name, runner_group_name, labels)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			j.ID, r.ID, j.Name, j.Status, j.Conclusion,
-			fmtTime(j.StartedAt), fmtTime(j.CompletedAt),
-			j.RunnerName, j.RunnerGroupName, strings.Join(j.Labels, ","),
+			d.Jobs[j].ID, r.ID, d.Jobs[j].Name, d.Jobs[j].Status, d.Jobs[j].Conclusion,
+			fmtTime(d.Jobs[j].StartedAt), fmtTime(d.Jobs[j].CompletedAt),
+			d.Jobs[j].RunnerName, d.Jobs[j].RunnerGroupName, strings.Join(d.Jobs[j].Labels, ","),
 		)
 		if err != nil {
-			return fmt.Errorf("insert job %d: %w", j.ID, err)
+			return fmt.Errorf("insert job %d: %w", d.Jobs[j].ID, err)
 		}
 
-		for _, st := range j.Steps {
+		for st := range d.Jobs[j].Steps {
 			_, err := tx.Exec(`INSERT INTO steps (job_id, name, number, status, conclusion, started_at, completed_at)
 				VALUES (?, ?, ?, ?, ?, ?, ?)`,
-				j.ID, st.Name, st.Number, st.Status, st.Conclusion,
-				fmtTime(st.StartedAt), fmtTime(st.CompletedAt),
+				d.Jobs[j].ID, d.Jobs[j].Steps[st].Name, d.Jobs[j].Steps[st].Number, d.Jobs[j].Steps[st].Status, d.Jobs[j].Steps[st].Conclusion,
+				fmtTime(d.Jobs[j].Steps[st].StartedAt), fmtTime(d.Jobs[j].Steps[st].CompletedAt),
 			)
 			if err != nil {
-				return fmt.Errorf("insert step %q for job %d: %w", st.Name, j.ID, err)
+				return fmt.Errorf("insert step %q for job %d: %w", d.Jobs[j].Steps[st].Name, d.Jobs[j].ID, err)
 			}
 		}
 	}
@@ -284,8 +284,8 @@ func (s *Store) SaveRunDetails(details []model.RunDetail) error {
 	}
 	defer stepStmt.Close() //nolint:errcheck // error on deferred close has no actionable caller
 
-	for _, d := range details {
-		r := d.Run
+	for i := range details {
+		r := details[i].Run
 		if _, err := runStmt.Exec(
 			r.ID, r.WorkflowID, r.WorkflowName, r.Name, r.Event, r.Status, r.Conclusion,
 			r.HeadBranch, r.HeadSHA, r.RunAttempt,
@@ -301,21 +301,21 @@ func (s *Store) SaveRunDetails(details []model.RunDetail) error {
 			return fmt.Errorf("delete old jobs for run %d: %w", r.ID, err)
 		}
 
-		for _, j := range d.Jobs {
+		for j := range details[i].Jobs {
 			if _, err := jobStmt.Exec(
-				j.ID, r.ID, j.Name, j.Status, j.Conclusion,
-				fmtTime(j.StartedAt), fmtTime(j.CompletedAt),
-				j.RunnerName, j.RunnerGroupName, strings.Join(j.Labels, ","),
+				details[i].Jobs[j].ID, r.ID, details[i].Jobs[j].Name, details[i].Jobs[j].Status, details[i].Jobs[j].Conclusion,
+				fmtTime(details[i].Jobs[j].StartedAt), fmtTime(details[i].Jobs[j].CompletedAt),
+				details[i].Jobs[j].RunnerName, details[i].Jobs[j].RunnerGroupName, strings.Join(details[i].Jobs[j].Labels, ","),
 			); err != nil {
-				return fmt.Errorf("insert job %d: %w", j.ID, err)
+				return fmt.Errorf("insert job %d: %w", details[i].Jobs[j].ID, err)
 			}
 
-			for _, st := range j.Steps {
+			for st := range details[i].Jobs[j].Steps {
 				if _, err := stepStmt.Exec(
-					j.ID, st.Name, st.Number, st.Status, st.Conclusion,
-					fmtTime(st.StartedAt), fmtTime(st.CompletedAt),
+					details[i].Jobs[j].ID, details[i].Jobs[j].Steps[st].Name, details[i].Jobs[j].Steps[st].Number, details[i].Jobs[j].Steps[st].Status, details[i].Jobs[j].Steps[st].Conclusion,
+					fmtTime(details[i].Jobs[j].Steps[st].StartedAt), fmtTime(details[i].Jobs[j].Steps[st].CompletedAt),
 				); err != nil {
-					return fmt.Errorf("insert step %q for job %d: %w", st.Name, j.ID, err)
+					return fmt.Errorf("insert step %q for job %d: %w", details[i].Jobs[j].Steps[st].Name, details[i].Jobs[j].ID, err)
 				}
 			}
 		}
@@ -442,8 +442,8 @@ func (s *Store) LoadRunDetails(workflowID int64, since time.Time) ([]model.RunDe
 	}
 
 	details := make([]model.RunDetail, 0, len(runs))
-	for _, r := range runs {
-		d, err := s.LoadRunDetail(r.ID)
+	for i := range runs {
+		d, err := s.LoadRunDetail(runs[i].ID)
 		if err != nil {
 			return nil, err
 		}
@@ -458,7 +458,7 @@ func scanRuns(rows *sql.Rows) ([]model.WorkflowRun, error) {
 		var r model.WorkflowRun
 		var createdStr, startedStr, updatedStr string
 		var err error
-		if err = rows.Scan(&r.ID, &r.WorkflowID, &r.WorkflowName, &r.Name, &r.Event, &r.Status, &r.Conclusion,
+		if err := rows.Scan(&r.ID, &r.WorkflowID, &r.WorkflowName, &r.Name, &r.Event, &r.Status, &r.Conclusion,
 			&r.HeadBranch, &r.HeadSHA, &r.RunAttempt, &createdStr, &startedStr, &updatedStr); err != nil {
 			return nil, err
 		}

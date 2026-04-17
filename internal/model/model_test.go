@@ -197,8 +197,8 @@ func TestRunDetail_Duration(t *testing.T) {
 }
 
 func TestWorkflowRun_IsCompleted(t *testing.T) {
-	assert.True(t, WorkflowRun{Status: "completed"}.IsCompleted())
-	assert.False(t, WorkflowRun{Status: "in_progress"}.IsCompleted())
-	assert.False(t, WorkflowRun{Status: "queued"}.IsCompleted())
-	assert.False(t, WorkflowRun{Status: ""}.IsCompleted())
+	assert.True(t, (&WorkflowRun{Status: "completed"}).IsCompleted())
+	assert.False(t, (&WorkflowRun{Status: "in_progress"}).IsCompleted())
+	assert.False(t, (&WorkflowRun{Status: "queued"}).IsCompleted())
+	assert.False(t, (&WorkflowRun{Status: ""}).IsCompleted())
 }

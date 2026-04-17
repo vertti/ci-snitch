@@ -29,7 +29,7 @@ type WorkflowRun struct {
 
 // Duration returns the wall-clock duration of the run.
 // Returns zero if timestamps are missing or invalid.
-func (r WorkflowRun) Duration() time.Duration {
+func (r *WorkflowRun) Duration() time.Duration {
 	if r.StartedAt.IsZero() || r.UpdatedAt.IsZero() {
 		return 0
 	}
@@ -41,7 +41,7 @@ func (r WorkflowRun) Duration() time.Duration {
 }
 
 // IsCompleted reports whether the run has finished.
-func (r WorkflowRun) IsCompleted() bool {
+func (r *WorkflowRun) IsCompleted() bool {
 	return r.Status == "completed"
 }
 
@@ -61,7 +61,7 @@ type Job struct {
 }
 
 // Duration returns the wall-clock duration of the job.
-func (j Job) Duration() time.Duration {
+func (j *Job) Duration() time.Duration {
 	if j.StartedAt.IsZero() || j.CompletedAt.IsZero() {
 		return 0
 	}
@@ -83,7 +83,7 @@ type Step struct {
 }
 
 // Duration returns the wall-clock duration of the step.
-func (s Step) Duration() time.Duration {
+func (s *Step) Duration() time.Duration {
 	if s.StartedAt.IsZero() || s.CompletedAt.IsZero() {
 		return 0
 	}
@@ -102,11 +102,11 @@ type RunDetail struct {
 
 // Duration returns the wall-clock duration of the run, preferring job completion
 // times over the run's UpdatedAt (which can be bumped by post-completion events).
-func (rd RunDetail) Duration() time.Duration {
+func (rd *RunDetail) Duration() time.Duration {
 	var maxCompleted time.Time
-	for _, j := range rd.Jobs {
-		if !j.CompletedAt.IsZero() && j.CompletedAt.After(maxCompleted) {
-			maxCompleted = j.CompletedAt
+	for i := range rd.Jobs {
+		if !rd.Jobs[i].CompletedAt.IsZero() && rd.Jobs[i].CompletedAt.After(maxCompleted) {
+			maxCompleted = rd.Jobs[i].CompletedAt
 		}
 	}
 	if !maxCompleted.IsZero() && !rd.Run.StartedAt.IsZero() {

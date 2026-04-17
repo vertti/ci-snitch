@@ -17,7 +17,7 @@ import (
 // Each sub-test targets a specific correctness concern found during manual verification.
 
 // makeRun is a test helper that creates a WorkflowRun with common defaults.
-func makeRun(id int64, wfID int64, conclusion string, created time.Time, dur time.Duration) model.WorkflowRun {
+func makeRun(id, wfID int64, conclusion string, created time.Time, dur time.Duration) model.WorkflowRun {
 	return model.WorkflowRun{
 		ID:         id,
 		WorkflowID: wfID,

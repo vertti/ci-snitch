@@ -13,7 +13,7 @@ type MarkdownFormatter struct {
 }
 
 // Format implements Formatter.
-func (MarkdownFormatter) Format(w io.Writer, result analyze.AnalysisResult) error {
+func (MarkdownFormatter) Format(w io.Writer, result *analyze.AnalysisResult) error {
 	_, _ = fmt.Fprintf(w, "# CI Performance Report\n\n")
 	_, _ = fmt.Fprintf(w, "**%d runs** analyzed (%s to %s)\n\n",
 		result.Meta.TotalRuns,

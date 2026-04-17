@@ -123,16 +123,16 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 
 func collectFailureStats(details []model.RunDetail) map[int64]*workflowFailureStat {
 	var latest time.Time
-	for _, d := range details {
-		if d.Run.CreatedAt.After(latest) {
-			latest = d.Run.CreatedAt
+	for i := range details {
+		if details[i].Run.CreatedAt.After(latest) {
+			latest = details[i].Run.CreatedAt
 		}
 	}
 	recentCutoff := latest.AddDate(0, 0, -7)
 
 	wfStats := make(map[int64]*workflowFailureStat)
-	for _, d := range details {
-		wfID := d.Run.WorkflowID
+	for i := range details {
+		wfID := details[i].Run.WorkflowID
 		if wfStats[wfID] == nil {
 			wfStats[wfID] = &workflowFailureStat{
 				byConclusion: make(map[string]int),
@@ -141,29 +141,29 @@ func collectFailureStats(details []model.RunDetail) map[int64]*workflowFailureSt
 		}
 		s := wfStats[wfID]
 		s.total++
-		isRecent := d.Run.CreatedAt.After(recentCutoff)
+		isRecent := details[i].Run.CreatedAt.After(recentCutoff)
 		if isRecent {
 			s.recentTotal++
 		}
-		switch d.Run.Conclusion {
+		switch details[i].Run.Conclusion {
 		case "success", "skipped":
 			// not a failure
 		case "cancelled":
 			s.cancellations++
-			s.byConclusion[d.Run.Conclusion]++
+			s.byConclusion[details[i].Run.Conclusion]++
 		default:
 			s.failures++
 			if isRecent {
 				s.recentFailures++
 			}
-			s.byConclusion[d.Run.Conclusion]++
-			for _, j := range d.Jobs {
-				if j.Conclusion != "failure" {
+			s.byConclusion[details[i].Run.Conclusion]++
+			for j := range details[i].Jobs {
+				if details[i].Jobs[j].Conclusion != "failure" {
 					continue
 				}
-				for _, st := range j.Steps {
-					if st.Conclusion == "failure" {
-						s.failingSteps[failureStepKey{j.Name, st.Name}]++
+				for st := range details[i].Jobs[j].Steps {
+					if details[i].Jobs[j].Steps[st].Conclusion == "failure" {
+						s.failingSteps[failureStepKey{details[i].Jobs[j].Name, details[i].Jobs[j].Steps[st].Name}]++
 						break
 					}
 				}
