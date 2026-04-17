@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -74,7 +75,7 @@ func (RunnerAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 			label := strings.Join(j.Labels, ",")
 			k := jobKey{d.Run.WorkflowID, j.Name, label}
 			if jobs[k] == nil {
-				cores := parseCorCount(label)
+				cores := parseCoreCount(label)
 				jobs[k] = &jobAccum{
 					label: label,
 					cores: cores,
@@ -142,36 +143,23 @@ func (RunnerAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 	return findings, nil
 }
 
-// parseCorCount extracts core count from runner labels like "blacksmith-16vcpu-ubuntu-2404".
-func parseCorCount(label string) int {
+// parseCoreCount extracts core count from runner labels like "blacksmith-16vcpu-ubuntu-2404".
+func parseCoreCount(label string) int {
 	lower := strings.ToLower(label)
-	// Pattern: NNvcpu or NN-cores
 	for part := range strings.SplitSeq(lower, "-") {
-		if strings.HasSuffix(part, "vcpu") {
-			n := 0
-			for _, c := range part {
-				if c >= '0' && c <= '9' {
-					n = n*10 + int(c-'0')
-				} else {
-					break
-				}
-			}
-			if n > 0 {
-				return n
-			}
+		var numStr string
+		switch {
+		case strings.HasSuffix(part, "vcpu"):
+			numStr = strings.TrimSuffix(part, "vcpu")
+		case strings.HasSuffix(part, "cores"):
+			numStr = strings.TrimSuffix(part, "cores")
+		case strings.HasSuffix(part, "core"):
+			numStr = strings.TrimSuffix(part, "core")
+		default:
+			continue
 		}
-		if strings.HasSuffix(part, "cores") || strings.HasSuffix(part, "core") {
-			n := 0
-			for _, c := range part {
-				if c >= '0' && c <= '9' {
-					n = n*10 + int(c-'0')
-				} else {
-					break
-				}
-			}
-			if n > 0 {
-				return n
-			}
+		if n, err := strconv.Atoi(numStr); err == nil && n > 0 {
+			return n
 		}
 	}
 	// Standard GitHub runners
