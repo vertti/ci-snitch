@@ -265,9 +265,9 @@ func compactResult(result analyze.AnalysisResult) analyze.AnalysisResult {
 		}
 	}
 	return analyze.AnalysisResult{
-		Findings: filtered,
-		Warnings: result.Warnings,
-		Meta:     result.Meta,
+		Findings:    filtered,
+		Diagnostics: result.Diagnostics,
+		Meta:        result.Meta,
 	}
 }
 

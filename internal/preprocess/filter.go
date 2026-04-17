@@ -6,13 +6,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/vertti/ci-snitch/internal/diag"
 	"github.com/vertti/ci-snitch/internal/model"
 )
 
-// Warning represents a non-fatal issue found during preprocessing.
-type Warning struct {
-	Message string
-}
+// Warning is a deprecated alias for diag.Diagnostic. Use diag.Diagnostic directly.
+type Warning = diag.Diagnostic
 
 // Options controls which preprocessing steps are applied.
 type Options struct {
@@ -26,18 +25,20 @@ func Run(details []model.RunDetail, opts Options) ([]model.RunDetail, []Warning)
 
 	result := DeduplicateRetries(details)
 	if len(result) < len(details) {
-		warnings = append(warnings, Warning{
-			Message: fmt.Sprintf("deduplicated %d retried runs", len(details)-len(result)),
-		})
+		warnings = append(warnings, diag.New(
+			diag.Info, diag.KindPreprocess, "global",
+			fmt.Sprintf("deduplicated %d retried runs", len(details)-len(result)),
+		))
 	}
 
 	if opts.Branch != "" {
 		before := len(result)
 		result = FilterByBranch(result, opts.Branch)
 		if len(result) == 0 && before > 0 {
-			warnings = append(warnings, Warning{
-				Message: fmt.Sprintf("no runs found for branch %q (had %d runs on other branches)", opts.Branch, before),
-			})
+			warnings = append(warnings, diag.New(
+				diag.Warn, diag.KindPreprocess, "global",
+				fmt.Sprintf("no runs found for branch %q (had %d runs on other branches)", opts.Branch, before),
+			))
 		}
 	}
 
@@ -45,9 +46,10 @@ func Run(details []model.RunDetail, opts Options) ([]model.RunDetail, []Warning)
 		before := len(result)
 		result = ExcludeFailures(result)
 		if len(result) < before {
-			warnings = append(warnings, Warning{
-				Message: fmt.Sprintf("excluded %d non-success runs from duration analysis", before-len(result)),
-			})
+			warnings = append(warnings, diag.New(
+				diag.Info, diag.KindPreprocess, "global",
+				fmt.Sprintf("excluded %d non-success runs from duration analysis", before-len(result)),
+			))
 		}
 	}
 

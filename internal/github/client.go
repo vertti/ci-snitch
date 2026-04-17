@@ -9,6 +9,7 @@ import (
 	"time"
 
 	gh "github.com/google/go-github/v84/github"
+	"github.com/vertti/ci-snitch/internal/diag"
 	"github.com/vertti/ci-snitch/internal/model"
 )
 
@@ -149,10 +150,11 @@ func (c *Client) fetchRunsWindow(ctx context.Context, workflowID int64, start, e
 		}
 
 		if result.GetTotalCount() > 1000 {
-			warnings = append(warnings, Warning{
-				Message: fmt.Sprintf("workflow %d has %d runs in window %s, results may be truncated (GitHub API cap is 1000)",
-					workflowID, result.GetTotalCount(), created),
-			})
+			warnings = append(warnings, diag.New(
+				diag.Warn, diag.KindPartialData, fmt.Sprintf("workflow-%d", workflowID),
+				fmt.Sprintf("has %d runs in window %s, results may be truncated (GitHub API cap is 1000)",
+					result.GetTotalCount(), created),
+			))
 		}
 
 		for _, r := range result.WorkflowRuns {
@@ -184,11 +186,8 @@ func (c *Client) fetchRunsWindow(ctx context.Context, workflowID int64, start, e
 	return all, warnings, nil
 }
 
-// Warning represents a non-fatal issue encountered during data fetching.
-type Warning struct {
-	Message string
-	Err     error
-}
+// Warning is a deprecated alias for diag.Diagnostic. Use diag.Diagnostic directly.
+type Warning = diag.Diagnostic
 
 // defaultWorkers is the number of goroutines dispatching job-fetch work.
 // Effective concurrency is bounded by the Client's jobSem semaphore.
@@ -251,8 +250,11 @@ func (c *Client) FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) 
 				if err != nil {
 					results <- result{
 						warn: &Warning{
-							Message: fmt.Sprintf("failed to fetch jobs for run %d", run.ID),
-							Err:     err,
+							Severity: diag.Warn,
+							Kind:     diag.KindNetwork,
+							Scope:    fmt.Sprintf("run-%d", run.ID),
+							Message:  fmt.Sprintf("failed to fetch jobs for run %d", run.ID),
+							Err:      err,
 						},
 					}
 					continue

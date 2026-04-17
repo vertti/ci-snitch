@@ -37,7 +37,7 @@ func TestEngine_CollectsFindings(t *testing.T) {
 	result := engine.Run(context.Background(), nil, nil, nil, nil)
 
 	assert.Len(t, result.Findings, 3)
-	assert.Empty(t, result.Warnings)
+	assert.Empty(t, result.Diagnostics)
 }
 
 func TestEngine_AnalyzerError_BecomesWarning(t *testing.T) {
@@ -54,9 +54,9 @@ func TestEngine_AnalyzerError_BecomesWarning(t *testing.T) {
 	result := engine.Run(context.Background(), nil, nil, nil, nil)
 
 	assert.Len(t, result.Findings, 1)
-	require.Len(t, result.Warnings, 1)
-	assert.Contains(t, result.Warnings[0].Message, "bad")
-	assert.Contains(t, result.Warnings[0].Message, "something broke")
+	require.Len(t, result.Diagnostics, 1)
+	assert.Contains(t, result.Diagnostics[0].Message, "bad")
+	assert.Contains(t, result.Diagnostics[0].Message, "something broke")
 }
 
 func TestEngine_Meta(t *testing.T) {

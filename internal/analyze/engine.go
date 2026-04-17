@@ -2,17 +2,12 @@ package analyze
 
 import (
 	"context"
-	"fmt"
 	"time"
 
+	"github.com/vertti/ci-snitch/internal/diag"
 	"github.com/vertti/ci-snitch/internal/model"
 	"github.com/vertti/ci-snitch/internal/preprocess"
 )
-
-// Warning represents a non-fatal issue during analysis.
-type Warning struct {
-	Message string `json:"message"`
-}
 
 // ResultMeta contains metadata about the analysis run.
 type ResultMeta struct {
@@ -24,9 +19,9 @@ type ResultMeta struct {
 
 // AnalysisResult is the output of the analysis engine.
 type AnalysisResult struct {
-	Findings []Finding  `json:"findings"`
-	Warnings []Warning  `json:"warnings"`
-	Meta     ResultMeta `json:"meta"`
+	Findings    []Finding         `json:"findings"`
+	Diagnostics []diag.Diagnostic `json:"diagnostics"`
+	Meta        ResultMeta        `json:"meta"`
 }
 
 // Engine orchestrates running analyzers over a set of run details.
@@ -66,9 +61,9 @@ func (e *Engine) Run(ctx context.Context, details, allDetails []model.RunDetail,
 	for _, a := range e.analyzers {
 		findings, err := a.Analyze(ctx, ac)
 		if err != nil {
-			result.Warnings = append(result.Warnings, Warning{
-				Message: fmt.Sprintf("analyzer %q failed: %v", a.Name(), err),
-			})
+			result.Diagnostics = append(result.Diagnostics, diag.Errorf(
+				diag.KindAnalyzer, "global", err, "analyzer %q failed: %v", a.Name(), err,
+			))
 			continue
 		}
 		result.Findings = append(result.Findings, findings...)
