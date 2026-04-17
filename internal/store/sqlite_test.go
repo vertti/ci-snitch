@@ -265,3 +265,33 @@ func TestMigration_AddsEventColumn(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "push", loaded.Run.Event)
 }
+
+func TestLoadRunDetail_CorruptTimeReturnsError(t *testing.T) {
+	s := testStore(t)
+
+	// Insert a run with a corrupt created_at timestamp directly via SQL.
+	_, err := s.db.Exec(`INSERT INTO runs (id, workflow_id, workflow_name, name, event, status, conclusion,
+		head_branch, head_sha, run_attempt, created_at, started_at, updated_at)
+		VALUES (999, 100, 'CI', 'push', 'push', 'completed', 'success',
+		'main', 'abc123', 1, 'not-a-timestamp', '2026-04-01T12:00:00Z', '2026-04-01T12:30:00Z')`)
+	require.NoError(t, err)
+
+	_, err = s.LoadRunDetail(999)
+	assert.Error(t, err, "corrupt time string should return an error")
+	assert.Contains(t, err.Error(), "parse time")
+}
+
+func TestRunsSince_CorruptTimeReturnsError(t *testing.T) {
+	s := testStore(t)
+
+	// Insert a run with valid created_at but corrupt started_at.
+	_, err := s.db.Exec(`INSERT INTO runs (id, workflow_id, workflow_name, name, event, status, conclusion,
+		head_branch, head_sha, run_attempt, created_at, started_at, updated_at)
+		VALUES (998, 100, 'CI', 'push', 'push', 'completed', 'success',
+		'main', 'abc123', 1, '2026-04-01T12:00:00Z', 'garbage', '2026-04-01T12:30:00Z')`)
+	require.NoError(t, err)
+
+	_, err = s.RunsSince(100, time.Time{})
+	assert.Error(t, err, "corrupt time string in runs should return an error")
+	assert.Contains(t, err.Error(), "parse time")
+}

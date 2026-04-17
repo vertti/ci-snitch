@@ -288,8 +288,12 @@ func (s *Store) LoadRunDetail(runID int64) (*model.RunDetail, error) {
 			&j.RunnerName, &j.RunnerGroupName, &labelsStr); err != nil {
 			return nil, err
 		}
-		j.StartedAt = parseTime(startStr)
-		j.CompletedAt = parseTime(compStr)
+		if j.StartedAt, err = parseTime(startStr); err != nil {
+			return nil, err
+		}
+		if j.CompletedAt, err = parseTime(compStr); err != nil {
+			return nil, err
+		}
 		if labelsStr != "" {
 			j.Labels = strings.Split(labelsStr, ",")
 		}
@@ -324,8 +328,12 @@ func (s *Store) loadSteps(jobID int64) ([]model.Step, error) {
 		if err := rows.Scan(&st.Name, &st.Number, &st.Status, &st.Conclusion, &sStart, &sComp); err != nil {
 			return nil, err
 		}
-		st.StartedAt = parseTime(sStart)
-		st.CompletedAt = parseTime(sComp)
+		if st.StartedAt, err = parseTime(sStart); err != nil {
+			return nil, err
+		}
+		if st.CompletedAt, err = parseTime(sComp); err != nil {
+			return nil, err
+		}
 		steps = append(steps, st)
 	}
 	return steps, rows.Err()
@@ -354,13 +362,20 @@ func scanRuns(rows *sql.Rows) ([]model.WorkflowRun, error) {
 	for rows.Next() {
 		var r model.WorkflowRun
 		var createdStr, startedStr, updatedStr string
-		if err := rows.Scan(&r.ID, &r.WorkflowID, &r.WorkflowName, &r.Name, &r.Event, &r.Status, &r.Conclusion,
+		var err error
+		if err = rows.Scan(&r.ID, &r.WorkflowID, &r.WorkflowName, &r.Name, &r.Event, &r.Status, &r.Conclusion,
 			&r.HeadBranch, &r.HeadSHA, &r.RunAttempt, &createdStr, &startedStr, &updatedStr); err != nil {
 			return nil, err
 		}
-		r.CreatedAt = parseTime(createdStr)
-		r.StartedAt = parseTime(startedStr)
-		r.UpdatedAt = parseTime(updatedStr)
+		if r.CreatedAt, err = parseTime(createdStr); err != nil {
+			return nil, err
+		}
+		if r.StartedAt, err = parseTime(startedStr); err != nil {
+			return nil, err
+		}
+		if r.UpdatedAt, err = parseTime(updatedStr); err != nil {
+			return nil, err
+		}
 		runs = append(runs, r)
 	}
 	return runs, rows.Err()
@@ -374,9 +389,15 @@ func scanRun(row *sql.Row) (model.WorkflowRun, error) {
 	if err != nil {
 		return r, err
 	}
-	r.CreatedAt = parseTime(createdStr)
-	r.StartedAt = parseTime(startedStr)
-	r.UpdatedAt = parseTime(updatedStr)
+	if r.CreatedAt, err = parseTime(createdStr); err != nil {
+		return r, err
+	}
+	if r.StartedAt, err = parseTime(startedStr); err != nil {
+		return r, err
+	}
+	if r.UpdatedAt, err = parseTime(updatedStr); err != nil {
+		return r, err
+	}
 	return r, nil
 }
 
@@ -389,10 +410,13 @@ func fmtTime(t time.Time) string {
 	return t.UTC().Format(timeFormat)
 }
 
-func parseTime(s string) time.Time {
+func parseTime(s string) (time.Time, error) {
 	if s == "" {
-		return time.Time{}
+		return time.Time{}, nil
 	}
-	t, _ := time.Parse(timeFormat, s)
-	return t
+	t, err := time.Parse(timeFormat, s)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse time %q: %w", s, err)
+	}
+	return t, nil
 }
