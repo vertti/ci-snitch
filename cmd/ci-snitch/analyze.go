@@ -291,6 +291,8 @@ func fetchAndAnalyze(ctx context.Context, client workflowFetcher, s runStore, op
 
 	// Deduplicate retried runs for all downstream consumers.
 	// allDetails may contain duplicate run IDs from overlapping API date windows.
+	// This is separate from the dedup inside preprocess.Run — that one only applies
+	// to its filtered output, but allDetails is passed directly to the engine.
 	allDetails = preprocess.DeduplicateRetries(allDetails)
 
 	// Preprocess: branch filter + failure exclusion (for duration analysis)
