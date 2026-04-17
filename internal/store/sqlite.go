@@ -219,14 +219,90 @@ func (s *Store) SaveRunDetail(d model.RunDetail) error {
 	return tx.Commit()
 }
 
-// SaveRunDetails persists multiple run details.
+// SaveRunDetails persists multiple run details in a single transaction
+// with prepared statements for efficiency.
 func (s *Store) SaveRunDetails(details []model.RunDetail) error {
+	if len(details) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	runStmt, err := tx.Prepare(`INSERT OR REPLACE INTO runs (id, workflow_id, workflow_name, name, event, status, conclusion, head_branch, head_sha, run_attempt, created_at, started_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare run stmt: %w", err)
+	}
+	defer runStmt.Close() //nolint:errcheck
+
+	deleteStepsStmt, err := tx.Prepare(`DELETE FROM steps WHERE job_id IN (SELECT id FROM jobs WHERE run_id = ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare delete steps stmt: %w", err)
+	}
+	defer deleteStepsStmt.Close() //nolint:errcheck
+
+	deleteJobsStmt, err := tx.Prepare(`DELETE FROM jobs WHERE run_id = ?`)
+	if err != nil {
+		return fmt.Errorf("prepare delete jobs stmt: %w", err)
+	}
+	defer deleteJobsStmt.Close() //nolint:errcheck
+
+	jobStmt, err := tx.Prepare(`INSERT INTO jobs (id, run_id, name, status, conclusion, started_at, completed_at, runner_name, runner_group_name, labels)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare job stmt: %w", err)
+	}
+	defer jobStmt.Close() //nolint:errcheck
+
+	stepStmt, err := tx.Prepare(`INSERT INTO steps (job_id, name, number, status, conclusion, started_at, completed_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare step stmt: %w", err)
+	}
+	defer stepStmt.Close() //nolint:errcheck
+
 	for _, d := range details {
-		if err := s.SaveRunDetail(d); err != nil {
-			return err
+		r := d.Run
+		if _, err := runStmt.Exec(
+			r.ID, r.WorkflowID, r.WorkflowName, r.Name, r.Event, r.Status, r.Conclusion,
+			r.HeadBranch, r.HeadSHA, r.RunAttempt,
+			fmtTime(r.CreatedAt), fmtTime(r.StartedAt), fmtTime(r.UpdatedAt),
+		); err != nil {
+			return fmt.Errorf("insert run %d: %w", r.ID, err)
+		}
+
+		if _, err := deleteStepsStmt.Exec(r.ID); err != nil {
+			return fmt.Errorf("delete old steps for run %d: %w", r.ID, err)
+		}
+		if _, err := deleteJobsStmt.Exec(r.ID); err != nil {
+			return fmt.Errorf("delete old jobs for run %d: %w", r.ID, err)
+		}
+
+		for _, j := range d.Jobs {
+			if _, err := jobStmt.Exec(
+				j.ID, r.ID, j.Name, j.Status, j.Conclusion,
+				fmtTime(j.StartedAt), fmtTime(j.CompletedAt),
+				j.RunnerName, j.RunnerGroupName, strings.Join(j.Labels, ","),
+			); err != nil {
+				return fmt.Errorf("insert job %d: %w", j.ID, err)
+			}
+
+			for _, st := range j.Steps {
+				if _, err := stepStmt.Exec(
+					j.ID, st.Name, st.Number, st.Status, st.Conclusion,
+					fmtTime(st.StartedAt), fmtTime(st.CompletedAt),
+				); err != nil {
+					return fmt.Errorf("insert step %q for job %d: %w", st.Name, j.ID, err)
+				}
+			}
 		}
 	}
-	return nil
+
+	return tx.Commit()
 }
 
 // RunsSince returns completed runs for a workflow since the given time.
