@@ -91,15 +91,6 @@ func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 		}
 	}
 
-	// Pre-compute job medians for pct-of-job
-	for _, d := range ac.Details {
-		for _, j := range d.Jobs {
-			jk := jobKey{d.Run.WorkflowID, j.Name}
-			if _, computed := jobMedians[jk]; !computed {
-				jobMedians[jk] = 0 // mark as computed
-			}
-		}
-	}
 	// Collect job-level durations and compute medians
 	jobDurs := make(map[jobKey][]time.Duration)
 	for _, d := range ac.Details {
@@ -183,21 +174,17 @@ func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 		})
 	}
 
+	// Precompute median by job name for O(1) sort comparisons
+	medianByJob := make(map[string]time.Duration)
+	for jk, med := range jobMedians {
+		medianByJob[jk.job] = med
+	}
+
 	// Sort findings by job median descending (slowest jobs first)
 	slices.SortFunc(findings, func(a, b Finding) int {
 		ad, _ := a.Detail.(StepTimingDetail)
 		bd, _ := b.Detail.(StepTimingDetail)
-		aKey := jobKey{0, ad.JobName}
-		bKey := jobKey{0, bd.JobName}
-		for jk := range jobMedians {
-			if jk.job == ad.JobName {
-				aKey = jk
-			}
-			if jk.job == bd.JobName {
-				bKey = jk
-			}
-		}
-		return int(jobMedians[bKey] - jobMedians[aKey])
+		return int(medianByJob[bd.JobName] - medianByJob[ad.JobName])
 	})
 
 	return findings, nil

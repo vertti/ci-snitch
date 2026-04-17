@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"math/rand/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -81,6 +82,22 @@ func TestMannWhitneyU_ExactSmallSample(t *testing.T) {
 
 	_, p := MannWhitneyU(sample1, sample2)
 	assert.InDelta(t, 0.1, p, 0.02, "exact p-value for 3v3 complete separation should be ~0.1")
+}
+
+func TestMannWhitneyURand_Deterministic(t *testing.T) {
+	// Permutation path (20 vs 5) should produce identical p-values with a seeded RNG.
+	sample1 := []float64{100, 102, 98, 101, 99, 103, 97, 100, 101, 98,
+		102, 100, 99, 101, 103, 98, 100, 102, 99, 101}
+	sample2 := []float64{150, 148, 152, 149, 151}
+
+	rng1 := rand.New(rand.NewPCG(1, 2)) //nolint:gosec // deterministic seed for test
+	_, p1 := MannWhitneyURand(sample1, sample2, rng1)
+
+	rng2 := rand.New(rand.NewPCG(1, 2)) //nolint:gosec // deterministic seed for test
+	_, p2 := MannWhitneyURand(sample1, sample2, rng2)
+
+	assert.InDelta(t, p1, p2, 0, "same seed must produce identical p-values")
+	assert.Less(t, p1, 0.05, "clearly different distributions should be significant")
 }
 
 func TestMannWhitneyU_LargeSampleUsesApproximation(t *testing.T) {
