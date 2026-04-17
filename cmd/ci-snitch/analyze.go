@@ -79,7 +79,7 @@ If no repository is specified, detects the GitHub remote from the current direct
 				if err != nil {
 					return err
 				}
-				defer st.Close() //nolint:errcheck
+				defer st.Close() //nolint:errcheck // error on deferred close has no actionable caller
 				if verbose {
 					prog.Log("Cache: %s", dbPath)
 				}

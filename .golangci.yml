@@ -51,6 +51,8 @@ linters:
     - durationcheck
     - asasalint
     - errchkjson
+    # Complexity
+    - gocyclo
     # Code hygiene
     - goconst
     - usestdlibvars
@@ -67,17 +69,13 @@ linters:
     - gocheckcompilerdirectives
     # Testing
     - usetesting
-
-linters-settings:
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - style
-      - performance
-  exhaustive:
-    default-signifies-exhaustive: true
-  goconst:
-    min-occurrences: 3
-  nolintlint:
-    require-explanation: true
-    require-specific: true
+  settings:
+    exhaustive:
+      default-signifies-exhaustive: true
+    gocyclo:
+      min-complexity: 20
+    goconst:
+      min-occurrences: 3
+    nolintlint:
+      require-explanation: true
+      require-specific: true

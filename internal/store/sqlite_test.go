@@ -254,7 +254,7 @@ func TestMigration_AddsEventColumn(t *testing.T) {
 	// Open should migrate successfully
 	s, err := Open(path)
 	require.NoError(t, err)
-	defer s.Close() //nolint:errcheck
+	defer s.Close() //nolint:errcheck // test cleanup
 
 	// Should be able to save a run with the event field
 	detail := testRunDetail()

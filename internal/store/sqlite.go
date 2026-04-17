@@ -159,7 +159,7 @@ func loadTableColumns(db *sql.DB, table string) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close() //nolint:errcheck
+	defer rows.Close() //nolint:errcheck // error on deferred close has no actionable caller
 
 	colSet := make(map[string]bool)
 	for rows.Next() {
@@ -249,40 +249,40 @@ func (s *Store) SaveRunDetails(details []model.RunDetail) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback() //nolint:errcheck
+	defer tx.Rollback() //nolint:errcheck // error on deferred close has no actionable caller
 
 	runStmt, err := tx.Prepare(`INSERT OR REPLACE INTO runs (id, workflow_id, workflow_name, name, event, status, conclusion, head_branch, head_sha, run_attempt, created_at, started_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare run stmt: %w", err)
 	}
-	defer runStmt.Close() //nolint:errcheck
+	defer runStmt.Close() //nolint:errcheck // error on deferred close has no actionable caller
 
 	deleteStepsStmt, err := tx.Prepare(`DELETE FROM steps WHERE job_id IN (SELECT id FROM jobs WHERE run_id = ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare delete steps stmt: %w", err)
 	}
-	defer deleteStepsStmt.Close() //nolint:errcheck
+	defer deleteStepsStmt.Close() //nolint:errcheck // error on deferred close has no actionable caller
 
 	deleteJobsStmt, err := tx.Prepare(`DELETE FROM jobs WHERE run_id = ?`)
 	if err != nil {
 		return fmt.Errorf("prepare delete jobs stmt: %w", err)
 	}
-	defer deleteJobsStmt.Close() //nolint:errcheck
+	defer deleteJobsStmt.Close() //nolint:errcheck // error on deferred close has no actionable caller
 
 	jobStmt, err := tx.Prepare(`INSERT INTO jobs (id, run_id, name, status, conclusion, started_at, completed_at, runner_name, runner_group_name, labels)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare job stmt: %w", err)
 	}
-	defer jobStmt.Close() //nolint:errcheck
+	defer jobStmt.Close() //nolint:errcheck // error on deferred close has no actionable caller
 
 	stepStmt, err := tx.Prepare(`INSERT INTO steps (job_id, name, number, status, conclusion, started_at, completed_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare step stmt: %w", err)
 	}
-	defer stepStmt.Close() //nolint:errcheck
+	defer stepStmt.Close() //nolint:errcheck // error on deferred close has no actionable caller
 
 	for _, d := range details {
 		r := d.Run

@@ -44,6 +44,10 @@ const (
 	minStepDurationMs = 500 // ignore steps shorter than 500ms median
 )
 
+type stepAccum struct {
+	durations []time.Duration
+}
+
 // Analyze implements Analyzer.
 func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, error) {
 	if len(ac.Details) == 0 {
@@ -58,9 +62,6 @@ func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 	type jobKey struct {
 		wfID int64
 		job  string
-	}
-	type stepAccum struct {
-		durations []time.Duration
 	}
 
 	// Collect step durations per (workflow, job, step)
@@ -115,36 +116,7 @@ func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 		wfName := ac.WorkflowName(jk.wfID)
 		jobMed := jobMedians[jk]
 
-		var summaries []StepSummary
-		for name, sa := range steps {
-			if len(sa.durations) < minRunsForSteps {
-				continue
-			}
-			slices.Sort(sa.durations)
-			med := percentile(sa.durations, 50)
-			if med.Milliseconds() < minStepDurationMs {
-				continue
-			}
-			p95 := percentile(sa.durations, 95)
-
-			pctOfJob := 0.0
-			if jobMed > 0 {
-				pctOfJob = float64(med) / float64(jobMed) * 100
-			}
-			vol := 0.0
-			if med > 0 {
-				vol = float64(p95) / float64(med)
-			}
-
-			summaries = append(summaries, StepSummary{
-				Name:       name,
-				Runs:       len(sa.durations),
-				Median:     Duration(med),
-				P95:        Duration(p95),
-				PctOfJob:   pctOfJob,
-				Volatility: vol,
-			})
-		}
+		summaries := summarizeSteps(steps, jobMed)
 
 		if len(summaries) == 0 {
 			continue
@@ -189,4 +161,38 @@ func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 	})
 
 	return findings, nil
+}
+
+func summarizeSteps(steps map[string]*stepAccum, jobMed time.Duration) []StepSummary {
+	var summaries []StepSummary
+	for name, sa := range steps {
+		if len(sa.durations) < minRunsForSteps {
+			continue
+		}
+		slices.Sort(sa.durations)
+		med := percentile(sa.durations, 50)
+		if med.Milliseconds() < minStepDurationMs {
+			continue
+		}
+		p95 := percentile(sa.durations, 95)
+
+		pctOfJob := 0.0
+		if jobMed > 0 {
+			pctOfJob = float64(med) / float64(jobMed) * 100
+		}
+		vol := 0.0
+		if med > 0 {
+			vol = float64(p95) / float64(med)
+		}
+
+		summaries = append(summaries, StepSummary{
+			Name:       name,
+			Runs:       len(sa.durations),
+			Median:     Duration(med),
+			P95:        Duration(p95),
+			PctOfJob:   pctOfJob,
+			Volatility: vol,
+		})
+	}
+	return summaries
 }
