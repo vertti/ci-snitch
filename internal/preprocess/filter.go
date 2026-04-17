@@ -151,11 +151,9 @@ func ComputeRerunStats(details []model.RunDetail) map[int64]RerunStats {
 // base="test" and variant="ubuntu-latest, 20".
 // If there are no parentheses, variant is empty.
 func ParseMatrixJobName(name string) (base, variant string) {
-	idx := strings.IndexByte(name, '(')
-	if idx < 0 {
+	before, after, found := strings.Cut(name, "(")
+	if !found {
 		return name, ""
 	}
-	base = strings.TrimSpace(name[:idx])
-	variant = strings.TrimSuffix(name[idx+1:], ")")
-	return base, variant
+	return strings.TrimSpace(before), strings.TrimSuffix(after, ")")
 }

@@ -205,7 +205,10 @@ func TestChangePointAnalyzer_SameJobNameDifferentWorkflows(t *testing.T) {
 	}
 
 	analyzer := ChangePointAnalyzer{}
-	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{Details: details})
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{
+		Details:       details,
+		WorkflowNames: map[int64]string{100: "CI", 200: "Deploy"},
+	})
 	require.NoError(t, err)
 
 	// Should detect a change point in Deploy's "test" job, not in CI's "test" job.

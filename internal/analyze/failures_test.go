@@ -60,7 +60,8 @@ func TestFailureAnalyzer_DetectsFailures(t *testing.T) {
 
 	analyzer := FailureAnalyzer{}
 	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{
-		AllDetails: details,
+		AllDetails:    details,
+		WorkflowNames: map[int64]string{100: "CI"},
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, findings)
