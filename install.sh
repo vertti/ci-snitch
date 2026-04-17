@@ -45,11 +45,22 @@ main() {
   FILENAME="${BINARY}_${VERSION}_${OS}_${ARCH}.${EXT}"
   URL="https://github.com/${REPO}/releases/download/v${VERSION}/${FILENAME}"
 
+  CHECKSUMS_URL="https://github.com/${REPO}/releases/download/v${VERSION}/checksums.txt"
+
   TMPDIR="$(mktemp -d)"
   trap 'rm -rf "$TMPDIR"' EXIT
 
   echo "Downloading ${BINARY} v${VERSION} for ${OS}/${ARCH}..."
   curl -fsSL "$URL" -o "${TMPDIR}/${FILENAME}"
+  curl -fsSL "$CHECKSUMS_URL" -o "${TMPDIR}/checksums.txt"
+
+  echo "Verifying checksum..."
+  cd "$TMPDIR"
+  grep "$FILENAME" checksums.txt | shasum -a 256 -c - >/dev/null 2>&1 || {
+    echo "Error: checksum verification failed for ${FILENAME}" >&2
+    exit 1
+  }
+  cd - >/dev/null
 
   echo "Extracting..."
   if [ "$EXT" = "zip" ]; then
