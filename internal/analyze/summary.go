@@ -1,6 +1,7 @@
 package analyze
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -113,7 +114,7 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 
 		// Sort jobs by median descending (slowest first)
 		slices.SortFunc(jobs, func(a, b JobSummary) int {
-			return int(b.Stats.Median - a.Stats.Median)
+			return cmp.Compare(b.Stats.Median, a.Stats.Median)
 		})
 
 		var queue QueueStats
@@ -152,7 +153,7 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 		if !aOK || !bOK {
 			return 0
 		}
-		return int(bd.Stats.TotalTime - ad.Stats.TotalTime)
+		return cmp.Compare(bd.Stats.TotalTime, ad.Stats.TotalTime)
 	})
 
 	return findings, nil

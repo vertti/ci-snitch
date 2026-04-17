@@ -1,6 +1,7 @@
 package analyze
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -90,7 +91,7 @@ func (PipelineAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findi
 	slices.SortFunc(findings, func(a, b Finding) int {
 		ad, _ := a.Detail.(PipelineDetail)
 		bd, _ := b.Detail.(PipelineDetail)
-		return int(bd.MedianWallClock - ad.MedianWallClock)
+		return cmp.Compare(bd.MedianWallClock, ad.MedianWallClock)
 	})
 
 	return findings, nil
