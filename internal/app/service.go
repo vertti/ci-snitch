@@ -81,13 +81,10 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 		return analyze.AnalysisResult{}, err
 	}
 
-	totalRuns := 0
-	for i := range allWfRuns {
-		totalRuns += len(allWfRuns[i].runs)
-	}
+	totalRuns, uncachedRuns := s.countRuns(allWfRuns, opts)
 
 	// Estimate API cost and check rate limit budget
-	if err := s.checkRateBudget(ctx, totalRuns, opts); err != nil {
+	if err := s.checkRateBudget(ctx, totalRuns, uncachedRuns, opts); err != nil {
 		s.Prog.Done()
 		return analyze.AnalysisResult{}, err
 	}
@@ -204,8 +201,48 @@ func (s *Service) hydrateAll(ctx context.Context, allWfRuns []workflowRuns, opts
 	return allDetails, g.Wait()
 }
 
+// countRuns returns (totalRuns, uncachedRuns) across all workflows.
+// Uncached runs are those that will require an API fetch; cached completed
+// runs are served from the local SQLite store.
+func (s *Service) countRuns(allWfRuns []workflowRuns, opts *Options) (total, uncached int) {
+	// When cache is disabled, everything needs fetching.
+	if s.Store == nil {
+		for i := range allWfRuns {
+			total += len(allWfRuns[i].runs)
+		}
+		return total, total
+	}
+
+	incompleteSet := make(map[int64]bool)
+	if incomplete, err := s.Store.IncompleteRunIDs(); err == nil {
+		for _, id := range incomplete {
+			incompleteSet[id] = true
+		}
+	}
+
+	for i := range allWfRuns {
+		wf := allWfRuns[i].wf
+		runs := allWfRuns[i].runs
+		total += len(runs)
+
+		cachedSet := make(map[int64]bool)
+		if cached, err := s.Store.RunsSince(wf.ID, opts.Since); err == nil {
+			for j := range cached {
+				cachedSet[cached[j].ID] = true
+			}
+		}
+		for j := range runs {
+			if !cachedSet[runs[j].ID] || incompleteSet[runs[j].ID] {
+				uncached++
+			}
+		}
+	}
+	return total, uncached
+}
+
 // checkRateBudget estimates API cost and verifies sufficient rate limit remains.
-func (s *Service) checkRateBudget(ctx context.Context, totalRuns int, opts *Options) error {
+// Cost accounts for GraphQL batching: ~1 query per graphqlBatchSize uncached runs.
+func (s *Service) checkRateBudget(ctx context.Context, totalRuns, uncachedRuns int, opts *Options) error {
 	rl, err := s.Client.RateLimit(ctx)
 	if err != nil {
 		// Non-fatal: proceed without check if we can't read the rate limit
@@ -215,22 +252,27 @@ func (s *Service) checkRateBudget(ctx context.Context, totalRuns int, opts *Opti
 		return nil
 	}
 
-	// Estimate: ~1 API call per run for job hydration + small overhead
-	// Cache will reduce this, but we estimate worst-case (no cache hits)
-	estimatedCalls := totalRuns + totalRuns/10 // 10% overhead for pagination
+	// GraphQL batches ~20 runs per query. Add 10% overhead for job/step pagination.
+	estimatedCalls := uncachedRuns / github.GraphQLBatchSize
+	if uncachedRuns%github.GraphQLBatchSize != 0 {
+		estimatedCalls++
+	}
+	estimatedCalls += estimatedCalls / 10
+
 	budget := int(float64(rl.Remaining) * rateLimitSafetyMargin)
 
 	if opts.Verbose {
-		s.Prog.Log("Rate limit: %d/%d remaining (resets %s), estimated calls: ~%d",
-			rl.Remaining, rl.Limit, rl.ResetAt.Format("15:04:05"), estimatedCalls)
+		s.Prog.Log("Rate limit: %d/%d remaining (resets %s). %d runs (%d cached, %d to fetch), estimated calls: ~%d",
+			rl.Remaining, rl.Limit, rl.ResetAt.Format("15:04:05"),
+			totalRuns, totalRuns-uncachedRuns, uncachedRuns, estimatedCalls)
 	}
 
 	if estimatedCalls > budget {
 		return fmt.Errorf(
-			"aborting: estimated ~%d API calls for %d runs would exceed rate limit budget "+
+			"aborting: estimated ~%d API calls for %d uncached runs (of %d total) would exceed rate limit budget "+
 				"(%d of %d remaining, resets %s). "+
 				"Try a shorter window (--since 7d) or filter to one workflow (--workflow <name>)",
-			estimatedCalls, totalRuns, rl.Remaining, rl.Limit,
+			estimatedCalls, uncachedRuns, totalRuns, rl.Remaining, rl.Limit,
 			time.Until(rl.ResetAt).Round(time.Minute))
 	}
 
