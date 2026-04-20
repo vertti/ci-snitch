@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vertti/ci-snitch/internal/diag"
 	"github.com/vertti/ci-snitch/internal/model"
 )
 
@@ -44,6 +45,15 @@ func (c *Client) FetchRunDetailsGraphQL(ctx context.Context, runs []model.Workfl
 		batchDetails, batchWarnings := c.fetchBatchGraphQL(ctx, batch)
 		details = append(details, batchDetails...)
 		warnings = append(warnings, batchWarnings...)
+	}
+
+	// Warn about missing runner labels from GraphQL-fetched jobs
+	if len(graphqlRuns) > 0 {
+		warnings = append(warnings, diag.New(
+			diag.Info, diag.KindPartialData, "global",
+			fmt.Sprintf("runner labels unavailable for %d runs fetched via GraphQL (cost estimates use default 1x Linux rate)",
+				len(graphqlRuns)),
+		))
 	}
 
 	// Fall back to REST for runs without node IDs
@@ -249,10 +259,6 @@ func parseGraphQLTime(s *string) time.Time {
 }
 
 func newGraphQLWarning(runID int64, msg string) Warning {
-	return Warning{
-		Severity: "warn",
-		Kind:     "network",
-		Scope:    fmt.Sprintf("run-%d", runID),
-		Message:  fmt.Sprintf("run %d: %s", runID, msg),
-	}
+	return diag.New(diag.Warn, diag.KindNetwork, fmt.Sprintf("run-%d", runID),
+		fmt.Sprintf("run %d: %s", runID, msg))
 }
