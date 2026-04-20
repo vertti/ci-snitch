@@ -22,6 +22,7 @@ type WorkflowFetcher interface {
 	ListWorkflows(ctx context.Context) ([]model.Workflow, error)
 	FetchRuns(ctx context.Context, workflowID int64, since time.Time, branch string) ([]model.WorkflowRun, []diag.Diagnostic, error)
 	FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) ([]model.RunDetail, []diag.Diagnostic)
+	FetchRunDetailsGraphQL(ctx context.Context, runs []model.WorkflowRun) ([]model.RunDetail, []diag.Diagnostic)
 	RateLimit(ctx context.Context) (github.RateLimitStatus, error)
 }
 
@@ -280,7 +281,7 @@ func (s *Service) hydrateWorkflow(ctx context.Context, wf model.Workflow, runs [
 	if len(needsFetch) > 0 {
 		s.Prog.Status("Fetching %q — hydrating %d runs (%d cached)...", wf.Name, len(needsFetch), len(details))
 		hydrateStart := time.Now()
-		fetched, warnings := s.Client.FetchRunDetails(ctx, needsFetch)
+		fetched, warnings := s.Client.FetchRunDetailsGraphQL(ctx, needsFetch)
 		if opts.Verbose {
 			s.Prog.Log("  %q: hydrated %d runs in %s", wf.Name, len(fetched), time.Since(hydrateStart))
 		}

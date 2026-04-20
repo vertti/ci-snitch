@@ -362,6 +362,7 @@ func convertJob(j *gh.WorkflowJob) model.Job {
 func convertRun(r *gh.WorkflowRun) model.WorkflowRun {
 	return model.WorkflowRun{
 		ID:           r.GetID(),
+		NodeID:       r.GetNodeID(),
 		WorkflowID:   r.GetWorkflowID(),
 		WorkflowName: r.GetName(),
 		Name:         r.GetDisplayTitle(),

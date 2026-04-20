@@ -98,6 +98,10 @@ func (f *stubFetcher) FetchRunDetails(_ context.Context, _ []model.WorkflowRun) 
 	return f.details, nil
 }
 
+func (f *stubFetcher) FetchRunDetailsGraphQL(_ context.Context, runs []model.WorkflowRun) ([]model.RunDetail, []diag.Diagnostic) {
+	return f.FetchRunDetails(context.Background(), runs)
+}
+
 func (f *stubFetcher) RateLimit(_ context.Context) (github.RateLimitStatus, error) {
 	return github.RateLimitStatus{Remaining: 5000, Limit: 5000, ResetAt: time.Now().Add(time.Hour)}, nil
 }
