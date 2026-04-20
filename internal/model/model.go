@@ -13,6 +13,7 @@ type Workflow struct {
 // WorkflowRun represents a single execution of a workflow.
 type WorkflowRun struct {
 	ID           int64
+	NodeID       string // GraphQL global node ID (e.g. "WFR_kwLO...")
 	WorkflowID   int64
 	WorkflowName string
 	Name         string
