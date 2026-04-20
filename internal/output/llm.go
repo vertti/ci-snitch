@@ -18,7 +18,7 @@ type LLMFormatter struct {
 }
 
 // Format implements Formatter.
-func (l LLMFormatter) Format(w io.Writer, result analyze.AnalysisResult) error {
+func (l LLMFormatter) Format(w io.Writer, result *analyze.AnalysisResult) error {
 	repo := result.Meta.Repo
 	from := result.Meta.TimeRange[0].Format("2006-01-02")
 	to := result.Meta.TimeRange[1].Format("2006-01-02")
@@ -42,7 +42,7 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 
 	g := groupByType(result.Findings)
 
-	llmWritePriorityFindings(w, g)
+	llmWritePriorityFindings(w, &g)
 	llmWriteSummaryTable(w, g.Summaries)
 	llmWritePipelines(w, g.Pipelines)
 	llmWriteRunners(w, g.Runners)
@@ -59,7 +59,7 @@ The "Raw Data" section contains structured JSON for programmatic analysis.
 	return l.writeRawData(w, result)
 }
 
-func llmWritePriorityFindings(w io.Writer, g groupedFindings) {
+func llmWritePriorityFindings(w io.Writer, g *groupedFindings) {
 	_, _ = fmt.Fprint(w, "## Priority Findings\n\n")
 	hasPriority := false
 
@@ -98,9 +98,9 @@ func llmWritePriorityFindings(w io.Writer, g groupedFindings) {
 		}
 		_, _ = fmt.Fprintf(w, "- **[%s]** %s: %.0f%% failure rate (%d/%d runs)%s",
 			tag, d.Workflow, d.FailureRate*100, d.FailureCount, d.TotalRuns, trendNote)
-		_, _ = fmt.Fprint(w, failingStepHeadline(d))
+		_, _ = fmt.Fprint(w, failingStepHeadline(&d))
 		if len(d.ByCategory) > 1 {
-			_, _ = fmt.Fprint(w, categoryBreakdown(d))
+			_, _ = fmt.Fprint(w, categoryBreakdown(&d))
 		}
 		if d.RetriedRuns > 0 {
 			_, _ = fmt.Fprintf(w, ", %d retried (+%d extra attempts)", d.RetriedRuns, d.ExtraAttempts)
@@ -219,7 +219,7 @@ func llmWriteSteps(w io.Writer, steps []analyze.Finding) {
 	}
 }
 
-func (l LLMFormatter) writeRawData(w io.Writer, result analyze.AnalysisResult) error {
+func (l LLMFormatter) writeRawData(w io.Writer, result *analyze.AnalysisResult) error {
 	compact := compactResult(result)
 	omitted := len(result.Findings) - len(compact.Findings)
 
@@ -248,7 +248,7 @@ func (l LLMFormatter) writeRawData(w io.Writer, result analyze.AnalysisResult) e
 	return nil
 }
 
-func writeJSONFile(path string, result analyze.AnalysisResult) error {
+func writeJSONFile(path string, result *analyze.AnalysisResult) error {
 	f, err := os.Create(path) //nolint:gosec // path comes from user's --raw-output flag
 	if err != nil {
 		return err
@@ -262,7 +262,7 @@ func writeJSONFile(path string, result analyze.AnalysisResult) error {
 // compactResult strips noise from the analysis result for LLM consumption.
 // Drops oscillating/minor changepoints and low-severity outliers that inflate
 // the JSON from ~54k tokens to ~5k without adding actionable information.
-func compactResult(result analyze.AnalysisResult) analyze.AnalysisResult {
+func compactResult(result *analyze.AnalysisResult) analyze.AnalysisResult {
 	var filtered []analyze.Finding
 	for _, f := range result.Findings {
 		switch f.Type {
@@ -289,7 +289,7 @@ func compactResult(result analyze.AnalysisResult) analyze.AnalysisResult {
 // failingStepHeadline summarizes the failure pattern.
 // Single dominant step: "fails at step X in job Y (N/M failures)"
 // Distributed failures: "failures spread across N steps (top: X Nx, Y Nx)"
-func failingStepHeadline(d analyze.FailureDetail) string {
+func failingStepHeadline(d *analyze.FailureDetail) string {
 	if len(d.FailingSteps) == 0 {
 		return ""
 	}
@@ -314,7 +314,7 @@ func failingStepHeadline(d analyze.FailureDetail) string {
 }
 
 // categoryBreakdown returns a compact summary like " (40% infra, 35% build, 25% test)".
-func categoryBreakdown(d analyze.FailureDetail) string {
+func categoryBreakdown(d *analyze.FailureDetail) string {
 	total := 0
 	for _, count := range d.ByCategory {
 		total += count

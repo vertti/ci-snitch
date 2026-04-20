@@ -20,10 +20,8 @@ type Options struct {
 }
 
 // Run applies all preprocessing steps in order and returns the filtered results.
-func Run(details []model.RunDetail, opts Options) ([]model.RunDetail, []Warning) {
-	var warnings []Warning
-
-	result := DeduplicateRetries(details)
+func Run(details []model.RunDetail, opts Options) (result []model.RunDetail, warnings []Warning) {
+	result = DeduplicateRetries(details)
 	if len(result) < len(details) {
 		warnings = append(warnings, diag.New(
 			diag.Info, diag.KindPreprocess, "global",
@@ -59,9 +57,9 @@ func Run(details []model.RunDetail, opts Options) ([]model.RunDetail, []Warning)
 // FilterByBranch keeps only runs from the specified branch.
 func FilterByBranch(details []model.RunDetail, branch string) []model.RunDetail {
 	var out []model.RunDetail
-	for _, d := range details {
-		if d.Run.HeadBranch == branch {
-			out = append(out, d)
+	for i := range details {
+		if details[i].Run.HeadBranch == branch {
+			out = append(out, details[i])
 		}
 	}
 	return out
@@ -70,9 +68,9 @@ func FilterByBranch(details []model.RunDetail, branch string) []model.RunDetail 
 // ExcludeFailures keeps only runs with conclusion "success".
 func ExcludeFailures(details []model.RunDetail) []model.RunDetail {
 	var out []model.RunDetail
-	for _, d := range details {
-		if d.Run.Conclusion == "success" {
-			out = append(out, d)
+	for i := range details {
+		if details[i].Run.Conclusion == "success" {
+			out = append(out, details[i])
 		}
 	}
 	return out
@@ -82,20 +80,20 @@ func ExcludeFailures(details []model.RunDetail) []model.RunDetail {
 // GitHub Actions creates new run_attempt numbers for re-runs but keeps the same run ID.
 func DeduplicateRetries(details []model.RunDetail) []model.RunDetail {
 	best := make(map[int64]model.RunDetail)
-	for _, d := range details {
-		existing, ok := best[d.Run.ID]
-		if !ok || d.Run.RunAttempt > existing.Run.RunAttempt {
-			best[d.Run.ID] = d
+	for i := range details {
+		existing, ok := best[details[i].Run.ID]
+		if !ok || details[i].Run.RunAttempt > existing.Run.RunAttempt {
+			best[details[i].Run.ID] = details[i]
 		}
 	}
 
 	out := make([]model.RunDetail, 0, len(best))
 	// Preserve original order
 	seen := make(map[int64]bool)
-	for _, d := range details {
-		if !seen[d.Run.ID] {
-			seen[d.Run.ID] = true
-			out = append(out, best[d.Run.ID])
+	for i := range details {
+		if !seen[details[i].Run.ID] {
+			seen[details[i].Run.ID] = true
+			out = append(out, best[details[i].Run.ID])
 		}
 	}
 	return out
@@ -119,14 +117,14 @@ func ComputeRerunStats(details []model.RunDetail) map[int64]RerunStats {
 	}
 	byWorkflow := make(map[int64]*wfRuns)
 
-	for _, d := range details {
-		wfID := d.Run.WorkflowID
+	for i := range details {
+		wfID := details[i].Run.WorkflowID
 		if byWorkflow[wfID] == nil {
 			byWorkflow[wfID] = &wfRuns{maxAttempt: make(map[int64]int)}
 		}
 		wr := byWorkflow[wfID]
-		if d.Run.RunAttempt > wr.maxAttempt[d.Run.ID] {
-			wr.maxAttempt[d.Run.ID] = d.Run.RunAttempt
+		if details[i].Run.RunAttempt > wr.maxAttempt[details[i].Run.ID] {
+			wr.maxAttempt[details[i].Run.ID] = details[i].Run.RunAttempt
 		}
 	}
 

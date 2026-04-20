@@ -94,12 +94,12 @@ func run() error {
 	}
 	fmt.Printf("Loaded %d run details from store\n", len(loaded))
 
-	for _, d := range loaded {
-		fmt.Printf("\nRun %d [%s] %s\n", d.Run.ID, d.Run.Conclusion, d.Run.Name)
-		for _, j := range d.Jobs {
-			fmt.Printf("  Job %q: %s (%d steps)\n", j.Name, j.Duration(), len(j.Steps))
-			for _, st := range j.Steps {
-				fmt.Printf("    Step %q: %s\n", st.Name, st.Duration())
+	for i := range loaded {
+		fmt.Printf("\nRun %d [%s] %s\n", loaded[i].Run.ID, loaded[i].Run.Conclusion, loaded[i].Run.Name)
+		for j := range loaded[i].Jobs {
+			fmt.Printf("  Job %q: %s (%d steps)\n", loaded[i].Jobs[j].Name, loaded[i].Jobs[j].Duration(), len(loaded[i].Jobs[j].Steps))
+			for st := range loaded[i].Jobs[j].Steps {
+				fmt.Printf("    Step %q: %s\n", loaded[i].Jobs[j].Steps[st].Name, loaded[i].Jobs[j].Steps[st].Duration())
 			}
 		}
 	}

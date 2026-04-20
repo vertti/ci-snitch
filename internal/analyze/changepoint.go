@@ -92,12 +92,12 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 
 	for i, ref := range sorted {
 		d := ac.Details[ref.idx]
-		for _, j := range d.Jobs {
-			dur := j.Duration().Seconds()
+		for j := range d.Jobs {
+			dur := d.Jobs[j].Duration().Seconds()
 			if dur <= 0 {
 				continue
 			}
-			k := jobKey{d.Run.WorkflowID, j.Name}
+			k := jobKey{d.Run.WorkflowID, d.Jobs[j].Name}
 			if jobs[k] == nil {
 				jobs[k] = &jobSeries{}
 			}

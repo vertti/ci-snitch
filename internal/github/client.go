@@ -231,7 +231,7 @@ func (c *Client) FetchJobs(ctx context.Context, runID int64) ([]model.Job, error
 // FetchRunDetails hydrates a slice of workflow runs with their jobs and steps.
 // Uses a worker pool for bounded concurrency. Returns partial results and
 // warnings for runs that failed to fetch.
-func (c *Client) FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) ([]model.RunDetail, []Warning) {
+func (c *Client) FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) (details []model.RunDetail, warnings []Warning) {
 	type result struct {
 		detail model.RunDetail
 		warn   *Warning
@@ -266,8 +266,8 @@ func (c *Client) FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) 
 		})
 	}
 
-	for _, run := range runs {
-		work <- run
+	for i := range runs {
+		work <- runs[i]
 	}
 	close(work)
 
@@ -276,8 +276,6 @@ func (c *Client) FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) 
 		close(results)
 	}()
 
-	var details []model.RunDetail
-	var warnings []Warning
 	for r := range results {
 		if r.warn != nil {
 			warnings = append(warnings, *r.warn)

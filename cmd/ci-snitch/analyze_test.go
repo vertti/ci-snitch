@@ -129,7 +129,7 @@ func TestServiceRun_BasicPipeline(t *testing.T) {
 		Prog: output.NewProgress(),
 	}
 
-	result, err := svc.Run(context.Background(), app.Options{
+	result, err := svc.Run(context.Background(), &app.Options{
 		Repo:  "test/repo",
 		Since: now.Add(-7 * 24 * time.Hour),
 	})
@@ -147,7 +147,7 @@ func TestServiceRun_NoRunsError(t *testing.T) {
 		Prog: output.NewProgress(),
 	}
 
-	_, err := svc.Run(context.Background(), app.Options{
+	_, err := svc.Run(context.Background(), &app.Options{
 		Repo:  "test/repo",
 		Since: time.Now().Add(-7 * 24 * time.Hour),
 	})
@@ -187,7 +187,7 @@ func TestServiceRun_WorkflowFilter(t *testing.T) {
 		Prog: output.NewProgress(),
 	}
 
-	result, err := svc.Run(context.Background(), app.Options{
+	result, err := svc.Run(context.Background(), &app.Options{
 		Repo:     "test/repo",
 		Workflow: "Deploy",
 		Since:    now.Add(-7 * 24 * time.Hour),

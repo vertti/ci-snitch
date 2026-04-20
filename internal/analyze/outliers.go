@@ -55,25 +55,25 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 	// Count distinct job names per workflow to skip workflow-level detection
 	// for single-job workflows (avoids duplicate entries with job-level detection).
 	wfJobNames := make(map[int64]map[string]bool)
-	for _, d := range ac.Details {
-		wfID := d.Run.WorkflowID
+	for i := range ac.Details {
+		wfID := ac.Details[i].Run.WorkflowID
 		if wfJobNames[wfID] == nil {
 			wfJobNames[wfID] = make(map[string]bool)
 		}
-		for _, j := range d.Jobs {
-			wfJobNames[wfID][j.Name] = true
+		for j := range ac.Details[i].Jobs {
+			wfJobNames[wfID][ac.Details[i].Jobs[j].Name] = true
 		}
 	}
 
 	// Workflow-level outliers (only for multi-job workflows)
 	wfDurations := make(map[int64][]float64)
 	wfRuns := make(map[int64][]int) // index into ac.Details
-	for i, d := range ac.Details {
-		wfID := d.Run.WorkflowID
+	for i := range ac.Details {
+		wfID := ac.Details[i].Run.WorkflowID
 		if len(wfJobNames[wfID]) <= 1 {
 			continue
 		}
-		dur := d.Duration().Seconds()
+		dur := ac.Details[i].Duration().Seconds()
 		if dur > 0 {
 			wfDurations[wfID] = append(wfDurations[wfID], dur)
 			wfRuns[wfID] = append(wfRuns[wfID], i)
@@ -119,11 +119,11 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 	}
 	jobRefs := make(map[jobKey][]jobRef)
 
-	for i, d := range ac.Details {
-		for j, job := range d.Jobs {
-			dur := job.Duration().Seconds()
+	for i := range ac.Details {
+		for j := range ac.Details[i].Jobs {
+			dur := ac.Details[i].Jobs[j].Duration().Seconds()
 			if dur > 0 {
-				k := jobKey{d.Run.WorkflowID, job.Name}
+				k := jobKey{ac.Details[i].Run.WorkflowID, ac.Details[i].Jobs[j].Name}
 				jobDurations[k] = append(jobDurations[k], dur)
 				jobRefs[k] = append(jobRefs[k], jobRef{i, j})
 			}

@@ -69,24 +69,24 @@ func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 	jobMedians := make(map[jobKey]time.Duration) // for pct-of-job calculation
 	jobRuns := make(map[jobKey]int)
 
-	for _, d := range ac.Details {
-		wfID := d.Run.WorkflowID
-		for _, j := range d.Jobs {
-			jk := jobKey{wfID, j.Name}
+	for i := range ac.Details {
+		wfID := ac.Details[i].Run.WorkflowID
+		for j := range ac.Details[i].Jobs {
+			jk := jobKey{wfID, ac.Details[i].Jobs[j].Name}
 			jobRuns[jk]++
 
 			if jobSteps[jk] == nil {
 				jobSteps[jk] = make(map[string]*stepAccum)
 			}
-			for _, st := range j.Steps {
-				dur := st.Duration()
+			for st := range ac.Details[i].Jobs[j].Steps {
+				dur := ac.Details[i].Jobs[j].Steps[st].Duration()
 				if dur <= 0 {
 					continue
 				}
-				sa := jobSteps[jk][st.Name]
+				sa := jobSteps[jk][ac.Details[i].Jobs[j].Steps[st].Name]
 				if sa == nil {
 					sa = &stepAccum{}
-					jobSteps[jk][st.Name] = sa
+					jobSteps[jk][ac.Details[i].Jobs[j].Steps[st].Name] = sa
 				}
 				sa.durations = append(sa.durations, dur)
 			}
@@ -95,11 +95,11 @@ func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 
 	// Collect job-level durations and compute medians
 	jobDurs := make(map[jobKey][]time.Duration)
-	for _, d := range ac.Details {
-		for _, j := range d.Jobs {
-			dur := j.Duration()
+	for i := range ac.Details {
+		for j := range ac.Details[i].Jobs {
+			dur := ac.Details[i].Jobs[j].Duration()
 			if dur > 0 {
-				jk := jobKey{d.Run.WorkflowID, j.Name}
+				jk := jobKey{ac.Details[i].Run.WorkflowID, ac.Details[i].Jobs[j].Name}
 				jobDurs[jk] = append(jobDurs[jk], dur)
 			}
 		}

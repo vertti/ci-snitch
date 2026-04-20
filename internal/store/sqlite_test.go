@@ -83,7 +83,7 @@ func TestSaveAndLoadRunDetail(t *testing.T) {
 	s := testStore(t)
 	detail := testRunDetail()
 
-	err := s.SaveRunDetail(detail)
+	err := s.SaveRunDetail(&detail)
 	require.NoError(t, err)
 
 	loaded, err := s.LoadRunDetail(1001)
@@ -117,12 +117,12 @@ func TestSaveRunDetail_Upsert(t *testing.T) {
 	// Save initially as in-progress
 	detail.Run.Status = statusInProgress
 	detail.Run.Conclusion = ""
-	require.NoError(t, s.SaveRunDetail(detail))
+	require.NoError(t, s.SaveRunDetail(&detail))
 
 	// Update to completed
 	detail.Run.Status = "completed"
 	detail.Run.Conclusion = "success"
-	require.NoError(t, s.SaveRunDetail(detail))
+	require.NoError(t, s.SaveRunDetail(&detail))
 
 	loaded, err := s.LoadRunDetail(1001)
 	require.NoError(t, err)
@@ -142,7 +142,7 @@ func TestRunsSince(t *testing.T) {
 		d.Run.StartedAt = d.Run.CreatedAt.Add(5 * time.Second)
 		d.Run.UpdatedAt = d.Run.CreatedAt.Add(3 * time.Minute)
 		d.Jobs[0].ID = int64(2001 + i)
-		require.NoError(t, s.SaveRunDetail(d))
+		require.NoError(t, s.SaveRunDetail(&d))
 	}
 
 	// Query since day 1 — should get runs from day 1 and day 2
@@ -160,7 +160,7 @@ func TestRunsSince_ExcludesIncomplete(t *testing.T) {
 	detail := testRunDetail()
 	detail.Run.Status = statusInProgress
 	detail.Run.Conclusion = ""
-	require.NoError(t, s.SaveRunDetail(detail))
+	require.NoError(t, s.SaveRunDetail(&detail))
 
 	runs, err := s.RunsSince(100, time.Time{})
 	require.NoError(t, err)
@@ -172,14 +172,14 @@ func TestIncompleteRunIDs(t *testing.T) {
 
 	// One completed, one in-progress
 	d1 := testRunDetail()
-	require.NoError(t, s.SaveRunDetail(d1))
+	require.NoError(t, s.SaveRunDetail(&d1))
 
 	d2 := testRunDetail()
 	d2.Run.ID = 1002
 	d2.Run.Status = statusInProgress
 	d2.Run.Conclusion = ""
 	d2.Jobs[0].ID = 2002
-	require.NoError(t, s.SaveRunDetail(d2))
+	require.NoError(t, s.SaveRunDetail(&d2))
 
 	ids, err := s.IncompleteRunIDs()
 	require.NoError(t, err)
@@ -193,7 +193,7 @@ func TestLoadRunDetails(t *testing.T) {
 		d := testRunDetail()
 		d.Run.ID = int64(1001 + i)
 		d.Jobs[0].ID = int64(2001 + i)
-		require.NoError(t, s.SaveRunDetail(d))
+		require.NoError(t, s.SaveRunDetail(&d))
 	}
 
 	details, err := s.LoadRunDetails(100, time.Time{})
@@ -258,7 +258,7 @@ func TestMigration_AddsEventColumn(t *testing.T) {
 
 	// Should be able to save a run with the event field
 	detail := testRunDetail()
-	err = s.SaveRunDetail(detail)
+	err = s.SaveRunDetail(&detail)
 	require.NoError(t, err, "save should work after migration adds event column")
 
 	// Round-trip the event field

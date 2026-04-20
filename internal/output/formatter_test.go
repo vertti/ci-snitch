@@ -14,8 +14,8 @@ import (
 
 func dur(d time.Duration) analyze.Duration { return analyze.Duration(d) }
 
-func testResult() analyze.AnalysisResult {
-	return analyze.AnalysisResult{
+func testResult() *analyze.AnalysisResult {
+	return &analyze.AnalysisResult{
 		Findings: []analyze.Finding{
 			{
 				Type: "summary", Severity: analyze.SeverityInfo,
@@ -137,7 +137,7 @@ func TestTableFormatter(t *testing.T) {
 
 func TestTableFormatter_Empty(t *testing.T) {
 	var buf bytes.Buffer
-	err := TableFormatter{}.Format(&buf, analyze.AnalysisResult{})
+	err := TableFormatter{}.Format(&buf, &analyze.AnalysisResult{})
 	require.NoError(t, err)
 	assert.Contains(t, buf.String(), "No findings")
 }
@@ -182,7 +182,7 @@ func TestCompactResult_FiltersNoise(t *testing.T) {
 		Meta: analyze.ResultMeta{TotalRuns: 100},
 	}
 
-	compact := compactResult(result)
+	compact := compactResult(&result)
 
 	// Should keep: summary, 2 actionable changepoints, failure, cost = 5
 	// Should drop: 1 oscillating + 2 minor = 3
@@ -200,7 +200,7 @@ func TestCompactResult_FiltersNoise(t *testing.T) {
 	}
 }
 
-func richTestResult() analyze.AnalysisResult {
+func richTestResult() *analyze.AnalysisResult {
 	base := testResult()
 	base.Findings = append(base.Findings,
 		analyze.Finding{
@@ -276,7 +276,7 @@ func TestMarkdownFormatter_SpeedupArrow(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	err := MarkdownFormatter{}.Format(&buf, result)
+	err := MarkdownFormatter{}.Format(&buf, &result)
 	require.NoError(t, err)
 
 	out := buf.String()
@@ -350,7 +350,7 @@ func TestTableFormatter_StepTable(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	err := TableFormatter{}.Format(&buf, result)
+	err := TableFormatter{}.Format(&buf, &result)
 	require.NoError(t, err)
 
 	out := buf.String()
@@ -381,7 +381,7 @@ func TestTableFormatter_OscillatingJobs(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	err := TableFormatter{}.Format(&buf, result)
+	err := TableFormatter{}.Format(&buf, &result)
 	require.NoError(t, err)
 
 	out := buf.String()
@@ -420,7 +420,7 @@ func TestTableFormatter_ChangePointPersistence(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	err := TableFormatter{Verbose: true}.Format(&buf, result)
+	err := TableFormatter{Verbose: true}.Format(&buf, &result)
 	require.NoError(t, err)
 
 	out := buf.String()

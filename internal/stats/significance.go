@@ -16,7 +16,7 @@ const (
 // MannWhitneyU performs a two-sided Mann-Whitney U test comparing two samples.
 // Uses a fresh random source for the permutation path, so results are
 // non-deterministic. For deterministic tests use MannWhitneyURand.
-func MannWhitneyU(sample1, sample2 []float64) (u float64, pValue float64) {
+func MannWhitneyU(sample1, sample2 []float64) (u, pValue float64) {
 	return MannWhitneyURand(sample1, sample2, nil)
 }
 
@@ -28,7 +28,7 @@ func MannWhitneyU(sample1, sample2 []float64) (u float64, pValue float64) {
 //
 // If rng is nil, a fresh random source is used.
 // A small p-value (< 0.05) indicates the two samples likely come from different distributions.
-func MannWhitneyURand(sample1, sample2 []float64, rng *rand.Rand) (u float64, pValue float64) {
+func MannWhitneyURand(sample1, sample2 []float64, rng *rand.Rand) (u, pValue float64) {
 	n1 := len(sample1)
 	n2 := len(sample2)
 	if n1 == 0 || n2 == 0 {

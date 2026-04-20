@@ -55,12 +55,12 @@ func (PipelineAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findi
 		details []model.RunDetail
 	}
 	byWorkflow := make(map[int64]*wfRuns)
-	for _, d := range ac.Details {
-		wfID := d.Run.WorkflowID
+	for i := range ac.Details {
+		wfID := ac.Details[i].Run.WorkflowID
 		if byWorkflow[wfID] == nil {
 			byWorkflow[wfID] = &wfRuns{}
 		}
-		byWorkflow[wfID].details = append(byWorkflow[wfID].details, d)
+		byWorkflow[wfID].details = append(byWorkflow[wfID].details, ac.Details[i])
 	}
 
 	var findings []Finding
@@ -71,9 +71,9 @@ func (PipelineAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findi
 		}
 		// Check if this workflow has enough jobs to have pipeline structure
 		maxJobs := 0
-		for _, d := range wr.details {
-			if len(d.Jobs) > maxJobs {
-				maxJobs = len(d.Jobs)
+		for i := range wr.details {
+			if len(wr.details[i].Jobs) > maxJobs {
+				maxJobs = len(wr.details[i].Jobs)
 			}
 		}
 		if maxJobs < 2 {
@@ -107,14 +107,14 @@ func analyzePipeline(wfName string, details []model.RunDetail) *Finding {
 	stageJobs := make(map[stageKey]map[string]bool)
 	var stageOrder []stageKey
 
-	for _, d := range details {
-		wc := d.Duration()
+	for i := range details {
+		wc := details[i].Duration()
 		if wc <= 0 {
 			continue
 		}
 		var js time.Duration
-		for _, j := range d.Jobs {
-			js += j.Duration()
+		for j := range details[i].Jobs {
+			js += details[i].Jobs[j].Duration()
 		}
 		if js <= 0 {
 			continue
@@ -123,7 +123,7 @@ func analyzePipeline(wfName string, details []model.RunDetail) *Finding {
 		jobSums = append(jobSums, js)
 
 		// Detect stages for this run
-		stages := detectStages(d.Jobs)
+		stages := detectStages(details[i].Jobs)
 		for _, stage := range stages {
 			key := stageKey(stage.name)
 			stageTimings[key] = append(stageTimings[key], stage.duration)
@@ -156,9 +156,9 @@ func analyzePipeline(wfName string, details []model.RunDetail) *Finding {
 	// Build ordered stage list from the most common run pattern
 	// Use the run with the most jobs as the representative
 	var bestRun model.RunDetail
-	for _, d := range details {
-		if len(d.Jobs) > len(bestRun.Jobs) {
-			bestRun = d
+	for i := range details {
+		if len(details[i].Jobs) > len(bestRun.Jobs) {
+			bestRun = details[i]
 		}
 	}
 	repStages := detectStages(bestRun.Jobs)
@@ -253,14 +253,14 @@ func detectStages(jobs []model.Job) []rawStage {
 	}
 
 	var timed []timedJob
-	for _, j := range jobs {
-		if j.StartedAt.IsZero() || j.CompletedAt.IsZero() {
+	for i := range jobs {
+		if jobs[i].StartedAt.IsZero() || jobs[i].CompletedAt.IsZero() {
 			continue
 		}
-		if j.Duration() <= 0 {
+		if jobs[i].Duration() <= 0 {
 			continue
 		}
-		timed = append(timed, timedJob{j.Name, j.StartedAt, j.CompletedAt})
+		timed = append(timed, timedJob{jobs[i].Name, jobs[i].StartedAt, jobs[i].CompletedAt})
 	}
 
 	if len(timed) == 0 {
@@ -327,12 +327,12 @@ func commonPrefix(strs []string) string {
 	}
 	prefix := strs[0]
 	for _, s := range strs[1:] {
-		for len(prefix) > 0 && (len(s) < len(prefix) || s[:len(prefix)] != prefix) {
+		for prefix != "" && (len(s) < len(prefix) || s[:len(prefix)] != prefix) {
 			prefix = prefix[:len(prefix)-1]
 		}
 	}
 	// Trim trailing spaces, slashes, parens
-	for len(prefix) > 0 {
+	for prefix != "" {
 		last := prefix[len(prefix)-1]
 		if last == ' ' || last == '/' || last == '(' {
 			prefix = prefix[:len(prefix)-1]

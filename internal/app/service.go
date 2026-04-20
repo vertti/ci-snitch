@@ -49,7 +49,7 @@ type Service struct {
 }
 
 // Run executes the full analysis pipeline and returns the result.
-func (s *Service) Run(ctx context.Context, opts Options) (analyze.AnalysisResult, error) {
+func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResult, error) {
 	// Fetch workflows
 	s.Prog.Status("Discovering workflows...")
 	workflows, err := s.Client.ListWorkflows(ctx)
@@ -142,7 +142,7 @@ func (s *Service) Run(ctx context.Context, opts Options) (analyze.AnalysisResult
 }
 
 // fetchWorkflow fetches and hydrates runs for a single workflow, using the cache when available.
-func (s *Service) fetchWorkflow(ctx context.Context, wf model.Workflow, opts Options) ([]model.RunDetail, error) {
+func (s *Service) fetchWorkflow(ctx context.Context, wf model.Workflow, opts *Options) ([]model.RunDetail, error) {
 	s.Prog.Status("Fetching %q...", wf.Name)
 	fetchStart := time.Now()
 	runs, fetchWarnings, err := s.Client.FetchRuns(ctx, wf.ID, opts.Since, opts.Branch)
@@ -164,8 +164,8 @@ func (s *Service) fetchWorkflow(ctx context.Context, wf model.Workflow, opts Opt
 		cachedSet := make(map[int64]bool)
 		cached, cacheErr := s.Store.RunsSince(wf.ID, opts.Since)
 		if cacheErr == nil {
-			for _, r := range cached {
-				cachedSet[r.ID] = true
+			for i := range cached {
+				cachedSet[cached[i].ID] = true
 			}
 		}
 
@@ -177,15 +177,15 @@ func (s *Service) fetchWorkflow(ctx context.Context, wf model.Workflow, opts Opt
 			}
 		}
 
-		for _, r := range runs {
-			if cachedSet[r.ID] && !incompleteSet[r.ID] {
-				d, loadErr := s.Store.LoadRunDetail(r.ID)
+		for i := range runs {
+			if cachedSet[runs[i].ID] && !incompleteSet[runs[i].ID] {
+				d, loadErr := s.Store.LoadRunDetail(runs[i].ID)
 				if loadErr == nil {
 					details = append(details, *d)
 					continue
 				}
 			}
-			needsFetch = append(needsFetch, r)
+			needsFetch = append(needsFetch, runs[i])
 		}
 
 		if opts.Verbose {

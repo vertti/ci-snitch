@@ -66,20 +66,20 @@ func (RunnerAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 	}
 
 	jobs := make(map[jobKey]*jobAccum)
-	for _, d := range ac.Details {
-		for _, j := range d.Jobs {
-			dur := j.Duration().Seconds()
-			if dur <= 0 || len(j.Labels) == 0 {
+	for i := range ac.Details {
+		for j := range ac.Details[i].Jobs {
+			dur := ac.Details[i].Jobs[j].Duration().Seconds()
+			if dur <= 0 || len(ac.Details[i].Jobs[j].Labels) == 0 {
 				continue
 			}
-			label := strings.Join(j.Labels, ",")
-			k := jobKey{d.Run.WorkflowID, j.Name, label}
+			label := strings.Join(ac.Details[i].Jobs[j].Labels, ",")
+			k := jobKey{ac.Details[i].Run.WorkflowID, ac.Details[i].Jobs[j].Name, label}
 			if jobs[k] == nil {
 				cores := parseCoreCount(label)
 				jobs[k] = &jobAccum{
 					label: label,
 					cores: cores,
-					mult:  cost.LookupMultiplier(j.Labels),
+					mult:  cost.LookupMultiplier(ac.Details[i].Jobs[j].Labels),
 				}
 			}
 			jobs[k].durations = append(jobs[k].durations, dur)
