@@ -10,6 +10,7 @@ import (
 
 	"github.com/vertti/ci-snitch/internal/app"
 	"github.com/vertti/ci-snitch/internal/diag"
+	"github.com/vertti/ci-snitch/internal/github"
 	"github.com/vertti/ci-snitch/internal/model"
 	"github.com/vertti/ci-snitch/internal/output"
 )
@@ -95,6 +96,10 @@ func (f *stubFetcher) FetchRuns(_ context.Context, _ int64, _ time.Time, _ strin
 
 func (f *stubFetcher) FetchRunDetails(_ context.Context, _ []model.WorkflowRun) ([]model.RunDetail, []diag.Diagnostic) {
 	return f.details, nil
+}
+
+func (f *stubFetcher) RateLimit(_ context.Context) (github.RateLimitStatus, error) {
+	return github.RateLimitStatus{Remaining: 5000, Limit: 5000, ResetAt: time.Now().Add(time.Hour)}, nil
 }
 
 func TestServiceRun_BasicPipeline(t *testing.T) {

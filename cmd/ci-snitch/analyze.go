@@ -128,7 +128,7 @@ If no repository is specified, detects the GitHub remote from the current direct
 	}
 
 	cmd.Flags().StringVar(&branch, "branch", "", "filter to this branch (default: all branches)")
-	cmd.Flags().StringVar(&since, "since", "60d", "how far back to analyze (e.g. 60d, 2026-01-01)")
+	cmd.Flags().StringVar(&since, "since", "30d", "how far back to analyze (e.g. 30d, 2w, 3mo, 2026-01-01)")
 	cmd.Flags().StringVar(&workflow, "workflow", "", "filter to this workflow name")
 	cmd.Flags().StringVar(&format, "format", "table", "output format: table, json, markdown, llm")
 	cmd.Flags().StringVar(&rawOutput, "raw-output", "", "write full JSON to file (useful with --format llm to keep report compact)")

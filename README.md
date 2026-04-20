@@ -50,7 +50,7 @@ ci-snitch analyze
 ci-snitch analyze your-org/your-repo
 ```
 
-That's it. Fetches the last 60 days of workflow data and shows you what matters.
+That's it. Fetches the last 30 days of workflow data and shows you what matters.
 
 ## What it finds
 
@@ -87,7 +87,7 @@ ci-snitch analyze owner/repo --format llm
 | Flag | Default | Description |
 |------|---------|-------------|
 | `[owner/repo]` | auto-detect | Repository to analyze; if omitted, detected from git remote |
-| `--since` | `60d` | How far back: `7d`, `2w`, `3mo`, or `2026-01-01` |
+| `--since` | `30d` | How far back: `7d`, `2w`, `3mo`, or `2026-01-01` |
 | `--branch` | all | Filter to a specific branch |
 | `--workflow` | all | Filter to a specific workflow name |
 | `--format` | `table` | `table`, `json`, `markdown`, or `llm` |
