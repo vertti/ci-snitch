@@ -66,6 +66,27 @@ func (c *Client) log(msg string, args ...any) {
 	}
 }
 
+// RateLimitStatus contains the current rate limit state.
+type RateLimitStatus struct {
+	Remaining int
+	Limit     int
+	ResetAt   time.Time
+}
+
+// RateLimit returns the current GitHub API rate limit status.
+func (c *Client) RateLimit(ctx context.Context) (RateLimitStatus, error) {
+	limits, _, err := c.gh.RateLimit.Get(ctx)
+	if err != nil {
+		return RateLimitStatus{}, fmt.Errorf("get rate limit: %w", err)
+	}
+	core := limits.Core
+	return RateLimitStatus{
+		Remaining: core.Remaining,
+		Limit:     core.Limit,
+		ResetAt:   core.Reset.Time,
+	}, nil
+}
+
 // ListWorkflows returns all workflows in the repository.
 func (c *Client) ListWorkflows(ctx context.Context) ([]model.Workflow, error) {
 	var all []model.Workflow
@@ -222,6 +243,22 @@ func (c *Client) FetchJobs(ctx context.Context, runID int64) ([]model.Job, error
 		if resp.NextPage == 0 {
 			break
 		}
+
+		remaining := resp.Rate.Remaining
+		if remaining < 100 {
+			sleepUntil := resp.Rate.Reset.Time
+			wait := time.Until(sleepUntil)
+			if wait > 0 {
+				c.log("Rate limit low during job fetch, sleeping until reset",
+					"remaining", remaining, "wait", wait.Round(time.Second))
+				select {
+				case <-ctx.Done():
+					return all, ctx.Err()
+				case <-time.After(wait):
+				}
+			}
+		}
+
 		opts.Page = resp.NextPage
 	}
 

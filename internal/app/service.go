@@ -11,6 +11,7 @@ import (
 
 	"github.com/vertti/ci-snitch/internal/analyze"
 	"github.com/vertti/ci-snitch/internal/diag"
+	"github.com/vertti/ci-snitch/internal/github"
 	"github.com/vertti/ci-snitch/internal/model"
 	"github.com/vertti/ci-snitch/internal/output"
 	"github.com/vertti/ci-snitch/internal/preprocess"
@@ -21,6 +22,7 @@ type WorkflowFetcher interface {
 	ListWorkflows(ctx context.Context) ([]model.Workflow, error)
 	FetchRuns(ctx context.Context, workflowID int64, since time.Time, branch string) ([]model.WorkflowRun, []diag.Diagnostic, error)
 	FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) ([]model.RunDetail, []diag.Diagnostic)
+	RateLimit(ctx context.Context) (github.RateLimitStatus, error)
 }
 
 // RunStore abstracts the SQLite store.
@@ -48,6 +50,9 @@ type Service struct {
 	Prog   *output.Progress
 }
 
+// rateLimitSafetyMargin is the fraction of remaining rate limit we refuse to exceed.
+const rateLimitSafetyMargin = 0.80
+
 // Run executes the full analysis pipeline and returns the result.
 func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResult, error) {
 	// Fetch workflows
@@ -57,35 +62,38 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 		s.Prog.Done()
 		return analyze.AnalysisResult{}, fmt.Errorf("list workflows: %w", err)
 	}
-	if opts.Verbose {
-		s.Prog.Log("Found %d workflows", len(workflows))
-	}
 
-	// Collect all run details (parallel across workflows)
-	var (
-		allDetails []model.RunDetail
-		mu         sync.Mutex
-	)
-
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(4)
+	targetWorkflows := 0
 	for _, wf := range workflows {
-		if opts.Workflow != "" && wf.Name != opts.Workflow {
-			continue
+		if opts.Workflow == "" || wf.Name == opts.Workflow {
+			targetWorkflows++
 		}
-
-		g.Go(func() error {
-			details, err := s.fetchWorkflow(gctx, wf, opts)
-			if err != nil {
-				return err
-			}
-			mu.Lock()
-			allDetails = append(allDetails, details...)
-			mu.Unlock()
-			return nil
-		})
 	}
-	if err := g.Wait(); err != nil {
+	if opts.Verbose {
+		s.Prog.Log("Found %d workflows (%d targeted)", len(workflows), targetWorkflows)
+	}
+
+	// Phase 1: fetch run lists (cheap — paginated listing, no hydration)
+	allWfRuns, err := s.fetchRunLists(ctx, workflows, opts)
+	if err != nil {
+		s.Prog.Done()
+		return analyze.AnalysisResult{}, err
+	}
+
+	totalRuns := 0
+	for i := range allWfRuns {
+		totalRuns += len(allWfRuns[i].runs)
+	}
+
+	// Estimate API cost and check rate limit budget
+	if err := s.checkRateBudget(ctx, totalRuns, opts); err != nil {
+		s.Prog.Done()
+		return analyze.AnalysisResult{}, err
+	}
+
+	// Phase 2: hydrate runs (expensive — 1 API call per uncached run)
+	allDetails, err := s.hydrateAll(ctx, allWfRuns, opts)
+	if err != nil {
 		s.Prog.Done()
 		return analyze.AnalysisResult{}, err
 	}
@@ -141,21 +149,95 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 	return result, nil
 }
 
-// fetchWorkflow fetches and hydrates runs for a single workflow, using the cache when available.
-func (s *Service) fetchWorkflow(ctx context.Context, wf model.Workflow, opts *Options) ([]model.RunDetail, error) {
-	s.Prog.Status("Fetching %q...", wf.Name)
-	fetchStart := time.Now()
-	runs, fetchWarnings, err := s.Client.FetchRuns(ctx, wf.ID, opts.Since, opts.Branch)
+type workflowRuns struct {
+	wf   model.Workflow
+	runs []model.WorkflowRun
+}
+
+func (s *Service) fetchRunLists(ctx context.Context, workflows []model.Workflow, opts *Options) ([]workflowRuns, error) {
+	var (
+		result []workflowRuns
+		mu     sync.Mutex
+	)
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(4)
+	for _, wf := range workflows {
+		if opts.Workflow != "" && wf.Name != opts.Workflow {
+			continue
+		}
+		g.Go(func() error {
+			s.Prog.Status("Listing %q...", wf.Name)
+			runs, fetchWarnings, err := s.Client.FetchRuns(gctx, wf.ID, opts.Since, opts.Branch)
+			if err != nil {
+				return fmt.Errorf("fetch runs for %q: %w", wf.Name, err)
+			}
+			for _, w := range fetchWarnings {
+				s.Prog.Log("WARNING: %s", w.Message)
+			}
+			mu.Lock()
+			result = append(result, workflowRuns{wf: wf, runs: runs})
+			mu.Unlock()
+			return nil
+		})
+	}
+	return result, g.Wait()
+}
+
+func (s *Service) hydrateAll(ctx context.Context, allWfRuns []workflowRuns, opts *Options) ([]model.RunDetail, error) {
+	var (
+		allDetails []model.RunDetail
+		mu         sync.Mutex
+	)
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(4)
+	for i := range allWfRuns {
+		wr := allWfRuns[i]
+		g.Go(func() error {
+			details := s.hydrateWorkflow(gctx, wr.wf, wr.runs, opts)
+			mu.Lock()
+			allDetails = append(allDetails, details...)
+			mu.Unlock()
+			return nil
+		})
+	}
+	return allDetails, g.Wait()
+}
+
+// checkRateBudget estimates API cost and verifies sufficient rate limit remains.
+func (s *Service) checkRateBudget(ctx context.Context, totalRuns int, opts *Options) error {
+	rl, err := s.Client.RateLimit(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("fetch runs for %q: %w", wf.Name, err)
-	}
-	for _, w := range fetchWarnings {
-		s.Prog.Log("WARNING: %s", w.Message)
-	}
-	if opts.Verbose {
-		s.Prog.Log("  %q: fetched %d runs in %s", wf.Name, len(runs), time.Since(fetchStart))
+		// Non-fatal: proceed without check if we can't read the rate limit
+		if opts.Verbose {
+			s.Prog.Log("Could not check rate limit: %v", err)
+		}
+		return nil
 	}
 
+	// Estimate: ~1 API call per run for job hydration + small overhead
+	// Cache will reduce this, but we estimate worst-case (no cache hits)
+	estimatedCalls := totalRuns + totalRuns/10 // 10% overhead for pagination
+	budget := int(float64(rl.Remaining) * rateLimitSafetyMargin)
+
+	if opts.Verbose {
+		s.Prog.Log("Rate limit: %d/%d remaining (resets %s), estimated calls: ~%d",
+			rl.Remaining, rl.Limit, rl.ResetAt.Format("15:04:05"), estimatedCalls)
+	}
+
+	if estimatedCalls > budget {
+		return fmt.Errorf(
+			"aborting: estimated ~%d API calls for %d runs would exceed rate limit budget "+
+				"(%d of %d remaining, resets %s). "+
+				"Try a shorter window (--since 7d) or filter to one workflow (--workflow <name>)",
+			estimatedCalls, totalRuns, rl.Remaining, rl.Limit,
+			time.Until(rl.ResetAt).Round(time.Minute))
+	}
+
+	return nil
+}
+
+// hydrateWorkflow loads run details from cache or API for a single workflow.
+func (s *Service) hydrateWorkflow(ctx context.Context, wf model.Workflow, runs []model.WorkflowRun, opts *Options) []model.RunDetail {
 	// Partition runs: serve completed from cache, fetch only new/incomplete from API.
 	var details []model.RunDetail
 	var needsFetch []model.WorkflowRun
@@ -215,5 +297,5 @@ func (s *Service) fetchWorkflow(ctx context.Context, wf model.Workflow, opts *Op
 		details = append(details, fetched...)
 	}
 
-	return details, nil
+	return details
 }
