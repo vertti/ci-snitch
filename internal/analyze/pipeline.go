@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/vertti/ci-snitch/internal/model"
@@ -309,16 +310,18 @@ func detectStages(jobs []model.Job) []rawStage {
 }
 
 // stageName creates a human-readable name for a stage based on its jobs.
+// Lists job names inline; falls back to a short count for very large stages.
 func stageName(jobs []string) string {
 	if len(jobs) == 1 {
 		return jobs[0]
 	}
-	// Find common prefix
-	prefix := commonPrefix(jobs)
-	if prefix != "" {
-		return fmt.Sprintf("%s (%d parallel)", prefix, len(jobs))
+	if prefix := commonPrefix(jobs); prefix != "" {
+		return fmt.Sprintf("%s (%d variants)", prefix, len(jobs))
 	}
-	return fmt.Sprintf("%d parallel jobs", len(jobs))
+	if len(jobs) <= 3 {
+		return strings.Join(jobs, ", ")
+	}
+	return fmt.Sprintf("%s, +%d more", strings.Join(jobs[:2], ", "), len(jobs)-2)
 }
 
 func commonPrefix(strs []string) string {

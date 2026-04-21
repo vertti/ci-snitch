@@ -355,18 +355,14 @@ func writePipelineTable(w io.Writer, findings []analyze.Finding) {
 			if stage.Sequential {
 				arrow = " " + yellow + "<< waits" + reset
 			}
-			jobCount := ""
-			if len(stage.Jobs) > 1 {
-				jobCount = fmt.Sprintf(" %s(%d parallel)%s", dim, len(stage.Jobs), reset)
-			}
 			critical := ""
 			if stage.Name == d.CriticalPath {
 				critical = " " + red + "<< critical path" + reset
 			}
-			_, _ = fmt.Fprintf(w, "  %s%s%s %s  %s  %.0f%%%s%s%s\n",
+			_, _ = fmt.Fprintf(w, "  %s%s%s %s  %s  %.0f%%%s%s\n",
 				dim, prefix, reset,
 				stage.Name, fmtDur(stage.Duration), stage.PctOfPipeline,
-				jobCount, arrow, critical)
+				arrow, critical)
 		}
 		_, _ = fmt.Fprintln(w)
 	}
@@ -489,9 +485,17 @@ func writeFailureTable(w io.Writer, findings []analyze.Finding) {
 		failsAt := ""
 		if len(d.FailingSteps) > 0 {
 			top := d.FailingSteps[0]
-			failsAt = fmt.Sprintf("\tfails at: %s%s%s", yellow, top.StepName, reset)
-			if len(d.FailingSteps) > 1 {
-				failsAt += fmt.Sprintf(" %s(+%d more)%s", dim, len(d.FailingSteps)-1, reset)
+			// If the top step accounts for >60% of failures, it's the dominant cause.
+			// Otherwise failures are distributed — say so explicitly.
+			dominant := d.FailureCount > 0 && float64(top.Count)/float64(d.FailureCount) >= 0.6
+			switch {
+			case dominant:
+				failsAt = fmt.Sprintf("\tfails at: %s%s%s", yellow, top.StepName, reset)
+			case len(d.FailingSteps) == 1:
+				failsAt = fmt.Sprintf("\tfails at: %s%s%s", yellow, top.StepName, reset)
+			default:
+				failsAt = fmt.Sprintf("\tfailures across %d steps %s(top: %s)%s",
+					len(d.FailingSteps), dim, top.StepName, reset)
 			}
 		}
 
