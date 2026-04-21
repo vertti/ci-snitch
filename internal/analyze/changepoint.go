@@ -50,6 +50,10 @@ const (
 	highSignificanceAlpha = 0.01
 	largeEffectPct        = 20.0
 	meaningfulEffectPct   = 10.0
+	// minAbsDeltaSeconds is the minimum absolute change in seconds for a
+	// changepoint to be considered notable. A 5s→6s job is 20% slower but
+	// not worth investigating.
+	minAbsDeltaSeconds = 10.0
 )
 
 func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, error) {
@@ -158,7 +162,8 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 			// driven by a few outliers, not a genuine level change.
 			overlapRatio := computeOverlapRatio(before, after)
 
-			severity := classifyChangePoint(pValue, pctChange)
+			absDelta := math.Abs(afterMean - beforeMean)
+			severity := classifyChangePoint(pValue, pctChange, absDelta)
 
 			findings = append(findings, Finding{
 				Type:     "changepoint",
@@ -243,11 +248,13 @@ func classifyPersistence(postChangeRuns, minSeg int, cps []stats.ChangePoint, cp
 	return "persistent"
 }
 
-// classifyChangePoint determines severity based on statistical significance and effect size.
-// Critical: p < 0.01 and abs(change) >= 20%.
-// Warning (notable): p < 0.05 and abs(change) >= 10%.
-// Info (minor): everything else -- shown only in verbose mode.
-func classifyChangePoint(pValue, pctChange float64) string {
+// classifyChangePoint determines severity based on statistical significance, effect size,
+// and absolute duration delta. A 5s→6s job is 20% slower but not worth alerting on.
+func classifyChangePoint(pValue, pctChange, absDeltaSeconds float64) string {
+	if absDeltaSeconds < minAbsDeltaSeconds {
+		return SeverityInfo
+	}
+
 	significant := pValue < significanceAlpha
 	largeEffect := math.Abs(pctChange) >= largeEffectPct
 	meaningfulEffect := math.Abs(pctChange) >= meaningfulEffectPct
