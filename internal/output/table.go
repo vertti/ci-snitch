@@ -406,17 +406,11 @@ func writeCostTable(w io.Writer, findings []analyze.Finding) {
 			continue
 		}
 
-		savings := ""
-		if d.DailySavingsEstimate > 0 {
-			savings = fmt.Sprintf("\t%ssave ~%.0f mins/day%s", esc(green), d.DailySavingsEstimate, esc(reset))
-		}
-
-		_, _ = fmt.Fprintf(tw, "  %s%s%s\t%s%.0f mins%s\t%s(%.0f/day)%s\t%s%d runs%s%s\n",
+		_, _ = fmt.Fprintf(tw, "  %s%s%s\t%s%.0f mins%s\t%s(%.0f/day)%s\t%s%d runs%s\n",
 			esc(bold), d.Workflow, esc(reset),
 			esc(cyan), d.BillableMinutes, esc(reset),
 			esc(dim), d.DailyRate, esc(reset),
-			esc(dim), d.TotalRuns, esc(reset),
-			savings)
+			esc(dim), d.TotalRuns, esc(reset))
 
 		// Show top 3 costliest jobs
 		limit := min(3, len(d.Jobs))
@@ -477,11 +471,6 @@ func writeFailureTable(w io.Writer, findings []analyze.Finding) {
 			parts = append(parts, fmt.Sprintf("retried: %d (+%d attempts)", d.RetriedRuns, d.ExtraAttempts))
 		}
 
-		cancelNote := ""
-		if d.CancellationCount > 0 {
-			cancelNote = fmt.Sprintf("\t%s+%d cancelled (%.0f%%)%s", dim, d.CancellationCount, d.CancellationRate*100, reset)
-		}
-
 		failsAt := ""
 		if len(d.FailingSteps) > 0 {
 			top := d.FailingSteps[0]
@@ -499,12 +488,12 @@ func writeFailureTable(w io.Writer, findings []analyze.Finding) {
 			}
 		}
 
-		_, _ = fmt.Fprintf(tw, "  %s%s%s\t%s%.0f%%%s\t%s(%d/%d runs)%s\t%s%s%s%s%s\n",
+		_, _ = fmt.Fprintf(tw, "  %s%s%s\t%s%.0f%%%s\t%s(%d/%d runs)%s\t%s%s%s%s\n",
 			bold, d.Workflow, reset,
 			rateColor, d.FailureRate*100, reset,
 			dim, d.FailureCount, d.TotalRuns, reset,
 			dim, strings.Join(parts, ", "), reset,
-			cancelNote, failsAt)
+			failsAt)
 	}
 	_ = tw.Flush()
 	if len(findings) > shown {

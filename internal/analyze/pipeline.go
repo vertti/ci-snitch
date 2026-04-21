@@ -310,7 +310,8 @@ func detectStages(jobs []model.Job) []rawStage {
 }
 
 // stageName creates a human-readable name for a stage based on its jobs.
-// Lists job names inline; falls back to a short count for very large stages.
+// For reusable-workflow jobs (named "parent / child"), uses just the child
+// name to avoid verbose doubled paths.
 func stageName(jobs []string) string {
 	if len(jobs) == 1 {
 		return jobs[0]
@@ -318,10 +319,24 @@ func stageName(jobs []string) string {
 	if prefix := commonPrefix(jobs); prefix != "" {
 		return fmt.Sprintf("%s (%d variants)", prefix, len(jobs))
 	}
-	if len(jobs) <= 3 {
-		return strings.Join(jobs, ", ")
+	short := make([]string, len(jobs))
+	for i, j := range jobs {
+		short[i] = lastPathSegment(j)
 	}
-	return fmt.Sprintf("%s, +%d more", strings.Join(jobs[:2], ", "), len(jobs)-2)
+	if len(short) <= 3 {
+		return strings.Join(short, ", ")
+	}
+	return fmt.Sprintf("%s, +%d more", strings.Join(short[:2], ", "), len(short)-2)
+}
+
+// lastPathSegment returns the substring after the last " / " in a job name.
+// Reusable workflow jobs are named like "tests / Merge artifacts"; for inline
+// display we only need "Merge artifacts".
+func lastPathSegment(name string) string {
+	if i := strings.LastIndex(name, " / "); i >= 0 {
+		return name[i+3:]
+	}
+	return name
 }
 
 func commonPrefix(strs []string) string {
