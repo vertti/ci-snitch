@@ -47,15 +47,6 @@ func (c *Client) FetchRunDetailsGraphQL(ctx context.Context, runs []model.Workfl
 		warnings = append(warnings, batchWarnings...)
 	}
 
-	// Warn about missing runner labels from GraphQL-fetched jobs
-	if len(graphqlRuns) > 0 {
-		warnings = append(warnings, diag.New(
-			diag.Info, diag.KindPartialData, "global",
-			fmt.Sprintf("runner labels unavailable for %d runs fetched via GraphQL (cost estimates use default 1x Linux rate)",
-				len(graphqlRuns)),
-		))
-	}
-
 	// Fall back to REST for runs without node IDs
 	if len(restRuns) > 0 {
 		restDetails, restWarnings := c.FetchRunDetails(ctx, restRuns)

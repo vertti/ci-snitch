@@ -143,8 +143,31 @@ func groupOutliers(findings []Finding) []Finding {
 		}
 	}
 
+	// Collapse job-level groups that duplicate a workflow-level group
+	// (same count, same worst commit). When an incident affects all matrix
+	// variants, the workflow-level row already tells the story.
+	wfGroups := make(map[string]*group)
+	for _, k := range order {
+		if k.job == "" {
+			wfGroups[k.wf] = groups[k]
+		}
+	}
+	isDuplicate := func(k groupKey) bool {
+		if k.job == "" {
+			return false
+		}
+		wfg := wfGroups[k.wf]
+		if wfg == nil {
+			return false
+		}
+		return wfg.count == groups[k].count && wfg.worstCommit == groups[k].worstCommit
+	}
+
 	var result []Finding
 	for _, k := range order {
+		if isDuplicate(k) {
+			continue
+		}
 		g := groups[k]
 		subject := k.wf
 		if k.job != "" {
