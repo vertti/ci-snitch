@@ -14,9 +14,9 @@ import (
 	"github.com/vertti/ci-snitch/internal/model"
 )
 
-// graphqlBatchSize is the max number of runs fetched per GraphQL query.
+// GraphQLBatchSize is the max number of runs fetched per GraphQL query.
 // Each run with jobs+steps costs ~1-4 rate limit points.
-const graphqlBatchSize = 20
+const GraphQLBatchSize = 20
 
 // graphqlMaxJobs is the max jobs fetched per run in a single query.
 const graphqlMaxJobs = 50
@@ -38,8 +38,8 @@ func (c *Client) FetchRunDetailsGraphQL(ctx context.Context, runs []model.Workfl
 	}
 
 	// Batch GraphQL fetches
-	for start := 0; start < len(graphqlRuns); start += graphqlBatchSize {
-		end := min(start+graphqlBatchSize, len(graphqlRuns))
+	for start := 0; start < len(graphqlRuns); start += GraphQLBatchSize {
+		end := min(start+GraphQLBatchSize, len(graphqlRuns))
 		batch := graphqlRuns[start:end]
 
 		batchDetails, batchWarnings := c.fetchBatchGraphQL(ctx, batch)
