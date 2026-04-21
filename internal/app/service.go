@@ -139,6 +139,17 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 	}
 	result := engine.Run(ctx, filtered, allDetails, rerunStats, workflowNames)
 	result.Meta.Repo = opts.Repo
+
+	// Summarize any jobs missing runner labels (GraphQL doesn't expose them).
+	// Emit a single aggregated diagnostic instead of one per workflow/batch.
+	if missing := countJobsMissingLabels(allDetails); missing > 0 {
+		result.Diagnostics = append(result.Diagnostics, diag.New(
+			diag.Info, diag.KindPartialData, "global",
+			fmt.Sprintf("runner labels unavailable for %d jobs (cost estimates use default 1x Linux rate)",
+				missing),
+		))
+	}
+
 	s.Prog.Done()
 	if opts.Verbose {
 		s.Prog.Log("Analyze: %s", time.Since(analyzeStart))
@@ -150,6 +161,18 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 type workflowRuns struct {
 	wf   model.Workflow
 	runs []model.WorkflowRun
+}
+
+func countJobsMissingLabels(details []model.RunDetail) int {
+	n := 0
+	for i := range details {
+		for j := range details[i].Jobs {
+			if len(details[i].Jobs[j].Labels) == 0 {
+				n++
+			}
+		}
+	}
+	return n
 }
 
 func (s *Service) fetchRunLists(ctx context.Context, workflows []model.Workflow, opts *Options) ([]workflowRuns, error) {

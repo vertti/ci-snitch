@@ -33,7 +33,7 @@ func (t TableFormatter) Format(w io.Writer, result *analyze.AnalysisResult) erro
 	}
 
 	if len(g.Steps) > 0 {
-		writeStepTable(w, g.Steps)
+		writeStepTable(w, g.Steps, t.Verbose)
 	}
 
 	if len(g.Pipelines) > 0 {
@@ -295,8 +295,11 @@ func fmtQueueTime(q analyze.QueueStats) string {
 	return fmt.Sprintf(" %s[queue %s]%s", yellow, fmtDur(q.Median), reset)
 }
 
-func writeStepTable(w io.Writer, findings []analyze.Finding) {
-	shown := min(5, len(findings))
+func writeStepTable(w io.Writer, findings []analyze.Finding, verbose bool) {
+	shown := len(findings)
+	if !verbose {
+		shown = min(5, shown)
+	}
 	_, _ = fmt.Fprintf(w, "%s── Step Breakdown (top %d jobs) ──%s\n", dim, shown, reset)
 
 	for _, f := range findings[:shown] {
@@ -323,7 +326,7 @@ func writeStepTable(w io.Writer, findings []analyze.Finding) {
 		_ = tw.Flush()
 	}
 	if len(findings) > shown {
-		_, _ = fmt.Fprintf(w, "  %s(%d more jobs not shown)%s\n", dim, len(findings)-shown, reset)
+		_, _ = fmt.Fprintf(w, "  %s(%d more jobs hidden, use -v to show)%s\n", dim, len(findings)-shown, reset)
 	}
 	_, _ = fmt.Fprintln(w)
 }
@@ -730,6 +733,6 @@ func writeLegend(w io.Writer) {
 	_, _ = fmt.Fprint(w, "Volatility (p95/median): [variable] 1.3-2x  [spiky] 2-3x  [volatile] >3x\n")
 	_, _ = fmt.Fprintf(w, "Outliers: %s●%s critical (p99+)  %s●%s warning (p95+)  %s●%s info\n",
 		red, dim, yellow, dim, dim, dim)
-	_, _ = fmt.Fprint(w, "Change points: ^ slowdown  v speedup | Status: N runs = persistent, transient = reverted, ? = too few runs\n")
+	_, _ = fmt.Fprint(w, "Change points: ▲ slowdown  ▼ speedup | Status: N runs = persistent, transient = reverted, ? = too few runs\n")
 	_, _ = fmt.Fprintf(w, "%s", reset)
 }
