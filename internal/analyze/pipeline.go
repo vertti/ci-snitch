@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/vertti/ci-snitch/internal/model"
@@ -309,16 +310,33 @@ func detectStages(jobs []model.Job) []rawStage {
 }
 
 // stageName creates a human-readable name for a stage based on its jobs.
+// For reusable-workflow jobs (named "parent / child"), uses just the child
+// name to avoid verbose doubled paths.
 func stageName(jobs []string) string {
 	if len(jobs) == 1 {
 		return jobs[0]
 	}
-	// Find common prefix
-	prefix := commonPrefix(jobs)
-	if prefix != "" {
-		return fmt.Sprintf("%s (%d parallel)", prefix, len(jobs))
+	if prefix := commonPrefix(jobs); prefix != "" {
+		return fmt.Sprintf("%s (%d variants)", prefix, len(jobs))
 	}
-	return fmt.Sprintf("%d parallel jobs", len(jobs))
+	short := make([]string, len(jobs))
+	for i, j := range jobs {
+		short[i] = lastPathSegment(j)
+	}
+	if len(short) <= 3 {
+		return strings.Join(short, ", ")
+	}
+	return fmt.Sprintf("%s, +%d more", strings.Join(short[:2], ", "), len(short)-2)
+}
+
+// lastPathSegment returns the substring after the last " / " in a job name.
+// Reusable workflow jobs are named like "tests / Merge artifacts"; for inline
+// display we only need "Merge artifacts".
+func lastPathSegment(name string) string {
+	if i := strings.LastIndex(name, " / "); i >= 0 {
+		return name[i+3:]
+	}
+	return name
 }
 
 func commonPrefix(strs []string) string {

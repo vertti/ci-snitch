@@ -115,12 +115,8 @@ func llmWritePriorityFindings(w io.Writer, g *groupedFindings) {
 			continue
 		}
 		hasPriority = true
-		_, _ = fmt.Fprintf(w, "- **[COST]** %s: %.0f billable mins/day (%.0f total)",
+		_, _ = fmt.Fprintf(w, "- **[COST]** %s: %.0f billable mins/day (%.0f total)\n",
 			d.Workflow, d.DailyRate, d.BillableMinutes)
-		if d.DailySavingsEstimate > 0 {
-			_, _ = fmt.Fprintf(w, " -- potential savings ~%.0f mins/day", d.DailySavingsEstimate)
-		}
-		_, _ = fmt.Fprint(w, "\n")
 	}
 
 	if !hasPriority {
@@ -397,11 +393,11 @@ func suggestFromCosts(findings []analyze.Finding) []string {
 	var s []string
 	for _, f := range findings {
 		d, ok := f.Detail.(analyze.CostDetail)
-		if !ok || d.DailySavingsEstimate < 10 {
+		if !ok || d.PriorityScore < 50 {
 			continue
 		}
-		s = append(s, fmt.Sprintf("%q has high variance (save ~%.0f mins/day if stabilized) -- check for flaky tests, cache misses, or resource contention",
-			d.Workflow, d.DailySavingsEstimate))
+		s = append(s, fmt.Sprintf("%q is a high-cost workflow (%.0f mins/day) -- check for flaky tests, cache misses, or resource contention",
+			d.Workflow, d.DailyRate))
 	}
 	return s
 }
