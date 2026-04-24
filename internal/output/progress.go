@@ -20,10 +20,13 @@ type Progress struct {
 }
 
 // NewProgress creates a progress writer for stderr.
+// Honors NO_COLOR by falling through to the non-TTY branch (no ANSI line-clear),
+// so redirected / captured output is readable.
 func NewProgress() *Progress {
+	tty := isatty.IsTerminal(os.Stderr.Fd()) && os.Getenv("NO_COLOR") == ""
 	return &Progress{
 		w:     os.Stderr,
-		isTTY: isatty.IsTerminal(os.Stderr.Fd()),
+		isTTY: tty,
 	}
 }
 

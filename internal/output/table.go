@@ -18,6 +18,10 @@ type TableFormatter struct {
 
 // Format implements Formatter.
 func (t TableFormatter) Format(w io.Writer, result *analyze.AnalysisResult) error {
+	if !useColor(w) {
+		disableColors()
+	}
+
 	if len(result.Findings) == 0 {
 		_, err := fmt.Fprintln(w, "No findings.")
 		return err
@@ -75,8 +79,10 @@ func (t TableFormatter) Format(w io.Writer, result *analyze.AnalysisResult) erro
 	return nil
 }
 
-// ANSI color codes
-const (
+// ANSI color codes. Package-level vars so disableColors() can blank them for
+// non-TTY / NO_COLOR output. Single-formatter-per-invocation assumption — not
+// safe for concurrent formatters.
+var (
 	bold   = "\033[1m"
 	dim    = "\033[2m"
 	red    = "\033[31m"
