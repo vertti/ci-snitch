@@ -1,322 +1,214 @@
 # ci-snitch Roadmap
 
-## Context
+## Status
 
-ci-snitch analyzes GitHub Actions CI performance: summary stats, outlier detection (Log-IQR/MAD), change point detection (CUSUM + Mann-Whitney U), with table/JSON/markdown output. SQLite cache, clean analyzer interface, solid foundation.
+The product is in **measurement-correctness + trust + scale-hardening** mode, not "needs architecture extraction" mode. The major orchestration refactors (service layer in `internal/app`, structured `diag.Diagnostic`, immutable cost model, errgroup fetch, batched store transactions, batched GraphQL hydration) have all shipped.
 
-**The gap:** output is information-rich but not decision-rich. Operators ask "what should I do first?" and get a wall of categorized findings instead. Trust in change points is low because the statistics are broken for small samples. Cost dimension is missing entirely. Failure/flakiness analysis doesn't exist.
+## Current architecture
 
-**North-star questions to answer:**
-1. "This build was slow — outlier, drift, or step change?"
-2. "Where exactly did the time go?" (job/step attribution)
-3. "Did that fix actually stick?" (persistence, not just detection)
-4. "Where should I invest effort?" (frequency × cost × improvement potential)
-5. "Which pipelines are flaky and wasting reruns?" (reliability + rerun tax)
-6. "Give me a dump that an LLM can immediately investigate"
-7. "Why is this failing?" (failing step name, not just failure rate)
-8. "Is the slowness the job or the queue?" (queue/wait time vs execution time)
-9. "Is this getting better or worse?" (failure rate trend direction)
+```
+cmd/ci-snitch/      CLI: flag parsing, dependency wiring, format selection
+internal/app/       Orchestrates fetch → preprocess → analyze pipeline
+internal/github/    REST + GraphQL client; sliding-window run listing; batched hydration
+internal/store/     SQLite cache (WAL, busy_timeout, prepared-statement batching)
+internal/preprocess/Branch filter, dedup, rerun stat extraction, matrix grouping
+internal/analyze/   Analyzers + post-processing. Engine runs analyzers sequentially
+internal/cost/      Runner-label → multiplier model (default GitHub rates; self-hosted; larger runners)
+internal/stats/     Outlier (log-IQR/MAD), CUSUM change-points, Mann-Whitney U
+internal/diag/      Unified Diagnostic{Severity, Kind, Scope, Message, Err}
+internal/output/    Formatters: table, JSON, markdown, llm
+internal/system/    Subprocess helper with timeouts
+internal/model/     Domain types; canonical RunDetail.Duration() (uses max job CompletedAt)
+```
 
----
+Analyzers in default order: `summary, steps, pipeline, runner, outlier, changepoint, failure, cost`.
 
-## Release 1: Foundation — Trust & Triage
+## What is already correct (do not redo)
 
-_Focus: fix correctness bugs, reduce cognitive load, make the default output answer "what should I look at first?"_
-
-### ~~1.1 Fix change point job identity key [S] — **bug fix**~~ DONE
-- `internal/analyze/changepoint.go:69` keys by `j.Name` alone
-- Two workflows with a job named "Unit tests" will have their distributions mixed
-- Fix: key by `(workflowName, jobName)` like outlier analyzer already does (outliers.go:76-78)
-- **Files:** `internal/analyze/changepoint.go`
-
-### ~~1.2 Fix small-sample Mann-Whitney p-values [M] — **bug fix**~~ DONE
-- `internal/stats/significance.go` uses normal approximation, states "valid for n > 20"
-- Change point analyzer calls it with after-window of `minSegment=5` runs (changepoint.go:101)
-- **Options:**
-  - (a) Exact U-test for small samples (enumerate all permutations when min(n1,n2) ≤ 20)
-  - (b) Permutation test (sample 10k permutations, compute empirical p-value)
-  - (c) Drop p-values for small windows, report effect size + persistence instead
-- **Recommendation:** (b) permutation test — straightforward, correct for any sample size, no combinatorial explosion. Fall back to normal approximation when both n > 20.
-- **Files:** `internal/stats/significance.go`, `internal/analyze/changepoint.go`
-
-### ~~1.3 Change point persistence & classification [S]~~ DONE
-- Currently `afterMean` uses only next `minSegment` points (changepoint.go:101)
-- After detecting change at index `i`, compute over all remaining data `durations[i:]`:
-  - `PostChangeRuns int` — how many runs since the shift
-  - `PostChangeCV float64` — coefficient of variation (stability)
-  - `Sustained bool` — no revert detected in the segment
-- Classify each change point: **persistent** / **transient** / **inconclusive** (insufficient data)
-- Add compact evidence block to output: pre/post window sizes, run count, effect size
-- **Files:** `internal/analyze/changepoint.go`, all formatters
-
-### ~~1.4 Volatility scoring [S]~~ DONE
-- For each workflow/job, compute `p95/median` ratio as tail-heaviness indicator
-- Categorical label: **stable** (<1.3), **variable** (1.3-2.0), **spiky** (2.0-3.0), **volatile** (>3.0) — thresholds configurable
-- Add to `SummaryDetail` alongside existing stats
-- **Files:** `internal/analyze/summary.go`, all formatters
-
-### ~~1.5 Triage header [S]~~ DONE
-- Above the current report, show a compact "top offenders" view:
-  - Top 3 by developer wait time (workflow wall-clock)
-  - Top 3 by total compute minutes (sum of job durations)
-  - Top 3 by volatility score
-  - Any active regressions (persistent change points from last N days)
-- Operator glances at first screen → knows what to investigate
-- **Files:** `internal/output/table.go`, `internal/output/markdown.go`
-
-### ~~1.6 Capture trigger event type [S]~~ DONE
-- Add `Event string` to `model.WorkflowRun` (push, pull_request, schedule, workflow_dispatch, etc.)
-- Extract from `r.GetEvent()` in `convertRun()` (client.go:275)
-- Store in SQLite, surface in summary (runs by trigger type)
-- **Files:** `internal/model/model.go`, `internal/github/client.go`, `internal/store/sqlite.go`
+- Workflow duration: `RunDetail.Duration()` prefers `max(job.CompletedAt) − Run.StartedAt`, falls back to `Run.UpdatedAt − StartedAt`. Used by every analyzer.
+- Failure classification: `cancelled` is tracked separately (`CancellationCount`/`CancellationRate`); only non-success/non-skipped/non-cancelled conclusions count as failures. Failure kind (systematic vs flaky) and category (infra/build/test/other) classified.
+- Cost model: self-hosted detected (multiplier 0); larger runners parsed from `-N-cores` suffix per OS; per-job billing rounded up to whole minute.
+- Priority score: built from per-run billable minutes (consistent units), not wall-clock variability.
+- Diagnostics: `diag.Diagnostic` is the single warning type; aggregated for repeated conditions (e.g. one "missing runner labels for N jobs" diagnostic across the run); embedded in JSON and LLM output; surfaced to stderr by the CLI.
+- GraphQL hydration: 20-run batched node lookup with REST fallback; ~20× fewer API calls than per-run REST.
+- Rate limit budget: pre-flight estimate with safety margin; abort with actionable error before exhausting limit.
+- Date-window listing: 7-day windows avoid the GitHub 1000-result-per-query cap; explicit warning when a window crosses it.
 
 ---
 
-## Release 2: Reliability & Cost Intelligence
+## Release 3 — Correctness gaps
 
-_Focus: quantify flakiness, rerun tax, and CI spend. Answer "where is money going?" and "which pipelines waste developer time with failures?"_
+_Highest leverage. Each item is small, independently shippable, and fixes a real bug or silent data-loss path._
 
-### ~~2.1 Capture runner metadata [S]~~ DONE
-- Add `RunnerName`, `RunnerGroupName`, `Labels []string` to `model.Job`
-- Extract from go-github's `WorkflowJob` in `convertJob()` (client.go:243) — fields already exist in the library
-- Add columns to SQLite `jobs` table
-- **Unlocks:** cost estimation in 2.4
-- **Files:** `internal/model/model.go`, `internal/github/client.go`, `internal/store/sqlite.go`
+### 3.1 Enable SQLite foreign-key enforcement [S] — correctness
+- `internal/store/sqlite.go` declares `REFERENCES` and relies on manual two-step delete in `SaveRunDetail` because cascade is not enforced. SQLite FKs are connection-level and **off by default**.
+- Add `PRAGMA foreign_keys = ON` to the pragma list in `Open` (next to `journal_mode=WAL` and `busy_timeout=5000`).
+- Add `ON DELETE CASCADE` to `jobs.run_id` and `steps.job_id` declarations.
+- Replace the manual `DELETE FROM steps … DELETE FROM jobs …` pair in `SaveRunDetail` and `SaveRunDetails` with a single `DELETE FROM runs WHERE id = ?` (now cascades) — only after the FK pragma is enabled.
+- Test: open the store, query `PRAGMA foreign_keys` and assert it returns 1; insert a run+jobs+steps fixture, delete the run, assert dependent rows are gone.
+- **Files:** `internal/store/sqlite.go`, `internal/store/sqlite_test.go`
 
-### ~~2.2 Failure rate analyzer [M]~~ DONE
-- New `internal/analyze/failures.go` implementing `Analyzer`
-- `FailureDetail`: failure rate, count, total runs, breakdown by conclusion type (failure/cancelled/timed_out/skipped), recent streak length, trend direction
-- Needs unfiltered data → add `AllDetails []model.RunDetail` to `AnalysisContext` (analyzer.go:17)
-- Feed both filtered and unfiltered data from `cmd/ci-snitch/analyze.go`
-- **Files:** `internal/analyze/failures.go` (new), `internal/analyze/analyzer.go`, `cmd/ci-snitch/analyze.go`, all formatters
+### 3.2 GraphQL truncation diagnostic [S] — correctness
+- `buildBatchQuery` requests `checkRuns(first:50)` and `steps(first:50)` with no `pageInfo` selection. Workflows with > 50 jobs (large matrices) or jobs with > 50 steps silently lose data.
+- Add `pageInfo{ hasNextPage }` to both connections in the query.
+- Emit one aggregated `diag.Warn` of `KindPartialData` per analysis when truncation occurs, including run count and which connection (jobs / steps) was truncated. Match the aggregation pattern already used for missing runner labels.
+- Stop short of full pagination here — surface the data loss first.
+- **Files:** `internal/github/graphql.go`, test in `internal/github/client_test.go`
 
-### ~~2.3 Rerun tax tracking [S]~~ DONE
-- Currently `DeduplicateRetries()` keeps latest attempt per run ID — good for duration stats, but loses "how many reruns happened"
-- Before deduplication, compute per-run-ID: max `RunAttempt`, and flag runs with attempts > 1
-- Surface rerun rate per workflow and total rerun cost (extra minutes wasted on failed-then-retried runs)
-- Combine with failure analyzer to identify "most expensive flaky workflows"
-- **Files:** `internal/preprocess/filter.go`, `internal/analyze/failures.go`
+### 3.3 Diagnostic consistency tests [S] — regression protection
+- The diagnostic system aggregates and surfaces correctly today, but no tests pin this behavior. Recent output polish was driven by user feedback rather than by failing tests.
+- Add tests asserting:
+  - 1000-result cap → exactly one `KindPartialData` diagnostic per crossed window with the run count in the message.
+  - GraphQL hydration with no node IDs → falls back to REST and emits no false warnings.
+  - GraphQL with 50+ jobs (after 3.2) → exactly one aggregated truncation diagnostic.
+  - Missing runner labels across multiple workflows → exactly one aggregated diagnostic, not one per workflow.
+- **Files:** `internal/github/client_test.go`, `internal/app/service_test.go` (new — see 3.4)
 
-### ~~2.4 Cost model & billable minutes estimation [M]~~ DONE
-- New `internal/cost/model.go`: runner label → cost multiplier mapping
-- Default multipliers from GitHub's published rates (ubuntu=1x, macos=10x, windows=2x, larger runners by label pattern)
-- Apply GitHub's rounding rule: job minutes rounded up to nearest whole minute
-- User-overridable via `--cost-config costs.yaml` for self-hosted/custom pricing
-- New `internal/analyze/cost.go` implementing `Analyzer`
-- `CostDetail`: raw minutes, billable minutes, estimated cost, runs/day, daily cost
-- **Files:** `internal/cost/` (new package), `internal/analyze/cost.go` (new)
+### 3.4 Tests for `internal/app` orchestration [M] — regression protection
+- `internal/app/service.go` currently has **no test file at all**. It owns workflow discovery, cache partitioning, rate-limit budgeting, hydration, dedup, preprocess, and analysis wiring — every change to this file is unverified.
+- Add `service_test.go` covering:
+  - cache partitioning (cached vs needs-fetch decision against `RunsSince` and `IncompleteRunIDs`)
+  - rate-limit budget abort path (estimated calls > budget → error with actionable message)
+  - rerun stats computed before dedup, dedup applied before analysis
+  - "no runs found" and "all filtered out" error paths
+- Use the existing `WorkflowFetcher` and `RunStore` interfaces — mock them with table-driven cases.
+- **Files:** `internal/app/service_test.go` (new)
 
-### ~~2.5 Prioritization score — "bang for buck" [S]~~ DONE
-- Composite: `runs_per_day × median_duration × cost_multiplier × improvement_potential`
-- `improvement_potential` = p95/median ratio (high = lots of room to optimize)
-- Ranked list with estimated daily savings if median brought to p25
-- Integrate into triage header from 1.5
-- **Files:** `internal/analyze/cost.go` or `internal/analyze/priority.go` (new)
+### 3.5 Deterministic permutation p-values in change-point analysis [S] — correctness
+- `internal/stats/significance.go` provides both `MannWhitneyU` (non-deterministic — fresh PCG seed per call) and `MannWhitneyURand(rng)` (deterministic when given a seeded RNG).
+- `internal/analyze/changepoint.go:136` calls `MannWhitneyU`. The exact-enumeration path (n ≤ 20) is deterministic regardless, but the permutation path (`min(n1,n2) ≤ 20` with `n1+n2 > 20`) drifts ~5% near the 0.05 boundary across runs.
+- Derive a deterministic seed from stable inputs (`workflowID, jobName, cp.Index`) and pass it via `MannWhitneyURand`.
+- Snapshot test: same input data → same p-values across two runs.
+- **Files:** `internal/analyze/changepoint.go`, `internal/analyze/changepoint_test.go`
 
-### ~~2.6 Wire up matrix job grouping [S]~~ DONE
-- `GroupMatrixJobs` / `ParseMatrixJobName` exist in `preprocess/filter.go:101-150` but are unused
-- Use in summary analyzer: group matrix variants under base name
-- Show grouped aggregate; per-variant in verbose mode
-- **Files:** `internal/analyze/summary.go`, `internal/preprocess/filter.go`
-
----
-
-## Release 2.5: Measurement Correctness
-
-_Focus: fix measurement inaccuracies that inflate failure rates, misattribute costs, and produce misleading priority scores. Each fix is independently shippable._
-
-### 2.5.1 Exclude `cancelled` from failure rate [S] — **measurement fix**
-- `internal/analyze/failures.go:56` counts anything not `success`/`skipped` as a failure
-- `cancelled` runs (developer-initiated cancellations of superseded runs) inflate failure rates significantly in active repos
-- Only count `conclusion == "failure"` and `conclusion == "timed_out"` as failures
-- Track `cancelled` separately: add `CancellationCount`/`CancellationRate` to `FailureDetail`
-- Keep `ByConclusion` map unchanged for full breakdown
-- Formatters show cancellation rate alongside failure rate when non-zero
-- **Files:** `internal/analyze/failures.go`, `internal/output/table.go`
-
-### 2.5.2 Detect self-hosted runners and expand cost model [S] — **measurement fix**
-- `internal/cost/model.go` only maps standard runner labels; self-hosted runners are billed at 1x Linux instead of $0
-- Larger GitHub-hosted runners (e.g., `ubuntu-latest-16-cores` = 8x) also missing
-- Add `IsSelfHosted(labels []string) bool` — returns true if any label is `"self-hosted"`
-- Self-hosted → multiplier 0.0; track `SelfHostedMinutes` separately in `CostDetail`
-- Add larger runner multipliers: pattern-match on `-N-cores` suffix per GitHub docs
-- **Files:** `internal/cost/model.go`, `internal/analyze/cost.go`
-
-### 2.5.3 Use max(job.CompletedAt) for workflow duration [M] — **measurement fix**
-- `WorkflowRun.Duration()` uses `UpdatedAt - StartedAt`; `UpdatedAt` can be bumped by post-completion events (annotations, deployment statuses), inflating durations and creating false outliers
-- Add `func (rd RunDetail) Duration() time.Duration`:
-  1. Compute `max(job.CompletedAt)` across all jobs
-  2. Return `maxCompletedAt - StartedAt` if valid
-  3. Fall back to `WorkflowRun.Duration()` when no jobs have completion times
-- Update callers: `summary.go:64`, `cost.go:65`, `outliers.go:59` — use `d.Duration()` instead of `d.Run.Duration()`
-- Keep `WorkflowRun.Duration()` as-is for backward compat
-- **Files:** `internal/model/model.go`, `internal/analyze/summary.go`, `internal/analyze/cost.go`, `internal/analyze/outliers.go`
-
-### 2.5.4 Compute priority score from billable durations [S] — **measurement fix**
-- `internal/analyze/cost.go:128-138` mixes wall-clock variability ratio (p95/median) with billable totals (includes OS multipliers and per-job rounding) — inconsistent units for parallel-job workflows
-- Replace `wfDurations` (wall-clock) with per-run billable sums: for each run, sum `BillableMinutes(job) × multiplier` across all jobs
-- Use billable-based median/p95/p25 for priority score and daily savings estimate
-- Depends on 2.5.3 being merged first
-- **Files:** `internal/analyze/cost.go`
-
-### Implementation order
-1. **2.5.1** (cancelled exclusion) — no dependencies
-2. **2.5.3** (max job CompletedAt) — no dependencies, but 2.5.4 depends on it
-3. **2.5.2** (self-hosted runners) — no dependencies
-4. **2.5.4** (billable priority score) — after 2.5.3
+### 3.6 Bounded GraphQL error-body reads [XS] — security hygiene
+- `doGraphQL` does `io.ReadAll(resp.Body)` without a limit. A misconfigured proxy or unexpected error page could return a large body.
+- Wrap with `io.LimitReader(resp.Body, 64<<10)`.
+- Keep the existing 200-byte truncation in error strings.
+- **Files:** `internal/github/graphql.go`
 
 ---
 
-## Release 3: The "Why" Dimension & LLM Integration
+## Release 4 — Performance
 
-_Focus: answer "why is this slow/failing?", add step-level visibility, and make output LLM-ready. Validated by real-world LLM analysis feedback: the tool's detection is strong but lacks the "why" to make findings actionable without manual investigation._
+### 4.1 Batch cache hydration [M]
+- `Store.LoadRunDetails` loops `LoadRunDetail` per run; `LoadRunDetail` then calls `loadSteps` per job. A 500-run cached scan does roughly `1 + 500 + Σjobs` queries (~1500+).
+- Add `Store.LoadRunDetailsBatch(workflowID, since)`: three queries — runs, then jobs `WHERE run_id IN (…)`, then steps `WHERE job_id IN (…)` — assembled in memory with maps.
+- Replace the per-run `LoadRunDetail` loop in `Service.hydrateWorkflow` with the batch call.
+- Benchmark before/after on a 500-run cached scenario and put the number in the PR body.
+- **Files:** `internal/store/sqlite.go`, `internal/app/service.go`, benchmark in `internal/store/sqlite_bench_test.go`
 
-### ~~3.1 LLM-optimized output format [M]~~ DONE
-- New `internal/output/llm.go`, registered as `--format llm`
-- Designed for copy-paste to Claude Code — narrative + structured data
-
-### ~~3.2 Step-level timing analyzer [M]~~ DONE
-- Steps are already fetched and stored in SQLite but never analyzed
-- New `internal/analyze/steps.go` implementing `Analyzer`
-- Per job: identify top 3 slowest steps by median duration, flag steps with high variance
-- Transforms "job is slow" into "Docker build step is slow" — critical for actionability
-- Surface in all formatters: nested under job in summary, inline in LLM output
-- **Files:** `internal/analyze/steps.go` (new), formatters
-
-### ~~3.3 Failing step attribution [S]~~ DONE
-- When a job fails, identify which step has `conclusion: failure`
-- Add `FailingSteps []FailingStep` to `FailureDetail` with step name, conclusion, frequency
-- Transforms "95% failure rate" into "95% failure rate — fails at 'Run integration tests'"
-- Data already available in `model.Job.Steps` — just needs analysis
-- **Files:** `internal/analyze/failures.go`, formatters
-
-### ~~3.4 Queue/wait time analysis [S]~~ DONE
-- `CreatedAt` to `StartedAt` gap = runner wait time (queued, waiting for runner)
-- Surface as separate metric in summary: median queue time, p95 queue time per workflow
-- Distinguishes "slow job" from "no runners available" — different root causes, different fixes
-- Data already in `model.WorkflowRun` — just needs extraction
-- **Files:** `internal/analyze/summary.go`, formatters
-
-### ~~3.5 Compact LLM mode — reduce noise [S]~~ DONE
-- Real-world test: 54k token report → ~5k useful tokens. Most JSON is oscillating/minor changepoints
-- `--format llm` should omit oscillating and minor changepoints from embedded JSON
-- Only include actionable findings (regressions, speedups, high-severity outliers, failure details)
-- Keep the narrative section unchanged (already well-filtered by postprocessor)
-- **Files:** `internal/output/llm.go`
-
-### ~~3.6 Raw JSON to separate file [S]~~ DONE
-### ~~3.9 Failure rate trend [S]~~ DONE
-### ~~3.10 Outlier-resistant changepoint detection [M]~~ DONE
-### ~~3.11 Systematic vs flaky failure classification [S]~~ DONE
-### ~~3.12 Failure clustering by category [M]~~ DONE
+### 4.2 GraphQL pagination for jobs/steps [M]
+- Build on 3.2. After detecting truncation, page the affected `checkRuns` / `steps` connection individually using `after: $cursor`.
+- Keep the 20-run-per-batch outer loop unchanged. Only paginate the slow path when 3.2's diagnostic would have fired.
+- **Files:** `internal/github/graphql.go`
 
 ---
 
-## Release 4: Pipeline Structure & Runner Intelligence
+## Release 5 — Pipeline depth
 
-_Focus: analyze pipeline structure (sequential chains, parallelism efficiency) and runner allocation. Answers "where is wall-clock time wasted?" and "are runners right-sized?"_
-
-### 4.1 Pipeline critical path analysis [M]
-- For each workflow, detect sequential dependency chains by comparing job start/end times
-- Compute parallelism efficiency: `1 - (wall_clock / sum_of_jobs)`. Deploy workflow achieves 45% but sometimes drops to 1-5%
-- Identify the critical path: which job(s) determine the wall-clock finish time?
-- Surface: "tests run in parallel (66% efficiency), then deploy runs serially (85% of remaining time)"
-- Data already available in `job.StartedAt`/`CompletedAt` — just needs overlap analysis
-- **Files:** `internal/analyze/pipeline.go` (new), formatters
-
-### 4.2 Sequential stage detection [S]
-- Group jobs into stages based on temporal overlap (jobs starting within a few seconds of each other = same stage)
-- Detect sequential dependencies: stage B starts only after stage A finishes
-- Report: "3 stages: tests (4 parallel jobs, 9m) → builds (2 parallel, 4m) → deploy (1 serial, 10m)"
+### 5.1 Parallelism opportunity detection [S]
+- `PipelineAnalyzer` already computes parallelism efficiency, stages, and the critical path. It does **not** estimate "if these stages weren't sequential, you'd save N minutes."
+- For each detected sequential transition, estimate savings: if stage B (no upstream artifact dependency, judged by job-name overlap) ran in parallel with stage A, wall-clock would drop from `dur(A) + dur(B)` to `max(dur(A), dur(B))`.
+- Conservative: only flag when stages share no obvious data dependency. Surface as `Severity: Info`, not as a confident recommendation.
 - **Files:** `internal/analyze/pipeline.go`
 
-### 4.3 Runner sizing recommendations [M]
-- Match runner labels to job durations: flag over-provisioned runners (large runner, short job) and under-provisioned (small runner, long job)
-- Thresholds: 16-core runner for <2min job → "downsize to 4-core, save 4x cost"; 4-core runner for >15min job → "consider 16-core to reduce wait"
-- Surface billable cost impact of resizing
-- **Files:** `internal/analyze/runners.go` (new), `internal/cost/model.go`, formatters
+### 5.2 Workflow config diff at change points [S]
+- When a change point is detected, fetch the changed file list for the captured commit SHA via `gh api /repos/{owner}/{repo}/commits/{sha}` (one call per regression).
+- Label change points as "CI config change" (any `.github/workflows/*.yml` modified) vs "application code change" — would have explained real-world regressions immediately.
+- Cache the result in SQLite keyed by SHA.
+- **Files:** `internal/github/client.go`, `internal/analyze/changepoint.go`, `internal/store/sqlite.go`
 
-### 4.4 Parallelism opportunity detection [S]
-- When a sequential chain is detected, estimate time savings from parallelization
-- Example: "builds stage (4m) waits for tests (9m). If builds ran in parallel with tests, workflow would save ~4m (from 23m to 19m)"
-- Conservative: only flag when both stages have no data dependency (different job names, no artifact passing)
-- **Files:** `internal/analyze/pipeline.go`
+### 5.3 Reusable workflow call-chain dedup [M]
+- `workflow_call` reusables produce duplicated findings across caller and callee.
+- Detect call chains from workflow YAML `jobs.*.uses` fields (one fetch per workflow definition, cached).
+- Attribute findings to the leaf workflow; suppress duplicates on callers.
+- **Files:** `internal/github/client.go`, `internal/preprocess/`, `internal/analyze/postprocess.go`
 
-### Implementation priority
-1. **4.1** (critical path) + **4.2** (stage detection) — core pipeline analysis
-2. **4.3** (runner sizing) — cost optimization
-3. **4.4** (parallelism opportunities) — requires 4.1+4.2
+### 5.4 Branch-aware failure analysis [S]
+- PR-branch failures (expected during development) and main-branch failures (incidents) carry different signal.
+- Add `--branch-category {pr,main,all}` that filters or weights failure analysis accordingly.
+- Default keeps current behavior; document the flag.
+- **Files:** `internal/analyze/failures.go`, `internal/preprocess/filter.go`, `cmd/ci-snitch/analyze.go`
 
----
-
-## Release 5: Scale & CI Integration
-
-### 5.1 Multi-repo config [M]
-- Config file listing repos (optional team/owner grouping)
-- Cross-repo triage: top offenders across the organization
-- Shared SQLite or per-repo databases with aggregate queries
-
-### 5.2 PR comment bot [M]
-- `ci-snitch report --repo R --pr 123` posts markdown comparison on PR
-- Uses `compare` logic (PR branch vs base branch)
-- Ship as reusable GitHub Action
-
-### 5.3 Workflow config diff at change points [S]
-- When a changepoint is detected, use GitHub API `git diff --name-only` for that commit
-- Check if `.github/workflows/*.yml` changed — if yes, label as "CI config change" vs "application code change"
-- Cheap to implement: commit SHA is already captured, just need one API call per regression
-- Would have immediately explained real-world regressions (commit was code change, not CI)
-- **Files:** `internal/github/client.go`, `internal/analyze/changepoint.go`, formatters
-
-### 5.4 Reusable workflow call chain dedup [M]
-- `deploy-test.yml` calls `tests.yml` via `workflow_call` — findings are duplicated across both
-- Detect call chains from workflow YAML `jobs.*.uses` fields
-- Attribute findings to the leaf workflow, suppress duplicates from callers
-- **Files:** `internal/github/client.go` (fetch workflow YAML), `internal/preprocess/`
-
-### 5.5 Branch-aware failure analysis [S]
-- PR failures (expected during development) vs main failures (critical) are very different signals
-- Default: weight main-branch failures higher in severity, or separate failure rates by branch category
-- Extends `--branch` flag with `--branch-category pr|main|all`
-- **Files:** `internal/analyze/failures.go`, `internal/preprocess/filter.go`
-
-### 5.6 Regression commit diff attribution [S]
-- Change point detection already captures the commit SHA
-- Fetch `git diff --stat` via GitHub API for that commit to show what files changed
-- Saves the user a manual `git show` round-trip per regression
+### 5.5 Regression commit attribution [S]
+- Augment 5.2: also pull `git diff --stat`-equivalent file/line counts from the GitHub commits API and surface in change-point output, saving the user one round-trip per regression.
 - **Files:** `internal/github/client.go`, `internal/analyze/changepoint.go`, formatters
 
 ---
 
-## Key Files Reference
+## Release 6 — Scale & integration
 
-| File | What Changes | Releases |
-|------|-------------|----------|
-| `internal/analyze/changepoint.go` | Job identity fix, persistence, drift | 1.1, 1.2, 1.3 |
-| `internal/stats/significance.go` | Permutation test for small samples | 1.2 |
-| `internal/analyze/summary.go` | Volatility scoring, matrix grouping | 1.4, 2.6 |
-| `internal/output/table.go` | Triage header, volatility labels, cost | 1.5, 2.x |
-| `internal/model/model.go` | Runner fields, event type | 1.6, 2.1 |
-| `internal/github/client.go` | Extract runner info, event | 1.6, 2.1 |
-| `internal/store/sqlite.go` | Schema migration for new columns | 1.6, 2.1 |
-| `internal/analyze/analyzer.go` | `AllDetails` on AnalysisContext | 2.2 |
-| `internal/analyze/failures.go` | New analyzer, cancel exclusion | 2.2, 2.3, 2.5.1 |
-| `internal/cost/model.go` | New package, self-hosted detection | 2.4, 2.5.2 |
-| `internal/analyze/cost.go` | New analyzer, billable priority | 2.4, 2.5, 2.5.2, 2.5.4 |
-| `internal/analyze/steps.go` | New step-level analyzer | 3.2 |
-| `internal/output/llm.go` | New formatter, compact mode, raw output | 3.1, 3.5, 3.6, 3.7 |
-| `cmd/ci-snitch/compare.go` | New subcommand | 3.8 |
-| `internal/tui/` | New package (bubbletea) | 4.x |
+### 6.1 Multi-repo config [M]
+- Config file (TOML or YAML) listing repos with optional team/owner grouping.
+- Cross-repo triage: top offenders across the org.
+- Per-repo SQLite databases under `~/.cache/ci-snitch/<owner>/<repo>.db`; aggregate queries fan out across them.
+- **Files:** `cmd/ci-snitch/`, `internal/app/`, `internal/store/`
+
+### 6.2 PR comment bot [M]
+- `ci-snitch report --pr 123` posts a markdown comparison (PR branch vs base branch) to the PR.
+- Reusable GitHub Action that wraps the command.
+- **Files:** new subcommand under `cmd/ci-snitch/`, action manifest under `.github/actions/`
+
+---
+
+## Release 7 — Polish
+
+### 7.1 Use typed constants in `DetailType()` [XS]
+- Replace string literals in `changepoint.go:33`, `cost.go:34`, `summary.go:48`, `outliers.go:22` with `TypeChangepoint`, `TypeCost`, `TypeSummary`, `TypeOutlier`. Add the few missing constants in `analyzer.go`.
+- Pure mechanical; no behavior change.
+- **Files:** `internal/analyze/*.go`
+
+### 7.2 Add `govulncheck` to CI [S]
+- New `mise run vuln` task running `govulncheck ./...`.
+- New CI step after `lint`. Fatal from day one if the baseline is clean.
+- **Files:** `mise.toml`, `.github/workflows/ci.yml`
+
+### 7.3 `ci-snitch doctor` command [S]
+- Validate: GitHub token resolvable (env or `gh`), rate limit readable, cache path writable, SQLite openable, `git remote get-url origin` succeeds in cwd.
+- One line per check; non-zero exit on any failure. Reduces support-question volume.
+- **Files:** `cmd/ci-snitch/doctor.go` (new)
+
+### 7.4 Versioned schema migrations [M]
+- Currently `migrate()` reads `PRAGMA table_info` and conditionally `ALTER TABLE`s known columns. This works but won't scale once we want index changes, table renames, or backfills.
+- Add `schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT)`; convert the existing `event` and runner-metadata column adds into versioned `Migration{Version, Name, Up}` records.
+- Defer until a schema change actually wants this — don't refactor speculatively.
+- **Files:** `internal/store/sqlite.go`, `internal/store/migrations.go` (new)
+
+---
+
+## Verification gate
+
+Every PR:
+1. `mise run check` (fmt + lint + test).
+2. `go run ./cmd/smoke` — update `cmd/smoke/main.go` to exercise any new functionality.
+3. `./bin/ci-snitch analyze cli/cli --since 7d` — eyeball output for regressions.
+4. New analyzers / formatters: golden tests with anonymized data in `internal/*/testdata/`.
 
 ## Versioning
 
-Tag a new minor version after each PR merge to main. Every PR delivers value, so every merge is a release. Semver: bump minor for new features/analyzers, patch for bug fixes.
+Tag a new minor version after each PR merge to main. Every PR delivers value, so every merge is a release. Semver: minor for new features, patch for bug fixes.
 
-## Verification
+## Implementation order
 
-Each PR:
-1. `mise run check` (fmt + lint + test)
-2. `go run ./cmd/smoke` — update smoke test to exercise new features
-3. `./bin/ci-snitch analyze cli/cli --since 7d` — verify output
-4. For new analyzers: golden file tests in `internal/*/testdata/` with anonymized data
-5. For TUI: manual interactive testing
+The first six items are unblocked, small, and high-leverage. Do them in order:
+
+1. **3.1** PRAGMA foreign_keys + cascade
+2. **3.6** Bounded GraphQL error reads
+3. **3.5** Deterministic change-point p-values
+4. **3.2** GraphQL truncation diagnostic
+5. **3.3** Diagnostic consistency tests
+6. **3.4** Tests for `internal/app`
+
+Then perf and depth (4.x → 5.x). Polish (7.x) is opportunistic and can interleave.
+
+## Items intentionally not adopted
+
+These came up in past audits but are either lower-leverage than the work above or speculative:
+
+- **Splitting `Service.Run` further into Planner/Hydrator/etc.** — already factored into helpers; adding more types moves code without a forcing function.
+- **Adopting `golang.org/x/time/rate` central limiter** — current per-paginator sleep + GraphQL batching + pre-flight budget covers the cases we have. Revisit only after a real secondary-rate-limit incident.
+- **Adopting `gonum`, `go-pretty`, `hashicorp/go-retryablehttp`** — `internal/stats` is small and tested; formatters work; `go-github` already owns HTTP. No concrete pain.
+- **"Source-neutral" data interface for future GitLab/CircleCI** — speculative scope. Defer until a second backend is real.
+- **Broad string-constant audit beyond 7.1** — current constants in `analyzer.go` are sufficient; only `DetailType()` literals are inconsistent.
+- **Migration-framework refactor before a schema change actually demands it** — see 7.4.
