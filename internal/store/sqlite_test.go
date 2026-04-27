@@ -225,6 +225,86 @@ func TestSaveRunDetails_Batch(t *testing.T) {
 	assert.Len(t, runs, 5)
 }
 
+func TestForeignKeysEnabled(t *testing.T) {
+	s := testStore(t)
+
+	var enabled int
+	err := s.db.QueryRow(`PRAGMA foreign_keys`).Scan(&enabled)
+	require.NoError(t, err)
+	assert.Equal(t, 1, enabled, "foreign_keys pragma should be ON")
+}
+
+func TestForeignKey_RejectsOrphanJob(t *testing.T) {
+	s := testStore(t)
+
+	// Insert a job with a run_id that does not exist. With FK enforcement on,
+	// this must fail.
+	_, err := s.db.Exec(`INSERT INTO jobs (id, run_id, name, status, conclusion, started_at, completed_at, runner_name, runner_group_name, labels)
+		VALUES (9999, 88888, 'orphan', 'completed', 'success', '2026-04-01T12:00:00Z', '2026-04-01T12:01:00Z', '', '', '')`)
+	require.Error(t, err, "inserting a job with a non-existent run_id must fail under FK enforcement")
+}
+
+func TestSaveRunDetail_UpsertReplacesChildren(t *testing.T) {
+	s := testStore(t)
+
+	// Save initial run with two steps under one job.
+	detail := testRunDetail()
+	require.NoError(t, s.SaveRunDetail(&detail))
+
+	// Replace: same run, different jobs+steps.
+	detail.Jobs = []model.Job{
+		{
+			ID:          2099,
+			RunID:       1001,
+			Name:        "rebuilt",
+			Status:      "completed",
+			Conclusion:  "success",
+			StartedAt:   detail.Run.StartedAt,
+			CompletedAt: detail.Run.UpdatedAt,
+			Steps: []model.Step{
+				{Name: "Only step", Number: 1, Status: "completed", Conclusion: "success",
+					StartedAt: detail.Run.StartedAt, CompletedAt: detail.Run.UpdatedAt},
+			},
+		},
+	}
+	require.NoError(t, s.SaveRunDetail(&detail))
+
+	loaded, err := s.LoadRunDetail(1001)
+	require.NoError(t, err)
+	require.Len(t, loaded.Jobs, 1)
+	assert.Equal(t, "rebuilt", loaded.Jobs[0].Name)
+	assert.Equal(t, int64(2099), loaded.Jobs[0].ID)
+	require.Len(t, loaded.Jobs[0].Steps, 1)
+	assert.Equal(t, "Only step", loaded.Jobs[0].Steps[0].Name)
+
+	// No orphan rows should remain from the previous save.
+	var jobCount, stepCount int
+	require.NoError(t, s.db.QueryRow(`SELECT COUNT(*) FROM jobs WHERE run_id = 1001`).Scan(&jobCount))
+	require.NoError(t, s.db.QueryRow(`SELECT COUNT(*) FROM steps WHERE job_id = 2001`).Scan(&stepCount))
+	assert.Equal(t, 1, jobCount)
+	assert.Equal(t, 0, stepCount)
+}
+
+func TestSaveRunDetails_BatchUpsertReplacesChildren(t *testing.T) {
+	s := testStore(t)
+
+	// Initial save via batch path.
+	detail := testRunDetail()
+	require.NoError(t, s.SaveRunDetails([]model.RunDetail{detail}))
+
+	// Replace via the same batch path with new children.
+	detail.Jobs[0].ID = 2099
+	detail.Jobs[0].Name = "rebuilt"
+	detail.Jobs[0].Steps = detail.Jobs[0].Steps[:1]
+	require.NoError(t, s.SaveRunDetails([]model.RunDetail{detail}))
+
+	loaded, err := s.LoadRunDetail(1001)
+	require.NoError(t, err)
+	require.Len(t, loaded.Jobs, 1)
+	assert.Equal(t, "rebuilt", loaded.Jobs[0].Name)
+	require.Len(t, loaded.Jobs[0].Steps, 1)
+}
+
 func TestMigration_AddsEventColumn(t *testing.T) {
 	// Simulate a pre-migration database: create schema without the event column,
 	// then open with Open() which should migrate.
