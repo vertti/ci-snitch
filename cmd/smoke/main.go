@@ -87,6 +87,13 @@ func run() error {
 	}
 	fmt.Printf("Saved %d run details to store\n", len(details))
 
+	// Re-save the same details to exercise the upsert path under foreign-key
+	// enforcement: replacing a run row with existing children must succeed.
+	if err := s.SaveRunDetails(details); err != nil {
+		return fmt.Errorf("re-save (upsert path): %w", err)
+	}
+	fmt.Printf("Re-saved %d run details (upsert path)\n", len(details))
+
 	// Load back and verify
 	loaded, err := s.LoadRunDetails(wf.ID, since)
 	if err != nil {

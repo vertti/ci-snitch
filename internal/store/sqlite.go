@@ -87,10 +87,12 @@ func Open(path string) (*Store, error) {
 
 	// WAL mode allows concurrent reads and avoids SQLITE_BUSY under
 	// parallel workflow writes. busy_timeout retries on lock contention
-	// instead of failing immediately.
+	// instead of failing immediately. foreign_keys enforces the REFERENCES
+	// declarations in the schema (off by default in SQLite).
 	for _, pragma := range []string{
 		`PRAGMA journal_mode=WAL`,
 		`PRAGMA busy_timeout=5000`,
+		`PRAGMA foreign_keys=ON`,
 	} {
 		if _, err := db.Exec(pragma); err != nil {
 			_ = db.Close()
@@ -194,6 +196,17 @@ func (s *Store) SaveRunDetail(d *model.RunDetail) error {
 	defer tx.Rollback() //nolint:errcheck // error on deferred close has no actionable caller
 
 	r := d.Run
+
+	// Clear existing children before replacing the parent: with foreign_keys ON,
+	// the implicit delete inside INSERT OR REPLACE on runs would otherwise fail
+	// because dependent jobs/steps reference the run we are about to replace.
+	if _, err := tx.Exec(`DELETE FROM steps WHERE job_id IN (SELECT id FROM jobs WHERE run_id = ?)`, r.ID); err != nil {
+		return fmt.Errorf("delete old steps for run %d: %w", r.ID, err)
+	}
+	if _, err := tx.Exec(`DELETE FROM jobs WHERE run_id = ?`, r.ID); err != nil {
+		return fmt.Errorf("delete old jobs for run %d: %w", r.ID, err)
+	}
+
 	_, err = tx.Exec(`INSERT OR REPLACE INTO runs (id, workflow_id, workflow_name, name, event, status, conclusion, head_branch, head_sha, run_attempt, created_at, started_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ID, r.WorkflowID, r.WorkflowName, r.Name, r.Event, r.Status, r.Conclusion,
@@ -202,14 +215,6 @@ func (s *Store) SaveRunDetail(d *model.RunDetail) error {
 	)
 	if err != nil {
 		return fmt.Errorf("insert run %d: %w", r.ID, err)
-	}
-
-	// Delete old jobs+steps on replace (cascade not supported without FK enforcement)
-	if _, err := tx.Exec(`DELETE FROM steps WHERE job_id IN (SELECT id FROM jobs WHERE run_id = ?)`, r.ID); err != nil {
-		return fmt.Errorf("delete old steps for run %d: %w", r.ID, err)
-	}
-	if _, err := tx.Exec(`DELETE FROM jobs WHERE run_id = ?`, r.ID); err != nil {
-		return fmt.Errorf("delete old jobs for run %d: %w", r.ID, err)
 	}
 
 	for j := range d.Jobs {
@@ -285,7 +290,18 @@ func (s *Store) SaveRunDetails(details []model.RunDetail) error {
 	defer stepStmt.Close() //nolint:errcheck // error on deferred close has no actionable caller
 
 	for i := range details {
-		r := details[i].Run
+		d := &details[i]
+		r := d.Run
+
+		// Clear existing children before replacing the parent: with foreign_keys ON,
+		// INSERT OR REPLACE on runs would otherwise fail when dependent rows exist.
+		if _, err := deleteStepsStmt.Exec(r.ID); err != nil {
+			return fmt.Errorf("delete old steps for run %d: %w", r.ID, err)
+		}
+		if _, err := deleteJobsStmt.Exec(r.ID); err != nil {
+			return fmt.Errorf("delete old jobs for run %d: %w", r.ID, err)
+		}
+
 		if _, err := runStmt.Exec(
 			r.ID, r.WorkflowID, r.WorkflowName, r.Name, r.Event, r.Status, r.Conclusion,
 			r.HeadBranch, r.HeadSHA, r.RunAttempt,
@@ -294,28 +310,23 @@ func (s *Store) SaveRunDetails(details []model.RunDetail) error {
 			return fmt.Errorf("insert run %d: %w", r.ID, err)
 		}
 
-		if _, err := deleteStepsStmt.Exec(r.ID); err != nil {
-			return fmt.Errorf("delete old steps for run %d: %w", r.ID, err)
-		}
-		if _, err := deleteJobsStmt.Exec(r.ID); err != nil {
-			return fmt.Errorf("delete old jobs for run %d: %w", r.ID, err)
-		}
-
-		for j := range details[i].Jobs {
+		for j := range d.Jobs {
+			job := &d.Jobs[j]
 			if _, err := jobStmt.Exec(
-				details[i].Jobs[j].ID, r.ID, details[i].Jobs[j].Name, details[i].Jobs[j].Status, details[i].Jobs[j].Conclusion,
-				fmtTime(details[i].Jobs[j].StartedAt), fmtTime(details[i].Jobs[j].CompletedAt),
-				details[i].Jobs[j].RunnerName, details[i].Jobs[j].RunnerGroupName, strings.Join(details[i].Jobs[j].Labels, ","),
+				job.ID, r.ID, job.Name, job.Status, job.Conclusion,
+				fmtTime(job.StartedAt), fmtTime(job.CompletedAt),
+				job.RunnerName, job.RunnerGroupName, strings.Join(job.Labels, ","),
 			); err != nil {
-				return fmt.Errorf("insert job %d: %w", details[i].Jobs[j].ID, err)
+				return fmt.Errorf("insert job %d: %w", job.ID, err)
 			}
 
-			for st := range details[i].Jobs[j].Steps {
+			for st := range job.Steps {
+				step := &job.Steps[st]
 				if _, err := stepStmt.Exec(
-					details[i].Jobs[j].ID, details[i].Jobs[j].Steps[st].Name, details[i].Jobs[j].Steps[st].Number, details[i].Jobs[j].Steps[st].Status, details[i].Jobs[j].Steps[st].Conclusion,
-					fmtTime(details[i].Jobs[j].Steps[st].StartedAt), fmtTime(details[i].Jobs[j].Steps[st].CompletedAt),
+					job.ID, step.Name, step.Number, step.Status, step.Conclusion,
+					fmtTime(step.StartedAt), fmtTime(step.CompletedAt),
 				); err != nil {
-					return fmt.Errorf("insert step %q for job %d: %w", details[i].Jobs[j].Steps[st].Name, details[i].Jobs[j].ID, err)
+					return fmt.Errorf("insert step %q for job %d: %w", step.Name, job.ID, err)
 				}
 			}
 		}
