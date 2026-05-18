@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	gh "github.com/google/go-github/v86/github"
+	gh "github.com/google/go-github/v87/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
