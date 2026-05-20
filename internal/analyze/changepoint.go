@@ -30,7 +30,7 @@ type ChangePointDetail struct {
 }
 
 // DetailType implements FindingDetail.
-func (ChangePointDetail) DetailType() string { return "changepoint" }
+func (ChangePointDetail) DetailType() string { return TypeChangepoint }
 
 // ChangePointAnalyzer detects when CI performance shifted using CUSUM.
 type ChangePointAnalyzer struct {

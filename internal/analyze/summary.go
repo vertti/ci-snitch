@@ -45,7 +45,7 @@ type JobSummary struct {
 }
 
 // DetailType implements FindingDetail.
-func (SummaryDetail) DetailType() string { return "summary" }
+func (SummaryDetail) DetailType() string { return TypeSummary }
 
 // SummaryAnalyzer computes per-workflow and per-job summary statistics.
 type SummaryAnalyzer struct {

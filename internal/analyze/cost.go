@@ -31,7 +31,7 @@ type JobCostBreakdown struct {
 }
 
 // DetailType implements FindingDetail.
-func (CostDetail) DetailType() string { return "cost" }
+func (CostDetail) DetailType() string { return TypeCost }
 
 // CostAnalyzer estimates CI cost per workflow based on job durations and runner types.
 type CostAnalyzer struct{}
