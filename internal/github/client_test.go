@@ -18,11 +18,19 @@ import (
 
 func testClient(t *testing.T, handler http.Handler) *Client {
 	t.Helper()
-	srv := httptest.NewServer(handler)
+	// go-github v87 sends requests under /api/v3/ when configured via
+	// WithEnterpriseURLs, so strip that prefix before dispatching to the
+	// caller's handler so existing test routes keep working.
+	root := http.NewServeMux()
+	root.Handle("/api/v3/", http.StripPrefix("/api/v3", handler))
+	srv := httptest.NewServer(root)
 	t.Cleanup(srv.Close)
 
-	ghClient := gh.NewClient(nil).WithAuthToken("test-token")
-	ghClient.BaseURL, _ = ghClient.BaseURL.Parse(srv.URL + "/")
+	ghClient, err := gh.NewClient(
+		gh.WithAuthToken("test-token"),
+		gh.WithEnterpriseURLs(srv.URL, srv.URL),
+	)
+	require.NoError(t, err)
 
 	return &Client{
 		gh:     ghClient,
