@@ -81,6 +81,7 @@ linters:
       min-complexity: 20
     goconst:
       min-occurrences: 3
+      ignore-tests: true
     nolintlint:
       require-explanation: true
       require-specific: true

@@ -19,7 +19,7 @@ type OutlierDetail struct {
 }
 
 // DetailType implements FindingDetail.
-func (OutlierDetail) DetailType() string { return "outlier" }
+func (OutlierDetail) DetailType() string { return TypeOutlier }
 
 // OutlierAnalyzer detects runs or jobs with abnormally long durations.
 type OutlierAnalyzer struct {
