@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	gh "github.com/google/go-github/v86/github"
+	gh "github.com/google/go-github/v87/github"
 	"github.com/vertti/ci-snitch/internal/diag"
 	"github.com/vertti/ci-snitch/internal/model"
 )
@@ -48,8 +48,12 @@ func NewClient(token, ownerRepo string, opts ...ClientOption) (*Client, error) {
 		return nil, fmt.Errorf("invalid repo format %q, expected owner/repo", ownerRepo)
 	}
 
+	ghClient, err := gh.NewClient(gh.WithAuthToken(token))
+	if err != nil {
+		return nil, fmt.Errorf("new github client: %w", err)
+	}
 	c := &Client{
-		gh:     gh.NewClient(nil).WithAuthToken(token),
+		gh:     ghClient,
 		owner:  parts[0],
 		repo:   parts[1],
 		jobSem: make(chan struct{}, defaultMaxConcurrentJobs),
