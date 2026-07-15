@@ -158,10 +158,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### U1. CLI paper-cut batch [S total] ✅ done
 - Shipped 2026-07-15, all seven: dotted-repo regex (`next.js` detects), `SilenceUsage` on runtime errors, `--format` and `--raw-output` validated before any API call (was: full fetch then error), `--version` flag via cobra `Version:`, de-duplicated `list workflows:` prefix, `--raw-output` without `--format llm` errors, repo-detection failures surface the underlying cause.
 
-### U2. Actionable error messages for common failures [S]
-- 404/401/403 surface raw go-github errors ("GET … 404 Not Found []") with no hint that a private repo needs a scoped token; typo'd `--workflow` silently matches nothing and the "no runs found" error omits active filters (`internal/app/service.go:67-75,101`).
-- Fix: map status codes to guidance; error early on a workflow filter matching zero workflows (list available names); include branch/workflow filters in no-runs errors. Also wire the progress logger into the client (`cmd/ci-snitch/analyze.go:63` never sets `WithLogger`) so rate-limit sleeps aren't silent hangs.
-- **Files:** `cmd/ci-snitch/analyze.go`, `internal/app/service.go`, `internal/github/client.go`
+### U2. Actionable error messages for common failures [S] ✅ done
+- Shipped 2026-07-15: 404/401/403 map to guidance (spelling/private-token, expired-credentials, scope/SAML); a workflow filter matching nothing errors immediately listing available names (sorted, capped at 15); the no-runs error names an active `--workflow` filter; the client logger is wired so rate-limit sleeps and REST fallbacks are visible instead of silent hangs. Live-verified against the real API.
 
 ### U3. Record filter context in output meta [S]
 - `ResultMeta` has no Branch/Workflow/Since fields (`internal/analyze/engine.go:13-18`); a JSON/LLM consumer can't tell whether results were filtered — dangerous when comparing reports.

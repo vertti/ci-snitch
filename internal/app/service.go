@@ -3,7 +3,10 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -71,6 +74,10 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 			targetWorkflows++
 		}
 	}
+	if opts.Workflow != "" && targetWorkflows == 0 {
+		s.Prog.Done()
+		return analyze.AnalysisResult{}, unknownWorkflowError(workflows, opts.Workflow)
+	}
 	if opts.Verbose {
 		s.Prog.Log("Found %d workflows (%d targeted)", len(workflows), targetWorkflows)
 	}
@@ -106,7 +113,11 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 	s.Prog.Done()
 
 	if len(allDetails) == 0 {
-		return analyze.AnalysisResult{}, fmt.Errorf("no runs found for %s since %s", opts.Repo, opts.Since.Format("2006-01-02"))
+		msg := fmt.Sprintf("no runs found for %s since %s", opts.Repo, opts.Since.Format("2006-01-02"))
+		if opts.Workflow != "" {
+			msg += fmt.Sprintf(" (workflow %q)", opts.Workflow)
+		}
+		return analyze.AnalysisResult{}, errors.New(msg)
 	}
 
 	// Apply --branch to the full set so every consumer respects it: failure
@@ -179,6 +190,20 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 type workflowRuns struct {
 	wf   model.Workflow
 	runs []model.WorkflowRun
+}
+
+// unknownWorkflowError names the typo'd filter and lists what exists —
+// silently matching nothing looked like an empty repository.
+func unknownWorkflowError(workflows []model.Workflow, filter string) error {
+	names := make([]string, 0, len(workflows))
+	for _, wf := range workflows {
+		names = append(names, wf.Name)
+	}
+	slices.Sort(names)
+	if len(names) > 15 {
+		names = append(names[:15], "…")
+	}
+	return fmt.Errorf("workflow %q not found; available workflows: %s", filter, strings.Join(names, ", "))
 }
 
 func countJobsMissingLabels(details []model.RunDetail) int {

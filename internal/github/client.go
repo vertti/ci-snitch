@@ -2,8 +2,10 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -72,6 +74,25 @@ func (c *Client) log(msg string, args ...any) {
 	}
 }
 
+// classifyAPIError turns raw go-github status errors into guidance the user
+// can act on ("GET https://…: 404 Not Found []" says nothing about tokens).
+func (c *Client) classifyAPIError(err error) error {
+	var ghErr *gh.ErrorResponse
+	if !errors.As(err, &ghErr) || ghErr.Response == nil {
+		return err
+	}
+	switch ghErr.Response.StatusCode {
+	case http.StatusNotFound:
+		return fmt.Errorf("repository %s/%s not found — check the spelling; if it is private, your token needs access to it (%w)", c.owner, c.repo, err)
+	case http.StatusUnauthorized:
+		return fmt.Errorf("bad credentials — the token is invalid or expired; run `gh auth login` or refresh GITHUB_TOKEN (%w)", err)
+	case http.StatusForbidden:
+		return fmt.Errorf("access denied — the token may lack the repo scope or need SAML SSO authorization for this organization (%w)", err)
+	default:
+		return err
+	}
+}
+
 // RateLimitStatus contains the current rate limit state.
 // RatePool describes one rate-limit pool (core REST or GraphQL — GitHub
 // meters them separately).
@@ -111,7 +132,7 @@ func (c *Client) ListWorkflows(ctx context.Context) ([]model.Workflow, error) {
 	for {
 		result, resp, err := c.gh.Actions.ListWorkflows(ctx, c.owner, c.repo, opts)
 		if err != nil {
-			return nil, fmt.Errorf("list workflows: %w", err)
+			return nil, fmt.Errorf("list workflows: %w", c.classifyAPIError(err))
 		}
 
 		for _, w := range result.Workflows {

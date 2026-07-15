@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"regexp"
 	"strconv"
@@ -69,7 +70,10 @@ If no repository is specified, detects the GitHub remote from the current direct
 				return err
 			}
 
-			client, err := github.NewClient(token, repo)
+			// The logger surfaces rare client events (rate-limit sleeps,
+			// REST fallbacks) that would otherwise be silent hangs.
+			clientLog := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+			client, err := github.NewClient(token, repo, github.WithLogger(clientLog))
 			if err != nil {
 				return err
 			}
