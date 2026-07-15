@@ -209,11 +209,20 @@ func buildFailureFinding(ac *AnalysisContext, wfID int64, s *workflowFailureStat
 		}
 	}
 
+	// Trend compares the recent window against the PRIOR period only —
+	// comparing against the overall rate (which contains the recent window)
+	// dilutes the signal, and with --since 7d it degenerates to always
+	// "stable" because the windows are identical.
 	var recentRate float64
 	trend := FailureTrendStable
+	priorTotal := s.total - s.recentTotal
+	priorFailures := s.failures - s.recentFailures
 	if s.recentTotal >= 5 {
 		recentRate = float64(s.recentFailures) / float64(s.recentTotal)
-		diff := recentRate - failRate
+	}
+	if s.recentTotal >= 5 && priorTotal >= 5 {
+		priorRate := float64(priorFailures) / float64(priorTotal)
+		diff := recentRate - priorRate
 		if diff <= -0.05 {
 			trend = FailureTrendImproving
 		} else if diff >= 0.05 {

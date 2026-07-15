@@ -273,6 +273,35 @@ func repeat(n int, d time.Duration) []time.Duration {
 	return out
 }
 
+func TestSummaryAnalyzer_VolatilityLabelNeedsMinimumSample(t *testing.T) {
+	// At n=6, p95 is effectively the max: one slow run labels a stable
+	// workflow "volatile". Below 10 runs the label is withheld (the raw
+	// volatility number stays available).
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	var details []model.RunDetail
+	durations := []time.Duration{5 * time.Minute, 5 * time.Minute, 5 * time.Minute, 5 * time.Minute, 5 * time.Minute, 20 * time.Minute}
+	for i, dur := range durations {
+		start := base.Add(time.Duration(i) * time.Hour)
+		details = append(details, model.RunDetail{
+			Run: model.WorkflowRun{
+				WorkflowID: 100, WorkflowName: "CI",
+				CreatedAt: start, StartedAt: start, UpdatedAt: start.Add(dur),
+			},
+		})
+	}
+
+	analyzer := SummaryAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{Details: details})
+	require.NoError(t, err)
+	require.NotEmpty(t, findings)
+
+	d, ok := findings[0].Detail.(SummaryDetail)
+	require.True(t, ok)
+	assert.Empty(t, d.Stats.VolatilityLabel,
+		"6 runs cannot support a volatility judgement (p95 == max)")
+	assert.Greater(t, d.Stats.Volatility, 3.0, "the raw ratio stays reported")
+}
+
 func TestSummaryAnalyzer_QueueTime(t *testing.T) {
 	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
 	details := make([]model.RunDetail, 10)

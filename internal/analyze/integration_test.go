@@ -296,7 +296,7 @@ func TestIntegration_VolatilityLabel(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			vol := float64(tt.p95) / float64(tt.median)
-			label := volatilityLabel(vol)
+			label := volatilityLabel(vol, minRunsForVolatilityLabel)
 			assert.Equal(t, tt.wantLabel, label)
 		})
 	}

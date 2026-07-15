@@ -237,7 +237,7 @@ func computeStats(durations []time.Duration) SummaryStats {
 		Max:             Duration(durations[n-1]),
 		TotalTime:       Duration(total),
 		Volatility:      volatility,
-		VolatilityLabel: volatilityLabel(volatility),
+		VolatilityLabel: volatilityLabel(volatility, n),
 	}
 }
 
@@ -245,9 +245,16 @@ const (
 	volatileThreshold = 3.0
 	spikyThreshold    = 2.0
 	variableThreshold = 1.3
+	// minRunsForVolatilityLabel: below this, p95 is effectively the max and
+	// one slow run would label a stable series "volatile". The raw ratio is
+	// still reported; only the judgement is withheld.
+	minRunsForVolatilityLabel = 10
 )
 
-func volatilityLabel(v float64) string {
+func volatilityLabel(v float64, n int) string {
+	if n < minRunsForVolatilityLabel {
+		return ""
+	}
 	switch {
 	case v >= volatileThreshold:
 		return "volatile"
