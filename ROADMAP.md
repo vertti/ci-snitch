@@ -111,9 +111,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### A7. Fix outlier percentile gating for small n [S] ✅ done
 - Shipped 2026-07-15: `percentileRank` uses midrank (ties contribute half), and the reporting gate is capped at the highest percentile a sample of size n can produce (`effectiveMinPercentile`). Small samples (5–19 runs) and duplicated worst values now report; `critical` (p99) achievable from n=50 instead of n=100. Tests: small-sample (n=8), tied-worst (n=30, two identical outliers), plus midrank unit tests.
 
-### A8. Deterministic change-point p-values [S] (was 3.5)
-- `changepoint.go:136` still calls non-deterministic `stats.MannWhitneyU`; permutation-path p-values drift ~5% near the 0.05 boundary between runs. Derive a seed from `(workflowID, jobName, cp.Index)` and call `MannWhitneyURand`. Snapshot test: same input → same p-values.
-- **Files:** `internal/analyze/changepoint.go`, `internal/analyze/changepoint_test.go`
+### A8. Deterministic change-point p-values [S] (was 3.5) ✅ done
+- Shipped 2026-07-15: `seededRNG(workflowID, jobName FNV-hashed, cp.Index)` feeds `MannWhitneyURand`; identical input yields identical p-values across invocations (pinned by a run-twice test on the Monte-Carlo permutation path).
 
 ### A9. CUSUM onset backtracking [S]
 - CUSUM reports the detection index, which lags the true shift; post-change points land in the `before` segment, biasing `BeforeMean`, shrinking `PctChange`, and attributing the change to the wrong commit/date (`internal/stats/cusum.go:52-79`, `changepoint.go:127-129`). Standard fix: backtrack to the last index where the winning CUSUM statistic was 0.

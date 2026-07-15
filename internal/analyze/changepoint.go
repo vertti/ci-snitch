@@ -3,7 +3,9 @@ package analyze
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"math"
+	"math/rand/v2"
 	"sort"
 	"time"
 
@@ -145,8 +147,11 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 			after := js.durations[cp.Index:postChangeEnd]
 
 			// Significance on raw values: Mann-Whitney is rank-based, so a
-			// single outlier has bounded influence.
-			_, pValue := stats.MannWhitneyU(before, after)
+			// single outlier has bounded influence. The RNG is seeded from
+			// stable inputs so the Monte-Carlo permutation path yields the
+			// same p-value on every invocation — unseeded, p-values near the
+			// 0.05 boundary drifted ~5% between runs on identical data.
+			_, pValue := stats.MannWhitneyURand(before, after, seededRNG(jk.wfID, jk.job, cp.Index))
 
 			// Segment levels from the clamped series (what CUSUM saw): with
 			// bounded segments a raw mean would let one extreme outlier
@@ -177,7 +182,7 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 			severity := classifyChangePoint(pValue, pctChange, absDelta)
 
 			findings = append(findings, Finding{
-				Type:     "changepoint",
+				Type:     TypeChangepoint,
 				Severity: severity,
 				Title:    fmt.Sprintf("Performance %s in job %q", direction, jk.job),
 				Description: fmt.Sprintf("%.0f%% change at %s (commit %s), before: %s, after: %s (p=%.4f)",
@@ -213,6 +218,15 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 type detailRef struct {
 	idx     int
 	created time.Time
+}
+
+// seededRNG returns an RNG deterministically derived from the change point's
+// identity, so permutation p-values are reproducible across invocations.
+func seededRNG(workflowID int64, jobName string, cpIndex int) *rand.Rand {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(jobName))
+	//nolint:gosec // deterministic seeding for reproducible statistics, not crypto
+	return rand.New(rand.NewPCG(uint64(workflowID)^h.Sum64(), uint64(cpIndex)+1))
 }
 
 // computeOverlapRatio returns the fraction of after-segment points that fall
