@@ -159,10 +159,11 @@ func TestDoGraphQL_ErrorBodyReadIsBounded(t *testing.T) {
 	require.Less(t, len(err.Error()), 500, "error string must stay truncated")
 }
 
-func TestFetchRunDetailsGraphQL_TruncationWarnsOnceAndMarksDetails(t *testing.T) {
+func TestFetchRunDetailsGraphQL_TruncatedRunsCompletedViaREST(t *testing.T) {
 	// r0's checkRuns connection reports more pages (>50 jobs); r1 has a job
-	// whose steps connection reports more pages. Both runs must be marked
-	// Truncated with ONE aggregated partial-data warning; r2 stays clean.
+	// whose steps connection reports more pages. Both runs must be refetched
+	// via REST (which paginates jobs fully and embeds complete steps) so the
+	// final details are complete and cacheable; r2 keeps its GraphQL data.
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /graphql", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -183,28 +184,45 @@ func TestFetchRunDetailsGraphQL_TruncationWarnsOnceAndMarksDetails(t *testing.T)
 		}}`))
 	})
 
+	// REST serves the complete versions: two jobs each.
+	for _, id := range []int64{1, 2} {
+		body := fmt.Sprintf(`{"total_count": 2, "jobs": [
+			{"id": %d, "run_id": %d, "name": "build", "status": "completed", "conclusion": "success"},
+			{"id": %d, "run_id": %d, "name": "extra", "status": "completed", "conclusion": "success"}
+		]}`, 1000+id, id, 2000+id, id)
+		mux.HandleFunc(fmt.Sprintf("GET /repos/test-owner/test-repo/actions/runs/%d/jobs", id),
+			func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(body))
+			})
+	}
+
 	c := testClient(t, mux)
 	runs := graphqlTestRuns(3)
 
 	details, warnings := c.FetchRunDetailsGraphQL(context.Background(), runs)
 	require.Len(t, details, 3)
 
-	truncatedByID := map[int64]bool{}
+	byID := map[int64]model.RunDetail{}
 	for i := range details {
-		truncatedByID[details[i].Run.ID] = details[i].Truncated
+		byID[details[i].Run.ID] = details[i]
 	}
-	assert.True(t, truncatedByID[1], "jobs-truncated run must be marked")
-	assert.True(t, truncatedByID[2], "steps-truncated run must be marked")
-	assert.False(t, truncatedByID[3], "complete run must not be marked")
+	assert.Len(t, byID[1].Jobs, 2, "jobs-truncated run must be completed via REST")
+	assert.False(t, byID[1].Truncated, "completed runs are cacheable")
+	assert.Len(t, byID[2].Jobs, 2, "steps-truncated run must be completed via REST")
+	assert.False(t, byID[2].Truncated)
+	assert.Len(t, byID[3].Jobs, 1, "complete run keeps its GraphQL data")
 
-	var truncationWarnings []string
+	var notes []string
 	for _, w := range warnings {
 		if w.Kind == diag.KindPartialData {
-			truncationWarnings = append(truncationWarnings, w.Message)
+			notes = append(notes, w.Message)
+			assert.Equal(t, diag.Info, w.Severity, "completed runs are not partial data")
 		}
 	}
-	require.Len(t, truncationWarnings, 1, "one aggregated truncation warning, got %v", warnings)
-	assert.Contains(t, truncationWarnings[0], "2 runs")
+	require.Len(t, notes, 1, "one aggregated note, got %v", warnings)
+	assert.Contains(t, notes[0], "2 runs")
+	assert.Contains(t, notes[0], "REST")
 }
 
 func TestFetchRunDetailsGraphQL_RateLimitedDoesNotFallBackToREST(t *testing.T) {

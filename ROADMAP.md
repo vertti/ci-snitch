@@ -185,9 +185,10 @@ Removed from the old "already correct" list — disproven by this review:
 ### P1. Batch cache hydration [M] (was 4.1) ✅ done
 - Shipped 2026-07-15: `LoadRunDetailsByIDs` hydrates in 3 `IN`-clause queries per 500-ID chunk (placeholders only — bound args); `hydrateWorkflow` partitions then batch-loads (`partitionCached`), with batch-miss/error degradation to fetch; `LoadRunDetails` reimplemented on top (smoke benefits too). Benchmark, 500 runs: **13.2ms → 3.3ms (4×)**, ~1500 queries → 3.
 
-### P2. GraphQL pagination for truncated connections [M] (was 4.2)
-- Build on D5: page the affected `checkRuns`/`steps` connection with `after: $cursor` only when truncation fired. Keep the 20-run outer batch unchanged.
-- **Files:** `internal/github/graphql.go`
+### P2. Complete truncated runs [M] (was 4.2) ✅ done
+- Shipped 2026-07-15 — simpler than the planned cursor pagination: truncated runs (>50 jobs or >50 steps/job) are refetched via REST, which paginates jobs fully and embeds complete steps. One REST call per monster run, result complete and **cacheable** (beats re-fetching it every scan); an Info note replaces the partial-data warning. REST-failure path keeps the run uncacheable with the old warning.
+
+**P section complete.**
 
 ### P3. Eliminate sliding-window overlap [S] ✅ done
 - Shipped 2026-07-15: the next window starts the day after the previous ends (the `created` filter is date-only, inclusive both ends). Seam days no longer double-listed/hydrated/budgeted/saved. Pinned by a disjoint-and-contiguous window test.
