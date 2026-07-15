@@ -170,9 +170,10 @@ Removed from the old "already correct" list — disproven by this review:
 ### U5. LLM format quality [S] ✅ done
 - Shipped 2026-07-15: deterministic ordering (category ties break lexicographically; conclusion max-pick tie-broken — both pinned by run-50-times tests); new `## Data Caveats` section narrates diagnostics and `## Glossary` defines volatility/persistence/q-value/billable semantics; volatile-step index keyed by (workflow, job); `[COST]` priorities gate on PriorityScore ≥ 50 like the suggestions.
 
-### U6. Exit-code semantics for CI gating [M]
-- Exits 0/1 only (`cmd/ci-snitch/main.go:36-40`). A `--fail-on regression|failure-rate>N` mode makes ci-snitch usable as a CI gate; pairs with F7.
-- **Files:** `cmd/ci-snitch/`, docs
+### U6. Exit-code semantics for CI gating [M] ✅ done
+- Shipped 2026-07-15: `--fail-on regression,failure-rate>N` exits 2 (vs 1 = operational error) with one `fail-on:` reason per tripped finding on stderr, printed even in quiet mode; conditions validated before any fetch. Document in README via H10.
+
+**U section complete.**
 
 ### U7. Output polish batch [S total] ✅ done
 - Shipped 2026-07-15: hours render as "2h30m"; `|` escaped in markdown/LLM table names; JSON emits `"diagnostics": []`/`"findings": []` instead of null (fixed at the formatter boundary); `Diagnostic.String()` shows the wrapped cause; percentile displays floor (no more "slower than 100% of runs"); `-q/--quiet` silences stderr entirely; `--format` shell completion; `--since 0d`/future dates rejected before any API call; `compactResult` comment matches the code.
