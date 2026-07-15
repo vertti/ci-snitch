@@ -121,9 +121,9 @@ Removed from the old "already correct" list — disproven by this review:
 ### A13. Look up cost multiplier per run, not per first-seen job [S] ✅ done
 - Shipped 2026-07-15: `IsSelfHosted`/`LookupMultiplier` evaluated per run; the breakdown's displayed multiplier tracks the most recent run by `CreatedAt`. Tested with a mid-window ubuntu→self-hosted migration in both orderings.
 
-### A14. Statistical/labeling hygiene batch [S total]
-Small, individually-XS fixes; batch into one PR:
-- Exact MW p-value enumerates untied ranks while observed U uses average ranks — wrong with tied (second-resolution) data (`internal/stats/significance.go:108-135`); permutation p can be exactly 0 — use `(count+1)/(reps+1)` (`:191-201`); normal approximation lacks tie/continuity correction (`:204-216`).
+### A14. Statistical/labeling hygiene batch [S total] — stats half ✅ done
+- ✅ Stats (shipped 2026-07-15): exact MW path now enumerates value assignments with tie-aware U — the rank-position enumeration was **anti-conservative** on tied data (measured: reported p=0.31 where the tie-aware truth is 0.52; second-resolution durations tie constantly); permutation p uses `(count+1)/(reps+1)` (never exactly 0); normal approximation gets the continuity correction. Not adopted: tie-corrected sigma in the normal path (requires both segments >20 runs with heavy ties — rare; the correction direction would make results *more* significant, the risky direction).
+Remaining analyzer-labeling fixes (one PR):
 - Runner advice: skip "~1x cost" claims when multiplier is unknown/0, and don't give GitHub-billing advice for self-hosted/third-party runners (`internal/analyze/runners.go:99-102`); macOS core fallback documents 4, current arm64 runners have 3 (`:171-172`).
 - `FailureKind` defaults to "flaky" with zero failing-step data — make it explicit "unknown" (`internal/analyze/failures.go:205-210`); `skipped` counts toward the failure-rate denominator, `neutral`/`stale` count as failures (`:148-159`).
 - `medianByJob` keyed by bare job name scrambles cross-workflow sort order (`internal/analyze/steps.go:150-161`); `JobCostBreakdown.BillableMinutes` includes free self-hosted minutes (`internal/analyze/cost.go:120-125`).
