@@ -29,6 +29,26 @@ func TestCUSUMDetect_FlatThenJump(t *testing.T) {
 	assert.InDelta(t, 20, cp.Index, 5)
 }
 
+func TestCUSUMDetect_ReportsOnsetNotDetectionIndex(t *testing.T) {
+	// A moderate shift relative to noise makes the CUSUM alarm lag the true
+	// onset by a few points: the cumulative statistic needs several samples
+	// to cross the threshold. The reported index must be where the winning
+	// excursion left zero (the onset), not where the alarm fired — the
+	// downstream commit attribution points at cp.Index.
+	data := make([]float64, 40)
+	for i := range 20 {
+		data[i] = []float64{270, 300, 330}[i%3] // baseline ~300, sigma ~24.5
+	}
+	for i := 20; i < 40; i++ {
+		data[i] = []float64{330, 360, 390}[i%3] // shifted +60 — needs ~3 samples to alarm
+	}
+
+	points := CUSUMDetect(data, 4.0, 5)
+	require.NotEmpty(t, points)
+	assert.Equal(t, 20, points[0].Index,
+		"index must be the change onset, not the (lagged) detection point")
+}
+
 func TestCUSUMDetect_StepDown(t *testing.T) {
 	// Speedup: 20 points at ~200, then 20 points at ~120
 	data := make([]float64, 40)

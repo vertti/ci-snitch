@@ -106,9 +106,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### A8. Deterministic change-point p-values [S] (was 3.5) ✅ done
 - Shipped 2026-07-15: `seededRNG(workflowID, jobName FNV-hashed, cp.Index)` feeds `MannWhitneyURand`; identical input yields identical p-values across invocations (pinned by a run-twice test on the Monte-Carlo permutation path).
 
-### A9. CUSUM onset backtracking [S]
-- CUSUM reports the detection index, which lags the true shift; post-change points land in the `before` segment, biasing `BeforeMean`, shrinking `PctChange`, and attributing the change to the wrong commit/date (`internal/stats/cusum.go:52-79`, `changepoint.go:127-129`). Standard fix: backtrack to the last index where the winning CUSUM statistic was 0.
-- **Files:** `internal/stats/cusum.go`, `internal/analyze/changepoint.go`
+### A9. CUSUM onset backtracking [S] ✅ done
+- Shipped 2026-07-15: the reported index walks back over consecutive shifted-side points immediately before the alarm — commit/date attribution and segment splits now point at the onset, not the lagged detection. Deliberately consecutive-only rather than last-zero-of-the-statistic: the textbook estimator let slow noise drift drag the onset deep into the baseline (caught by `TestIntegration_GenuineSpeedupDetected`, which collapsed to −1.9%/p=0.29 under it).
 
 ### A10. Benjamini-Hochberg across change-point p-values [S]
 - One test per CP per (workflow, job) at α=0.05 across dozens of jobs guarantees ~1 false "significant regression" per 20 stable jobs, further inflated by post-selection (split point chosen by CUSUM on the same data) (`changepoint.go:136,258`). Apply BH across all CP p-values per analysis; document the post-selection caveat.

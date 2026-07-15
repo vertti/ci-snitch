@@ -376,13 +376,17 @@ func TestChangePointAnalyzer_Persistence_Inconclusive(t *testing.T) {
 	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{Details: makeTimedDetails(durations)})
 	require.NoError(t, err)
 
-	// With only 5 post-change runs, should be inconclusive.
+	// With so few post-change runs, should be inconclusive.
 	for _, f := range findings {
 		detail, ok := f.Detail.(ChangePointDetail)
 		require.True(t, ok)
 		if detail.Direction == "slowdown" {
 			assert.Equal(t, "inconclusive", detail.Persistence)
-			assert.Equal(t, 5, detail.PostChangeRuns)
+			// Onset backtracking includes the 302s jitter point directly
+			// before the shift (it sits above mu+k with this fixture's tiny
+			// variance, locally indistinguishable from the shift's first
+			// point), so the post-change segment is 6, not 5.
+			assert.Equal(t, 6, detail.PostChangeRuns)
 		}
 	}
 }
