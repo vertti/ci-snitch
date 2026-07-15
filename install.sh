@@ -14,7 +14,10 @@ detect_os() {
   case "$(uname -s)" in
     Linux*)  echo "linux" ;;
     Darwin*) echo "darwin" ;;
-    MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
+    MINGW*|MSYS*|CYGWIN*)
+      echo "Windows is not supported by this installer (it assumes /usr/local/bin and a plain binary)." >&2
+      echo "Download the windows zip from https://github.com/vertti/ci-snitch/releases instead." >&2
+      exit 1 ;;
     *) echo "Unsupported OS: $(uname -s)" >&2; exit 1 ;;
   esac
 }
@@ -38,10 +41,6 @@ main() {
   fi
 
   EXT="tar.gz"
-  if [ "$OS" = "windows" ]; then
-    EXT="zip"
-  fi
-
   FILENAME="${BINARY}_${VERSION}_${OS}_${ARCH}.${EXT}"
   URL="https://github.com/${REPO}/releases/download/v${VERSION}/${FILENAME}"
 

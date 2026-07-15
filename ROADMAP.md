@@ -240,8 +240,7 @@ Removed from the old "already correct" list — disproven by this review:
 ### H4. `ci-snitch doctor` [S] (was 7.3)
 - Validate token, rate limit, cache path writable, SQLite openable, git remote detectable. One line per check.
 
-### H5. Fix install.sh Windows path [S]
-- The MINGW/MSYS/CYGWIN branch downloads the zip then `mv`s a binary named `ci-snitch` (archive contains `ci-snitch.exe`) into `/usr/local/bin` with `sudo` — can never succeed (`install.sh:17,41-46,74`). Handle `.exe` + a sensible dir, or explicitly refuse with a pointer to the release zip.
+### H5. Fix install.sh Windows path [S] ✅ done (batch 3) — installer refuses Windows explicitly with a pointer to the release zip (the path could never succeed: archive holds `ci-snitch.exe`, target assumed `/usr/local/bin` + sudo).
 
 ### H6. Smoke test the production path [S] ✅ done (batch 2) — smoke hydrates via `FetchRunDetailsGraphQL` and finishes with engine + LLM formatter: fetch → store → analyze → render.
 
@@ -252,8 +251,7 @@ Removed from the old "already correct" list — disproven by this review:
 ### H9. Store-layer cleanups batch [XS total] ✅ done (batch 1)
 - Labels stored as JSON (legacy comma rows still read); dead `idx_runs_status` dropped from schema and migrated DBs; cache read failures log a warning instead of silently re-fetching everything. (`runByID` went with D4.)
 
-### H10. Docs batch [XS]
-- README flags table: add `--raw-output`; document `md` alias, `completion` subcommand, NO_COLOR/FORCE_COLOR support. Optional: linter adds (`errname`, `noctx`, `embeddedstructfieldcheck`).
+### H10. Docs batch [XS] ✅ done (batch 3) — README gains `--fail-on`/`--raw-output`/`-q` rows, a CI-gating section with exit-code semantics, `md` alias, completion, NO_COLOR. Linter adds remain opportunistic (config is already strict).
 
 ### H11. Versioned schema migrations [M] (was 7.4 — still deferred)
 - Defer until a schema change actually demands it (D5's completeness column may be that moment).
