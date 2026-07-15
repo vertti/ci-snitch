@@ -3,6 +3,7 @@ package analyze
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/vertti/ci-snitch/internal/stats"
@@ -84,8 +85,9 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 		wfName := ac.WorkflowName(wfID)
 		idxMap := wfRuns[wfID]
 		outliers := o.detect(durations)
+		minGate := effectiveMinPercentile(minPct, len(durations))
 		for _, out := range outliers {
-			if out.Percentile < minPct {
+			if out.Percentile < minGate {
 				continue
 			}
 			detailIdx := idxMap[out.Index]
@@ -134,15 +136,16 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 		wfName := ac.WorkflowName(k.wfID)
 		refs := jobRefs[k]
 		outliers := o.detect(durations)
+		minGate := effectiveMinPercentile(minPct, len(durations))
 		for _, out := range outliers {
-			if out.Percentile < minPct {
+			if out.Percentile < minGate {
 				continue
 			}
 			ref := refs[out.Index]
 			d := ac.Details[ref.detailIdx]
 			job := d.Jobs[ref.jobIdx]
 			findings = append(findings, Finding{
-				Type:     "outlier",
+				Type:     TypeOutlier,
 				Severity: severityFromPercentile(out.Percentile),
 				Title:    fmt.Sprintf("Slow job %q in %q", job.Name, wfName),
 				Description: fmt.Sprintf("Job took %s (p%.0f — slower than %.0f%% of runs)",
@@ -160,6 +163,15 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 	}
 
 	return findings, nil
+}
+
+// effectiveMinPercentile caps the reporting gate at the highest percentile a
+// sample of size n can produce (the maximum midranks at (n-0.5)/n). Without
+// the cap, a fixed p95 gate structurally suppresses every fence-detected
+// outlier in series shorter than 10 runs.
+func effectiveMinPercentile(minPct float64, n int) float64 {
+	maxAchievable := (float64(n) - 0.5) / float64(n) * 100
+	return math.Min(minPct, maxAchievable)
 }
 
 func (o OutlierAnalyzer) detect(data []float64) []stats.OutlierResult {
