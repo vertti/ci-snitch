@@ -34,10 +34,16 @@ func postProcess(findings []Finding) []Finding {
 
 // categorizeChangePoints assigns a Category to each change point:
 // - oscillating: job has 3+ notable change points (too volatile)
-// - regression: latest non-transient slowdown per job (deduplicated)
+// - regression: latest non-transient slowdown per (workflow, job) (deduplicated)
 // - speedup: improvements
 // - minor: severity=info
+//
+// Jobs routinely share names across workflows ("build", "test"), so both
+// the oscillation count and the regression dedup key on (workflow, job) —
+// the same identity the analyzer itself uses.
 func categorizeChangePoints(findings []Finding) []Finding {
+	type wfJob struct{ wf, job string }
+
 	var changepoints []Finding
 	for _, f := range findings {
 		if f.Type == TypeChangepoint {
@@ -45,8 +51,8 @@ func categorizeChangePoints(findings []Finding) []Finding {
 		}
 	}
 
-	// Count notable change points per job
-	jobCounts := make(map[string]int)
+	// Count notable change points per (workflow, job)
+	jobCounts := make(map[wfJob]int)
 	for _, f := range changepoints {
 		if f.Severity == SeverityInfo {
 			continue
@@ -55,11 +61,11 @@ func categorizeChangePoints(findings []Finding) []Finding {
 		if !ok {
 			continue
 		}
-		jobCounts[d.JobName]++
+		jobCounts[wfJob{d.WorkflowName, d.JobName}]++
 	}
 
-	// Track latest regression per job for dedup
-	latestRegression := make(map[string]int) // job -> index in result
+	// Track latest regression per (workflow, job) for dedup
+	latestRegression := make(map[wfJob]int) // (workflow, job) -> index in result
 
 	var result []Finding
 	for _, f := range changepoints {
@@ -68,11 +74,12 @@ func categorizeChangePoints(findings []Finding) []Finding {
 			result = append(result, f)
 			continue
 		}
+		key := wfJob{d.WorkflowName, d.JobName}
 
 		switch {
 		case f.Severity == SeverityInfo:
 			d.Category = CategoryMinor
-		case jobCounts[d.JobName] >= 3:
+		case jobCounts[key] >= 3:
 			d.Category = CategoryOscillating
 		case d.OverlapRatio > 0.5:
 			// >50% of after-points fall within the before-segment's IQR.
@@ -87,16 +94,16 @@ func categorizeChangePoints(findings []Finding) []Finding {
 		f.Detail = d
 		result = append(result, f)
 
-		// Track latest regression per job
+		// Track latest regression per (workflow, job)
 		if d.Category == CategoryRegression && d.Direction == DirectionSlowdown && d.Persistence != PersistenceTransient {
-			if idx, exists := latestRegression[d.JobName]; exists {
+			if idx, exists := latestRegression[key]; exists {
 				// Mark the older one as minor
 				older := result[idx]
 				od, _ := older.Detail.(ChangePointDetail)
 				od.Category = CategoryMinor
 				result[idx].Detail = od
 			}
-			latestRegression[d.JobName] = len(result) - 1
+			latestRegression[key] = len(result) - 1
 		}
 	}
 

@@ -49,6 +49,66 @@ func TestPostProcess_DedupRegressions(t *testing.T) {
 	assert.InDelta(t, 20, regressions[0].PctChange, 0.1, "should keep the latest one")
 }
 
+func TestPostProcess_OscillationNotMixedAcrossWorkflows(t *testing.T) {
+	// Jobs routinely share names ("build", "test") across workflows. Two
+	// notable shifts in each of two workflows must not sum to 4 and trip the
+	// >=3 oscillating threshold for both.
+	findings := []Finding{
+		{Type: TypeChangepoint, Severity: SeverityWarning, Detail: ChangePointDetail{
+			WorkflowName: "CI", JobName: "build", Direction: DirectionSlowdown,
+			Persistence: PersistencePersistent, PctChange: 15, Date: time.Now().Add(-4 * time.Hour),
+		}},
+		{Type: TypeChangepoint, Severity: SeverityWarning, Detail: ChangePointDetail{
+			WorkflowName: "CI", JobName: "build", Direction: DirectionSpeedup,
+			PctChange: -20, Date: time.Now().Add(-3 * time.Hour),
+		}},
+		{Type: TypeChangepoint, Severity: SeverityWarning, Detail: ChangePointDetail{
+			WorkflowName: "Deploy", JobName: "build", Direction: DirectionSlowdown,
+			Persistence: PersistencePersistent, PctChange: 25, Date: time.Now().Add(-2 * time.Hour),
+		}},
+		{Type: TypeChangepoint, Severity: SeverityWarning, Detail: ChangePointDetail{
+			WorkflowName: "Deploy", JobName: "build", Direction: DirectionSpeedup,
+			PctChange: -15, Date: time.Now().Add(-1 * time.Hour),
+		}},
+	}
+
+	result := postProcess(findings)
+	for _, f := range result {
+		d, ok := f.Detail.(ChangePointDetail)
+		if !ok {
+			continue
+		}
+		assert.NotEqual(t, CategoryOscillating, d.Category,
+			"%s/%s: 2 shifts per workflow must not be flagged oscillating just because another workflow has a same-named job", d.WorkflowName, d.JobName)
+	}
+}
+
+func TestPostProcess_RegressionDedupScopedToWorkflow(t *testing.T) {
+	// One persistent regression in each of two workflows, same job name.
+	// Neither may demote the other: they are different jobs.
+	findings := []Finding{
+		{Type: TypeChangepoint, Severity: SeverityWarning, Detail: ChangePointDetail{
+			WorkflowName: "CI", JobName: "test", Direction: DirectionSlowdown,
+			Persistence: PersistencePersistent, PctChange: 15, Date: time.Now().Add(-2 * time.Hour),
+		}},
+		{Type: TypeChangepoint, Severity: SeverityWarning, Detail: ChangePointDetail{
+			WorkflowName: "Deploy", JobName: "test", Direction: DirectionSlowdown,
+			Persistence: PersistencePersistent, PctChange: 20, Date: time.Now().Add(-1 * time.Hour),
+		}},
+	}
+
+	result := postProcess(findings)
+	regressionsByWf := make(map[string]int)
+	for _, f := range result {
+		d, ok := f.Detail.(ChangePointDetail)
+		if ok && d.Category == CategoryRegression {
+			regressionsByWf[d.WorkflowName]++
+		}
+	}
+	assert.Equal(t, map[string]int{"CI": 1, "Deploy": 1}, regressionsByWf,
+		"each workflow must keep its own regression; cross-workflow dedup by job name loses real regressions")
+}
+
 func TestPostProcess_GroupOutliers(t *testing.T) {
 	findings := []Finding{
 		{Type: TypeOutlier, Severity: SeverityWarning, Detail: OutlierDetail{WorkflowName: "CI", JobName: "test", Duration: Duration(5 * time.Minute), Percentile: 96, CommitSHA: "aaa"}},
