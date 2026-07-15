@@ -35,6 +35,11 @@ func Run(ctx context.Context, name string, args ...string) (string, error) {
 		if errors.Is(err, exec.ErrNotFound) {
 			return "", fmt.Errorf("%w: %s", ErrCommandNotFound, name)
 		}
+		// A deadline kill surfaces as an opaque "signal: killed" — say what
+		// actually happened.
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return "", fmt.Errorf("%w: %s %s: timed out", ErrCommandFailed, name, strings.Join(args, " "))
+		}
 		detail := strings.TrimSpace(stderr.String())
 		if detail == "" {
 			detail = err.Error()
