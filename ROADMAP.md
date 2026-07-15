@@ -168,10 +168,8 @@ Removed from the old "already correct" list — disproven by this review:
 - Markdown renders only summaries, non-info changepoints, and outliers — no failures, cost, pipeline, runner, steps, or triage sections, all present in table/JSON (`internal/output/markdown.go`). README markets it for PR comments alongside those features. Also prerequisite for F7 (PR comment bot).
 - **Files:** `internal/output/markdown.go`, golden tests
 
-### U5. LLM format quality [S]
-- Deterministic ordering: `categoryBreakdown` sorts non-stably by count from map iteration; the max-pick over `ByConclusion` ties on map order (`internal/output/llm.go:310-313,416-423`) — output flaps between runs on identical data and will flake any golden test. Use `SortStableFunc` + name tiebreaks.
-- Add a metric glossary (volatility thresholds, persistence semantics live only in the table legend, `table.go:730-737`); narrate diagnostics in the briefing (after D3); key `buildVolatileStepIndex` by (workflow, job) not bare JobName (`llm.go:343-359`); align `[COST]` priority inclusion with the PriorityScore ≥ 50 rule used for suggestions (`llm.go:97-105`).
-- **Files:** `internal/output/llm.go`
+### U5. LLM format quality [S] ✅ done
+- Shipped 2026-07-15: deterministic ordering (category ties break lexicographically; conclusion max-pick tie-broken — both pinned by run-50-times tests); new `## Data Caveats` section narrates diagnostics and `## Glossary` defines volatility/persistence/q-value/billable semantics; volatile-step index keyed by (workflow, job); `[COST]` priorities gate on PriorityScore ≥ 50 like the suggestions.
 
 ### U6. Exit-code semantics for CI gating [M]
 - Exits 0/1 only (`cmd/ci-snitch/main.go:36-40`). A `--fail-on regression|failure-rate>N` mode makes ci-snitch usable as a CI gate; pairs with F7.

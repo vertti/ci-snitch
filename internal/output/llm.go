@@ -1,6 +1,7 @@
 package output
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/vertti/ci-snitch/internal/analyze"
+	"github.com/vertti/ci-snitch/internal/diag"
 )
 
 // LLMFormatter produces structured output optimized for LLM consumption.
@@ -42,7 +44,33 @@ func (l LLMFormatter) Format(w io.Writer, result *analyze.AnalysisResult) error 
 		}
 	}
 
+	llmWriteCaveats(w, result.Diagnostics)
+	llmWriteGlossary(w)
+
 	return l.writeRawData(w, result)
+}
+
+// llmWriteCaveats narrates data-quality diagnostics — an LLM acting on the
+// numbers must know when the dataset was truncated or partially fetched.
+func llmWriteCaveats(w io.Writer, diags []diag.Diagnostic) {
+	if len(diags) == 0 {
+		return
+	}
+	_, _ = fmt.Fprint(w, "\n## Data Caveats\n\n")
+	for _, d := range diags {
+		_, _ = fmt.Fprintf(w, "- %s\n", d.String())
+	}
+}
+
+func llmWriteGlossary(w io.Writer) {
+	_, _ = fmt.Fprint(w, `
+## Glossary
+
+- volatility: p95/median duration ratio per series — stable <1.3, variable 1.3-2x, spiky 2-3x, volatile >=3x
+- persistence: persistent = the shift held for the rest of the window; transient = it reverted; inconclusive = too few runs after the change to judge
+- q_value: false-discovery-rate adjusted p-value across all change points in this report; treat q > 0.05 as noise
+- billable minutes: per-job wall clock rounded up to whole minutes times the runner multiplier; self-hosted runners bill 0
+`)
 }
 
 func llmWritePriorityFindings(w io.Writer, g *groupedFindings) {
@@ -94,12 +122,18 @@ func llmWritePriorityFindings(w io.Writer, g *groupedFindings) {
 		_, _ = fmt.Fprint(w, "\n")
 	}
 
-	costLimit := min(3, len(g.Costs))
-	for i := range costLimit {
+	costShown := 0
+	for i := range g.Costs {
+		if costShown == 3 {
+			break
+		}
 		d, ok := g.Costs[i].Detail.(analyze.CostDetail)
-		if !ok {
+		// Same bar as the suggestions section: a negligible-score workflow
+		// is not a priority finding.
+		if !ok || d.PriorityScore < 50 {
 			continue
 		}
+		costShown++
 		hasPriority = true
 		_, _ = fmt.Fprintf(w, "- **[COST]** %s: %.0f billable mins/day (%.0f total)\n",
 			d.Workflow, d.DailyRate, d.BillableMinutes)
@@ -311,7 +345,12 @@ func categoryBreakdown(d *analyze.FailureDetail) string {
 	for name, count := range d.ByCategory {
 		cats = append(cats, catCount{name, count})
 	}
-	slices.SortFunc(cats, func(a, b catCount) int { return b.count - a.count })
+	slices.SortFunc(cats, func(a, b catCount) int {
+		if a.count != b.count {
+			return b.count - a.count
+		}
+		return cmp.Compare(a.name, b.name) // deterministic order on ties
+	})
 
 	var parts []string
 	for _, c := range cats {
@@ -341,17 +380,22 @@ type volatileStep struct {
 	volatility float64
 }
 
-func buildVolatileStepIndex(steps []analyze.Finding) map[string]volatileStep {
-	index := make(map[string]volatileStep)
+// wfJobKey scopes job lookups to their workflow — job names collide across
+// workflows constantly ("build", "test").
+type wfJobKey struct{ wf, job string }
+
+func buildVolatileStepIndex(steps []analyze.Finding) map[wfJobKey]volatileStep {
+	index := make(map[wfJobKey]volatileStep)
 	for _, f := range steps {
 		d, ok := f.Detail.(analyze.StepTimingDetail)
 		if !ok {
 			continue
 		}
+		k := wfJobKey{d.WorkflowName, d.JobName}
 		for _, st := range d.Steps {
 			if st.Volatility >= 2.0 {
-				if existing, ok := index[d.JobName]; !ok || st.Volatility > existing.volatility {
-					index[d.JobName] = volatileStep{st.Name, st.Volatility}
+				if existing, ok := index[k]; !ok || st.Volatility > existing.volatility {
+					index[k] = volatileStep{st.Name, st.Volatility}
 				}
 			}
 		}
@@ -385,7 +429,7 @@ func suggestFromCosts(findings []analyze.Finding) []string {
 	return s
 }
 
-func suggestFromOutliers(findings []analyze.Finding, volatileSteps map[string]volatileStep) []string {
+func suggestFromOutliers(findings []analyze.Finding, volatileSteps map[wfJobKey]volatileStep) []string {
 	var s []string
 	for _, f := range findings {
 		d, ok := f.Detail.(analyze.OutlierGroupDetail)
@@ -397,7 +441,7 @@ func suggestFromOutliers(findings []analyze.Finding, volatileSteps map[string]vo
 			subject = d.JobName
 		}
 		hint := "check for resource contention or flaky infrastructure"
-		if vs, ok := volatileSteps[d.JobName]; ok {
+		if vs, ok := volatileSteps[wfJobKey{d.WorkflowName, d.JobName}]; ok {
 			hint = fmt.Sprintf("step %q is %.1fx volatile and likely the cause", vs.name, vs.volatility)
 		}
 		s = append(s, fmt.Sprintf("%q has %d outliers (worst %s) -- %s",
@@ -417,7 +461,8 @@ func suggestFromFailures(findings []analyze.Finding) []string {
 		maxConclusion := ""
 		maxCount := 0
 		for c, n := range d.ByConclusion {
-			if n > maxCount {
+			// Lexicographic tie-break: map order must not decide the hint.
+			if n > maxCount || (n == maxCount && (maxConclusion == "" || c < maxConclusion)) {
 				maxCount = n
 				maxConclusion = c
 			}
