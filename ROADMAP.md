@@ -112,13 +112,11 @@ Removed from the old "already correct" list — disproven by this review:
 ### A10. Benjamini-Hochberg across change-point p-values [S] ✅ done
 - Shipped 2026-07-15: `stats.BenjaminiHochberg` q-values computed across all change points in post-processing (before oscillation counting/dedup); `ChangePointDetail.QValue` exported in JSON; findings with q > α demoted to info/Minor. Live validation on cli/cli: 6 of 52 CPs had raw p < 0.05 but q > 0.05 — the predicted false-positive rate, now demoted. Post-selection caveat (CUSUM picks the split on the same data) documented here: q-values are still optimistic; treat borderline q as suggestive, not proof.
 
-### A11. Non-overlapping failure-trend windows [XS]
-- `recentRate` (last 7d) is compared against the overall rate that includes those 7 days (`internal/analyze/failures.go:212-222`), diluting the signal; with `--since 7d` the trend is always "stable". Compare recent vs the prior period.
-- **Files:** `internal/analyze/failures.go`
+### A11. Non-overlapping failure-trend windows [XS] ✅ done
+- Shipped 2026-07-15: trend compares the recent 7 days against the prior period only (both need ≥5 runs). Previously a 12%→20% week-over-week rise was diluted to "stable", and `--since 7d` made the trend structurally always stable.
 
-### A12. Volatility labels need a minimum sample [XS]
-- p95/median at n=5 means one slow run labels a stable workflow "volatile" (`internal/analyze/summary.go:219-224`; same metric in `steps.go:184-186`). Require n ≥ 10 for the label (or use p90 below that); otherwise "insufficient data".
-- **Files:** `internal/analyze/summary.go`, `internal/analyze/steps.go`
+### A12. Volatility labels need a minimum sample [XS] ✅ done
+- Shipped 2026-07-15: `volatilityLabel` withholds the judgement below 10 runs (empty label; raw ratio still reported) — at small n, p95 is effectively the max and one slow run branded stable workflows "volatile". Applies to workflows and jobs via `computeStats`; step volatility stays numeric (its labeling lives in formatters, see U5).
 
 ### A13. Look up cost multiplier per run, not per first-seen job [S] ✅ done
 - Shipped 2026-07-15: `IsSelfHosted`/`LookupMultiplier` evaluated per run; the breakdown's displayed multiplier tracks the most recent run by `CreatedAt`. Tested with a mid-window ubuntu→self-hosted migration in both orderings.
@@ -286,6 +284,8 @@ Every PR:
 2. `go run ./cmd/smoke` — update `cmd/smoke/main.go` to exercise any new functionality (and see H6).
 3. `./bin/ci-snitch analyze cli/cli --since 7d` — eyeball output for regressions.
 4. New analyzers / formatters: golden tests with anonymized data in `internal/*/testdata/`.
+
+Every release tag: the release workflow **conclusion** must be `success` before any further work — a published release page is NOT success (goreleaser publishes it before the homebrew-tap step, which is exactly what failed silently for v0.24.0/v0.25.0). `HOMEBREW_TAP_TOKEN` is a ~90-day PAT (release environment); rotate it before it expires.
 
 ## Versioning
 

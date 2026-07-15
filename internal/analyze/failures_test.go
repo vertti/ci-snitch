@@ -55,6 +55,53 @@ func makeFailureDetails() []model.RunDetail {
 	return details
 }
 
+func TestFailureAnalyzer_TrendComparesDisjointPeriods(t *testing.T) {
+	// 14 days of runs: prior week 3/25 failures (12%), recent week 5/25
+	// (20%). Comparing recent against the OVERALL rate dilutes the signal
+	// (0.20 vs 0.16 = +0.04, under the 0.05 trigger); comparing against the
+	// prior period (+0.08) correctly reports worsening.
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	var details []model.RunDetail
+	mk := func(id int, day float64, conclusion string) model.RunDetail {
+		start := base.Add(time.Duration(day * 24 * float64(time.Hour)))
+		return model.RunDetail{
+			Run: model.WorkflowRun{
+				ID: int64(id), WorkflowID: 100, WorkflowName: "CI",
+				Status: "completed", Conclusion: conclusion, HeadSHA: "abc123",
+				CreatedAt: start, StartedAt: start, UpdatedAt: start.Add(5 * time.Minute),
+			},
+			Jobs: []model.Job{{Name: "build", Status: "completed", Conclusion: conclusion}},
+		}
+	}
+	for i := range 25 { // prior week: 3 failures
+		c := conclusionSuccess
+		if i < 3 {
+			c = conclusionFailure
+		}
+		details = append(details, mk(1000+i, float64(i)*0.25, c))
+	}
+	for i := range 25 { // recent week: 5 failures
+		c := conclusionSuccess
+		if i < 5 {
+			c = conclusionFailure
+		}
+		details = append(details, mk(2000+i, 7.5+float64(i)*0.25, c))
+	}
+
+	analyzer := FailureAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{
+		AllDetails:    details,
+		WorkflowNames: map[int64]string{100: "CI"},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, findings)
+
+	d, ok := findings[0].Detail.(FailureDetail)
+	require.True(t, ok)
+	assert.Equal(t, FailureTrendWorsening, d.Trend,
+		"a 12%%→20%% week-over-week rise must not be diluted to 'stable' by including the recent week in the baseline")
+}
+
 func TestFailureAnalyzer_DetectsFailures(t *testing.T) {
 	details := makeFailureDetails()
 
