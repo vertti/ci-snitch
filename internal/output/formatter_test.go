@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/vertti/ci-snitch/internal/analyze"
+	"github.com/vertti/ci-snitch/internal/diag"
 )
 
 func dur(d time.Duration) analyze.Duration { return analyze.Duration(d) }
@@ -300,6 +302,86 @@ func TestLLMFormatter_RawOutputWritesJSONFile(t *testing.T) {
 	assert.Contains(t, parsed, "findings")
 	assert.Contains(t, buf.String(), filepath.Base(path),
 		"the briefing should point the LLM at the raw file")
+}
+
+func TestLLM_CategoryBreakdownDeterministic(t *testing.T) {
+	// Two categories tied at the same count: map iteration order must not
+	// decide their display order (flapping output flakes golden tests and
+	// confuses diff-based consumers).
+	d := &analyze.FailureDetail{ByCategory: map[string]int{"infra": 5, "build": 5, "test": 2}}
+	first := categoryBreakdown(d)
+	for range 50 {
+		require.Equal(t, first, categoryBreakdown(d), "tied categories must have a stable order")
+	}
+	assert.Contains(t, first, "build")
+	assert.Less(t, strings.Index(first, "build"), strings.Index(first, "infra"),
+		"ties break lexicographically")
+}
+
+func TestLLM_ConclusionHintDeterministic(t *testing.T) {
+	findings := []analyze.Finding{{
+		Type: analyze.TypeFailure,
+		Detail: analyze.FailureDetail{
+			Workflow: "CI", FailureRate: 0.3,
+			ByConclusion: map[string]int{"cancelled": 3, "timed_out": 3},
+		},
+	}}
+	first := suggestFromFailures(findings)
+	for range 50 {
+		require.Equal(t, first, suggestFromFailures(findings),
+			"a tied conclusion max-pick must not flap between runs")
+	}
+}
+
+func TestLLM_VolatileStepIndexKeyedByWorkflow(t *testing.T) {
+	// Same job name in two workflows: workflow A's volatile step must not be
+	// attributed to workflow B's outliers.
+	steps := []analyze.Finding{
+		{Type: "step", Detail: analyze.StepTimingDetail{
+			WorkflowName: "A", JobName: "build",
+			Steps: []analyze.StepSummary{{Name: "docker build", Volatility: 3.8}},
+		}},
+		{Type: "step", Detail: analyze.StepTimingDetail{
+			WorkflowName: "B", JobName: "build",
+			Steps: []analyze.StepSummary{{Name: "npm install", Volatility: 2.5}},
+		}},
+	}
+	idx := buildVolatileStepIndex(steps)
+	require.Len(t, idx, 2, "same-named jobs in different workflows must not share an entry")
+	assert.Equal(t, "docker build", idx[wfJobKey{"A", "build"}].name)
+	assert.Equal(t, "npm install", idx[wfJobKey{"B", "build"}].name)
+}
+
+func TestLLM_BriefingIncludesGlossaryAndCaveats(t *testing.T) {
+	result := richTestResult()
+	result.Diagnostics = []diag.Diagnostic{
+		diag.New(diag.Warn, diag.KindPartialData, "graphql", "3 runs exceed 50 jobs; extra entries were not fetched"),
+	}
+	var buf bytes.Buffer
+	require.NoError(t, LLMFormatter{}.Format(&buf, result))
+
+	out := buf.String()
+	assert.Contains(t, out, "## Data Caveats", "an LLM consumer must see partial-data caveats")
+	assert.Contains(t, out, "extra entries were not fetched")
+	assert.Contains(t, out, "## Glossary", "volatility/persistence semantics live only in the table legend otherwise")
+	assert.Contains(t, out, "volatile")
+	assert.Contains(t, out, "persistent")
+}
+
+func TestLLM_CostPriorityRequiresMeaningfulScore(t *testing.T) {
+	// [COST] priorities included the top-3 workflows regardless of magnitude
+	// while suggestions gate on PriorityScore >= 50 — a 2-minute-a-day
+	// workflow is not a priority finding.
+	result := &analyze.AnalysisResult{
+		Findings: []analyze.Finding{{
+			Type: analyze.TypeCost, Severity: analyze.SeverityInfo,
+			Detail: analyze.CostDetail{Workflow: "tiny", DailyRate: 2, BillableMinutes: 20, PriorityScore: 4},
+		}},
+	}
+	var buf bytes.Buffer
+	require.NoError(t, LLMFormatter{}.Format(&buf, result))
+	assert.NotContains(t, buf.String(), "[COST]",
+		"a negligible-score workflow is not a priority finding")
 }
 
 func TestFmtDur_HoursRenderAsHours(t *testing.T) {
