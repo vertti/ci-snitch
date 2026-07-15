@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -143,26 +142,14 @@ func (RunnerAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 	return findings, nil
 }
 
-// parseCoreCount extracts core count from runner labels like "blacksmith-16vcpu-ubuntu-2404".
+// parseCoreCount extracts the core count from a runner label, falling back
+// to the documented defaults for standard GitHub-hosted runners.
 func parseCoreCount(label string) int {
-	lower := strings.ToLower(label)
-	for part := range strings.SplitSeq(lower, "-") {
-		var numStr string
-		switch {
-		case strings.HasSuffix(part, "vcpu"):
-			numStr = strings.TrimSuffix(part, "vcpu")
-		case strings.HasSuffix(part, "cores"):
-			numStr = strings.TrimSuffix(part, "cores")
-		case strings.HasSuffix(part, "core"):
-			numStr = strings.TrimSuffix(part, "core")
-		default:
-			continue
-		}
-		if n, err := strconv.Atoi(numStr); err == nil && n > 0 {
-			return n
-		}
+	if n := cost.ParseCoreCount(label); n > 0 {
+		return n
 	}
 	// Standard GitHub runners
+	lower := strings.ToLower(label)
 	switch {
 	case strings.Contains(lower, "ubuntu") || strings.Contains(lower, "linux"):
 		return 2 // default GitHub-hosted Linux

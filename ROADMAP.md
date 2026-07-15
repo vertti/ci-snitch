@@ -94,10 +94,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### A4. Cost from all runs, not success-only [S] ✅ done
 - Shipped 2026-07-15 (same PR as A3): `CostAnalyzer` reads `AllDetails` (fallback to `Details`), so failed/cancelled runs count toward billable minutes, `DailyRate`, and `PriorityScore`.
 
-### A5. Unify runner core-count/cost label parsing [S]
-- Mirror-image bugs: `parseCoreCount` splits on `-` so GitHub's canonical `ubuntu-latest-16-cores` falls through to the 2-core default (`internal/analyze/runners.go:147-175`) → a 16-core runner gets "undersized — consider larger runner" advice; while `cost.largerRunnerRe` = `-(\d+)-cores?$` (`internal/cost/model.go:45`) misses the `32core`/`16vcpu` style that runners.go handles → up to 16× cost underestimate. Each parser accepts only what the other rejects.
-- Fix: one shared label parser (in `internal/cost` or `internal/model`) handling both conventions; both call sites use it.
-- **Files:** `internal/analyze/runners.go`, `internal/cost/model.go`, tests
+### A5. Unify runner core-count/cost label parsing [S] ✅ done
+- Shipped 2026-07-15: shared `cost.ParseCoreCount` handles both the split (`-16-cores`) and adjacent (`32core`, `16vcpu`) conventions; `runners.go` delegates to it (16-core runners no longer get "undersized" advice) and `largerRunnerMultiplier` bills adjacent-convention labels — but only on recognized GitHub OS prefixes, so third-party vendor labels (Blacksmith etc.) are not billed at invented GitHub rates (pinned by test). Created `runners_test.go` (the analyzer previously had zero tests).
 
 ### A6. Skip queue-time for re-run attempts [XS]
 - Queue time = `StartedAt − CreatedAt` (`internal/analyze/summary.go:77-83`), but `run_started_at` resets to the latest attempt's start while `CreatedAt` stays at creation. A run re-run the next morning contributes a ~12h "queue time" to p95. Skip when `RunAttempt > 1`.
