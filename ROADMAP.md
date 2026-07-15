@@ -63,10 +63,9 @@ Removed from the old "already correct" list — disproven by this review:
 ### D5. GraphQL truncation diagnostic — and don't cache truncated runs [S] (was 3.2) ✅ done
 - Shipped 2026-07-15: `pageInfo{hasNextPage}` selected on both connections; runs with >50 jobs or >50 steps/job are marked `RunDetail.Truncated`, produce one aggregated `KindPartialData` warning per fetch, and are analyzed but never cached (a cached row would serve incomplete data forever). Full pagination remains P2. Query verified against the live API.
 
-### D6. Rate budget: audit the GraphQL pool, don't fall back to REST on rate-limit errors [S–M]
-- `checkRateBudget` estimates GraphQL query count but compares against `limits.Core` — the REST pool (`internal/app/service.go:268-303`, `internal/github/client.go:81-92`). False aborts when core is low; and when the GraphQL pool is exhausted mid-run, `fetchBatchGraphQL` (`graphql.go:63-67`) silently falls back to REST at ~20× the approved call count. No `Retry-After`/secondary-limit handling either: 20 workers keep hammering through an abuse-limit event.
-- Fix: budget points against `limits.GraphQL`; detect `*github.RateLimitError`/`*github.AbuseRateLimitError` and back off instead of falling back; keep the core check for listing + genuine REST fallback.
-- **Files:** `internal/app/service.go`, `internal/github/client.go`, `internal/github/graphql.go`
+### D6. Rate budget: audit the GraphQL pool, don't fall back to REST on rate-limit errors [S–M] ✅ done
+- Shipped 2026-07-15: `RateLimitStatus` carries both pools; `checkRateBudget` audits GraphQL (falls back to core only when the API exposes no GraphQL pool, e.g. some GHE) and the abort names the pool. GraphQL `RATE_LIMITED` errors are typed; hydration stops with one aggregated `KindRateLimit` warning instead of falling back to REST at ~20× core spend.
+- Deferred remainder: REST secondary-limit (`Retry-After`) backoff in `FetchJobs` workers — bounded by run count today; revisit after a real abuse-limit incident (consistent with the not-adopted central-limiter decision).
 
 ### D7. Ctrl+C must abort, not degrade to partial analysis [S]
 - `hydrateWorkflow` never returns errors, `fetchBatchGraphQL` falls back to REST on any error including `ctx.Err()`, and `FetchRunDetails` converts per-run `ctx.Err()` to warnings (`internal/app/service.go:207-225`, `internal/github/graphql.go:63-67`, `client.go:288-307`). Cancel mid-hydration → a normal-looking analysis of whatever subset hydrated.

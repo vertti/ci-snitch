@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -42,9 +43,19 @@ func (c *Client) FetchRunDetailsGraphQL(ctx context.Context, runs []model.Workfl
 		end := min(start+GraphQLBatchSize, len(graphqlRuns))
 		batch := graphqlRuns[start:end]
 
-		batchDetails, batchWarnings := c.fetchBatchGraphQL(ctx, batch)
+		batchDetails, batchWarnings, err := c.fetchBatchGraphQL(ctx, batch)
 		details = append(details, batchDetails...)
 		warnings = append(warnings, batchWarnings...)
+		if errors.Is(err, errGraphQLRateLimited) {
+			// Falling back to REST here would burn ~20x the core budget the
+			// pre-flight check approved. Skip the remaining hydration instead.
+			skipped := len(graphqlRuns) - start
+			warnings = append(warnings, diag.New(
+				diag.Warn, diag.KindRateLimit, "graphql",
+				fmt.Sprintf("GraphQL rate limit exhausted; skipped hydration of %d runs (not falling back to REST to protect the core pool)", skipped),
+			))
+			break
+		}
 	}
 
 	// Fall back to REST for runs without node IDs
@@ -76,13 +87,20 @@ func countTruncated(details []model.RunDetail) int {
 	return n
 }
 
-func (c *Client) fetchBatchGraphQL(ctx context.Context, runs []model.WorkflowRun) (details []model.RunDetail, warnings []Warning) {
+// fetchBatchGraphQL hydrates one batch. A non-nil error is returned only for
+// rate limiting, which the caller must handle by stopping — other failures
+// fall back to REST internally.
+func (c *Client) fetchBatchGraphQL(ctx context.Context, runs []model.WorkflowRun) (details []model.RunDetail, warnings []Warning, fatal error) {
 	query := buildBatchQuery(runs)
 
 	raw, err := c.doGraphQL(ctx, query)
 	if err != nil {
+		if errors.Is(err, errGraphQLRateLimited) {
+			return nil, nil, err
+		}
 		c.log("GraphQL batch failed, falling back to REST", "error", err, "batch_size", len(runs))
-		return c.FetchRunDetails(ctx, runs)
+		details, warnings = c.FetchRunDetails(ctx, runs)
+		return details, warnings, nil
 	}
 
 	details, missed, warnings := parseBatchResponse(raw, runs)
@@ -96,7 +114,7 @@ func (c *Client) fetchBatchGraphQL(ctx context.Context, runs []model.WorkflowRun
 		details = append(details, restDetails...)
 		warnings = append(warnings, restWarnings...)
 	}
-	return details, warnings
+	return details, warnings, nil
 }
 
 const graphqlEndpoint = "https://api.github.com/graphql"
@@ -131,6 +149,7 @@ func (c *Client) doGraphQL(ctx context.Context, query string) (json.RawMessage, 
 	var result struct {
 		Data   json.RawMessage `json:"data"`
 		Errors []struct {
+			Type    string `json:"type"`
 			Message string `json:"message"`
 		} `json:"errors"`
 	}
@@ -138,11 +157,18 @@ func (c *Client) doGraphQL(ctx context.Context, query string) (json.RawMessage, 
 		return nil, fmt.Errorf("graphql: parse response: %w", err)
 	}
 	if len(result.Errors) > 0 {
+		if result.Errors[0].Type == "RATE_LIMITED" {
+			return nil, fmt.Errorf("graphql: %s: %w", result.Errors[0].Message, errGraphQLRateLimited)
+		}
 		return nil, fmt.Errorf("graphql: %s", result.Errors[0].Message)
 	}
 
 	return result.Data, nil
 }
+
+// errGraphQLRateLimited marks a GraphQL-pool exhaustion; callers must not
+// respond by falling back to REST (that multiplies core-pool spend ~20x).
+var errGraphQLRateLimited = errors.New("graphql rate limited")
 
 func truncateBody(b []byte) string {
 	if len(b) > 200 {

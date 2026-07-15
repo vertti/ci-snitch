@@ -182,6 +182,38 @@ func TestFetchRunDetailsGraphQL_TruncationWarnsOnceAndMarksDetails(t *testing.T)
 	assert.Contains(t, truncationWarnings[0], "2 runs")
 }
 
+func TestFetchRunDetailsGraphQL_RateLimitedDoesNotFallBackToREST(t *testing.T) {
+	// When the GraphQL pool is exhausted, falling back to REST would burn
+	// ~20x the approved core budget. Skip hydration with a warning instead.
+	restCalls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /graphql", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded for user"}]}`))
+	})
+	mux.HandleFunc("GET /repos/test-owner/test-repo/actions/runs/{id}/jobs", func(w http.ResponseWriter, _ *http.Request) {
+		restCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"total_count": 0, "jobs": []}`))
+	})
+
+	c := testClient(t, mux)
+	runs := graphqlTestRuns(45) // 3 batches — must stop after the first hits the limit
+
+	details, warnings := c.FetchRunDetailsGraphQL(context.Background(), runs)
+	assert.Empty(t, details)
+	assert.Equal(t, 0, restCalls, "must not fall back to REST on GraphQL rate limiting")
+
+	var rateWarnings int
+	for _, w := range warnings {
+		if w.Kind == diag.KindRateLimit {
+			rateWarnings++
+			assert.Contains(t, w.Message, "45 runs", "warning must cover all skipped runs")
+		}
+	}
+	assert.Equal(t, 1, rateWarnings, "one aggregated rate-limit warning, got %v", warnings)
+}
+
 func TestFetchRunDetailsGraphQL_NullNodeStillWarns(t *testing.T) {
 	// A "rN": null node (deleted run / permissions) keeps its per-run
 	// warning — pins the pre-existing behavior.

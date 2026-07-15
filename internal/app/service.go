@@ -318,21 +318,28 @@ func (s *Service) checkRateBudget(ctx context.Context, totalRuns, uncachedRuns i
 	}
 	estimatedCalls += estimatedCalls / 10
 
-	budget := int(float64(rl.Remaining) * rateLimitSafetyMargin)
+	// Hydration runs on the GraphQL pool, which GitHub meters separately from
+	// core REST (already spent on listing by the time this check runs). Fall
+	// back to the core pool only when the API exposes no GraphQL pool.
+	pool, poolName := rl.GraphQL, "GraphQL"
+	if pool.Limit == 0 {
+		pool, poolName = rl.Core, "core"
+	}
+	budget := int(float64(pool.Remaining) * rateLimitSafetyMargin)
 
 	if opts.Verbose {
-		s.Prog.Log("Rate limit: %d/%d remaining (resets %s). %d runs (%d cached, %d to fetch), estimated calls: ~%d",
-			rl.Remaining, rl.Limit, rl.ResetAt.Format("15:04:05"),
+		s.Prog.Log("Rate limit (%s pool): %d/%d remaining (resets %s). %d runs (%d cached, %d to fetch), estimated calls: ~%d",
+			poolName, pool.Remaining, pool.Limit, pool.ResetAt.Format("15:04:05"),
 			totalRuns, totalRuns-uncachedRuns, uncachedRuns, estimatedCalls)
 	}
 
 	if estimatedCalls > budget {
 		return fmt.Errorf(
-			"aborting: estimated ~%d API calls for %d uncached runs (of %d total) would exceed rate limit budget "+
+			"aborting: estimated ~%d GraphQL calls for %d uncached runs (of %d total) would exceed the %s rate limit budget "+
 				"(%d of %d remaining, resets %s). "+
 				"Try a shorter window (--since 7d) or filter to one workflow (--workflow <name>)",
-			estimatedCalls, uncachedRuns, totalRuns, rl.Remaining, rl.Limit,
-			time.Until(rl.ResetAt).Round(time.Minute))
+			estimatedCalls, uncachedRuns, totalRuns, poolName, pool.Remaining, pool.Limit,
+			time.Until(pool.ResetAt).Round(time.Minute))
 	}
 
 	return nil
