@@ -23,6 +23,8 @@ func testClient(t *testing.T, handler http.Handler) *Client {
 	// caller's handler so existing test routes keep working.
 	root := http.NewServeMux()
 	root.Handle("/api/v3/", http.StripPrefix("/api/v3", handler))
+	// GraphQL endpoint lives at the server root (no /api/v3 prefix).
+	root.Handle("/graphql", handler)
 	srv := httptest.NewServer(root)
 	t.Cleanup(srv.Close)
 
@@ -33,10 +35,11 @@ func testClient(t *testing.T, handler http.Handler) *Client {
 	require.NoError(t, err)
 
 	return &Client{
-		gh:     ghClient,
-		owner:  "test-owner",
-		repo:   "test-repo",
-		jobSem: make(chan struct{}, defaultMaxConcurrentJobs),
+		gh:         ghClient,
+		owner:      "test-owner",
+		repo:       "test-repo",
+		jobSem:     make(chan struct{}, defaultMaxConcurrentJobs),
+		graphqlURL: srv.URL + "/graphql",
 	}
 }
 

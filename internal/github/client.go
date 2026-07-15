@@ -17,11 +17,12 @@ const defaultMaxConcurrentJobs = 20
 
 // Client wraps the GitHub API for fetching Actions workflow data.
 type Client struct {
-	gh     *gh.Client
-	owner  string
-	repo   string
-	jobSem chan struct{}
-	logger *slog.Logger
+	gh         *gh.Client
+	owner      string
+	repo       string
+	jobSem     chan struct{}
+	logger     *slog.Logger
+	graphqlURL string
 }
 
 // ClientOption configures optional Client behaviour.
@@ -53,10 +54,11 @@ func NewClient(token, ownerRepo string, opts ...ClientOption) (*Client, error) {
 		return nil, fmt.Errorf("new github client: %w", err)
 	}
 	c := &Client{
-		gh:     ghClient,
-		owner:  parts[0],
-		repo:   parts[1],
-		jobSem: make(chan struct{}, defaultMaxConcurrentJobs),
+		gh:         ghClient,
+		owner:      parts[0],
+		repo:       parts[1],
+		jobSem:     make(chan struct{}, defaultMaxConcurrentJobs),
+		graphqlURL: graphqlEndpoint,
 	}
 	for _, o := range opts {
 		o(c)

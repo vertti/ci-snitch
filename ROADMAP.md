@@ -57,10 +57,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### D3. Surface fetch/hydration diagnostics in `result.Diagnostics` [S] ✅ done
 - Shipped 2026-07-15: list/hydration/preprocess/cache-save diagnostics are collected through `fetchRunLists`/`hydrateAll`/`hydrateWorkflow` and appended to `result.Diagnostics`, so JSON/LLM output now carries partial-data caveats; the CLI prints them once at end of run (live `WARNING:` logs removed to avoid double-printing). The 1000-cap warning now fires once per window instead of once per page. Tests: `internal/app/service_test.go` (new — starts T1) with fake fetcher/store covering all four diagnostic paths; `TestFetchRuns_CapWarningEmittedOncePerWindow`.
 
-### D4. No silent drops in GraphQL batch parsing [XS–S]
-- `parseBatchResponse`: top-level unmarshal error returns `nil, nil` — a whole 20-run batch vanishes without diagnostics; a missing alias key is `continue`d silently (`internal/github/graphql.go:171-174,184-187`). Un-cached, the runs also inflate the uncached count every subsequent scan.
-- Fix: emit `KindPartialData` warnings on both paths; optionally fall back to REST for unaccounted runs (mirroring the existing error fallback).
-- **Files:** `internal/github/graphql.go`, tests via T2
+### D4. No silent drops in GraphQL batch parsing [XS–S] ✅ done
+- Shipped 2026-07-15: `parseBatchResponse` returns unaccounted runs (malformed payload, missing alias key) as `missed`; `fetchBatchGraphQL` hydrates them via REST with one aggregated `KindPartialData` warning. Null nodes keep their per-run warning. Also removed the dead `runByID` map and made the GraphQL endpoint a Client field (`graphqlURL`, default unchanged) so the layer is finally testable via httptest — first three behavior tests in new `graphql_test.go`; T2 builds on this.
 
 ### D5. GraphQL truncation diagnostic — and don't cache truncated runs [S] (was 3.2)
 - `buildBatchQuery` requests `checkRuns(first:50)`/`steps(first:50)` with no `pageInfo` (`internal/github/graphql.go:124-137`); >50 jobs or >50 steps silently lose data. Worse: the truncated `RunDetail` is cached permanently, so even after pagination ships, poisoned rows would be served forever.
@@ -327,7 +325,7 @@ First eight — unblocked, small, highest trust-leverage:
 3. ~~**D3** diagnostics plumbing to JSON/LLM output~~ ✅
 4. ~~**A3 + A4** branch filter for AllDetails + cost from all runs~~ ✅
 5. ~~**D2** re-run cache invalidation~~ ✅
-6. **D4** GraphQL silent-drop warnings
+6. ~~**D4** GraphQL silent-drop warnings~~ ✅
 7. **U1** CLI paper-cut batch
 8. **T1** `internal/app` service tests (pins 1, 3, 4, 5)
 
