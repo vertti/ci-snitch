@@ -237,8 +237,9 @@ Removed from the old "already correct" list — disproven by this review:
 
 ### H3. govulncheck in CI [S] (was 7.2) ✅ done (batch 2) — `mise run vuln` + fatal CI step (baseline verified by the introducing PR's own CI run).
 
-### H4. `ci-snitch doctor` [S] (was 7.3)
-- Validate token, rate limit, cache path writable, SQLite openable, git remote detectable. One line per check.
+### H4. `ci-snitch doctor` [S] (was 7.3) ✅ done — token, API reachability (shows both rate pools), cache openable, git remote (informational: failing it is a normal way to run the tool). All checks run even after a failure — the point is a full report; any hard failure exits non-zero.
+
+**H section complete** (H11 stays deliberately deferred).
 
 ### H5. Fix install.sh Windows path [S] ✅ done (batch 3) — installer refuses Windows explicitly with a pointer to the release zip (the path could never succeed: archive holds `ci-snitch.exe`, target assumed `/usr/local/bin` + sudo).
 
