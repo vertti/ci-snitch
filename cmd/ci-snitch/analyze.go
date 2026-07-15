@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/vertti/ci-snitch/internal/analyze"
 	"github.com/vertti/ci-snitch/internal/app"
 	"github.com/vertti/ci-snitch/internal/github"
 	"github.com/vertti/ci-snitch/internal/output"
@@ -30,6 +31,7 @@ func newAnalyzeCmd() *cobra.Command {
 		includeFailures bool
 		verbose         bool
 		quiet           bool
+		failOn          string
 	)
 
 	cmd := &cobra.Command{
@@ -48,6 +50,10 @@ If no repository is specified, detects the GitHub remote from the current direct
 			}
 			if rawOutput != "" && format != "llm" {
 				return errors.New("--raw-output requires --format llm")
+			}
+			failConds, err := parseFailOn(failOn)
+			if err != nil {
+				return err
 			}
 
 			var repo string
@@ -138,7 +144,11 @@ If no repository is specified, detects the GitHub remote from the current direct
 				prog.Log("Format: %s", time.Since(formatStart))
 			}
 			prog.Log("Total: %s", time.Since(totalStart))
-			return err
+			if err != nil {
+				return err
+			}
+
+			return applyFailOnGate(failConds, &result)
 		},
 	}
 
@@ -151,6 +161,7 @@ If no repository is specified, detects the GitHub remote from the current direct
 	cmd.Flags().BoolVar(&includeFailures, "include-failures", false, "include failed runs in analysis")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "verbose output (show fetch details)")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "suppress progress and diagnostic output on stderr")
+	cmd.Flags().StringVar(&failOn, "fail-on", "", "exit 2 when conditions match: regression, failure-rate>N (comma-separated)")
 
 	_ = cmd.RegisterFlagCompletionFunc("format", cobra.FixedCompletions(
 		[]string{"table", "json", "markdown", "llm"}, cobra.ShellCompDirectiveNoFileComp))
@@ -212,4 +223,18 @@ func validateSincePast(t, now time.Time) error {
 		return fmt.Errorf("--since must be in the past, got %s", t.Format("2006-01-02"))
 	}
 	return nil
+}
+
+// applyFailOnGate prints tripped-condition reasons to stderr (even in quiet
+// mode — the whole point of --fail-on is telling CI why the build failed) and
+// returns exit code 2 via exitCodeError.
+func applyFailOnGate(conds []failOnCondition, result *analyze.AnalysisResult) error {
+	reasons := evaluateFailOn(conds, result)
+	if len(reasons) == 0 {
+		return nil
+	}
+	for _, r := range reasons {
+		_, _ = fmt.Fprintf(os.Stderr, "fail-on: %s\n", r)
+	}
+	return &exitCodeError{code: 2, msg: fmt.Sprintf("%d --fail-on condition(s) tripped", len(reasons))}
 }
