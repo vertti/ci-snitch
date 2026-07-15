@@ -142,13 +142,18 @@ func (c *Client) doGraphQL(ctx context.Context, query string) (json.RawMessage, 
 	}
 	defer resp.Body.Close() //nolint:errcheck // best-effort close on read path
 
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read graphql response: %w", err)
+	// Error pages (e.g. from a misconfigured proxy) can be arbitrarily large;
+	// only the first 200 bytes end up in the error string anyway.
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		return nil, fmt.Errorf("graphql: HTTP %d: %s", resp.StatusCode, truncateBody(body))
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("graphql: HTTP %d: %s", resp.StatusCode, truncateBody(respBody))
+	// Successful batch responses are large but bounded by the query shape;
+	// the limit is a guard against pathological payloads, not a budget.
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	if err != nil {
+		return nil, fmt.Errorf("read graphql response: %w", err)
 	}
 
 	var result struct {
@@ -186,7 +191,10 @@ func buildBatchQuery(runs []model.WorkflowRun) string {
 	var b strings.Builder
 	b.WriteString("query{")
 
-	fragment := fmt.Sprintf(`...on WorkflowRun{databaseId checkSuite{checkRuns(first:%d){pageInfo{hasNextPage} nodes{name databaseId startedAt completedAt status conclusion steps(first:%d){pageInfo{hasNextPage} nodes{name number startedAt completedAt status conclusion}}}}}}`,
+	// filterBy:{checkType:LATEST} matches REST's filter=latest: only the
+	// latest attempt's check runs, so re-run runs don't carry duplicate
+	// old-attempt jobs.
+	fragment := fmt.Sprintf(`...on WorkflowRun{databaseId checkSuite{checkRuns(first:%d,filterBy:{checkType:LATEST}){pageInfo{hasNextPage} nodes{name databaseId startedAt completedAt status conclusion steps(first:%d){pageInfo{hasNextPage} nodes{name number startedAt completedAt status conclusion}}}}}}`,
 		graphqlMaxJobs, graphqlMaxSteps)
 
 	for i := range runs {
