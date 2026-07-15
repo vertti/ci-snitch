@@ -170,6 +170,19 @@ func TestMarkdownFormatter(t *testing.T) {
 	assert.Contains(t, out, "| Count |")
 	assert.Contains(t, out, "| critical | CI / build | 5 | 15m")
 	assert.Contains(t, out, "p99")
+
+	// Parity with table/JSON (U4): the README markets markdown for PR
+	// comments alongside failure/cost/pipeline features.
+	assert.Contains(t, out, "## Failure Rates")
+	assert.Contains(t, out, "| 15% |")
+	assert.Contains(t, out, "## Cost")
+	assert.Contains(t, out, "| 500 |")
+	assert.Contains(t, out, "## Pipeline Structure")
+	assert.Contains(t, out, "deploy-stage")
+	assert.Contains(t, out, "## Runner Sizing")
+	assert.Contains(t, out, "consider downsizing")
+	assert.Contains(t, out, "## Step-Level Timing")
+	assert.Contains(t, out, "docker build")
 }
 
 func TestCompactResult_FiltersNoise(t *testing.T) {
@@ -259,6 +272,17 @@ func richTestResult() *analyze.AnalysisResult {
 				WorkflowName: "CI", JobName: "quick", RunnerLabel: "ubuntu-latest-16-cores",
 				Cores: 16, MedianDur: dur(45 * time.Second), Runs: 30, Multiplier: 8,
 				Issue: "oversized", Suggestion: "job takes 45s on 16 cores — consider downsizing to save ~8x cost",
+			},
+		},
+		analyze.Finding{
+			Type: analyze.TypeSteps, Severity: analyze.SeverityInfo,
+			Title: "Step timing for CI / build",
+			Detail: analyze.StepTimingDetail{
+				WorkflowName: "CI", JobName: "build", TotalRuns: 50,
+				Steps: []analyze.StepSummary{
+					{Name: "docker build", Runs: 50, Median: dur(2 * time.Minute), P95: dur(4 * time.Minute), PctOfJob: 66, Volatility: 3.8},
+					{Name: "checkout", Runs: 50, Median: dur(10 * time.Second), P95: dur(15 * time.Second), PctOfJob: 5, Volatility: 1.1},
+				},
 			},
 		},
 	)

@@ -164,9 +164,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### U3. Record filter context in output meta [S] ✅ done
 - Shipped 2026-07-15: `ResultMeta` gains `branch`/`workflow` (omitempty) and `since`; populated from the run options, flows into JSON/LLM automatically.
 
-### U4. Markdown format parity [M]
-- Markdown renders only summaries, non-info changepoints, and outliers — no failures, cost, pipeline, runner, steps, or triage sections, all present in table/JSON (`internal/output/markdown.go`). README markets it for PR comments alongside those features. Also prerequisite for F7 (PR comment bot).
-- **Files:** `internal/output/markdown.go`, golden tests
+### U4. Markdown format parity [M] ✅ done
+- Shipped 2026-07-15: markdown gains Failure Rates, Cost, Pipeline Structure, Runner Sizing, and Step-Level Timing sections (tables/lists mirroring the table formatter's content; names pipe-escaped). Unblocks F7.
 
 ### U5. LLM format quality [S] ✅ done
 - Shipped 2026-07-15: deterministic ordering (category ties break lexicographically; conclusion max-pick tie-broken — both pinned by run-50-times tests); new `## Data Caveats` section narrates diagnostics and `## Glossary` defines volatility/persistence/q-value/billable semantics; volatile-step index keyed by (workflow, job); `[COST]` priorities gate on PriorityScore ≥ 50 like the suggestions.
