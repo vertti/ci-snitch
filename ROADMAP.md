@@ -179,15 +179,8 @@ Small, individually-XS fixes; batch into one PR:
 
 ## U — CLI & output UX
 
-### U1. CLI paper-cut batch [S total]
-One PR of XS fixes:
-- Repo auto-detect fails on dotted repo names (`next.js`, `socket.io`): regex `[^/.]+?` at `cmd/ci-snitch/analyze.go:142` — use `[^/]+?` and strip `.git`.
-- Every runtime error dumps the full usage block: set `SilenceUsage: true` on the command (`analyze.go:47` only sets it for one branch).
-- Unknown `--format` rejected only **after** the full fetch+analysis (`analyze.go:117`) — validate before constructing the client.
-- `--version` flag missing (`main.go:13-24`): set cobra's `Version:` to get it free.
-- Double-wrapped error prefix `list workflows: list workflows:` (`internal/app/service.go:64` + `internal/github/client.go:102`).
-- `--raw-output` silently ignored unless `--format llm` (`internal/output/formatter.go:24-37`) — warn or error.
-- `detectGitHubRepo` error detail discarded (`analyze.go:45-49`).
+### U1. CLI paper-cut batch [S total] ✅ done
+- Shipped 2026-07-15, all seven: dotted-repo regex (`next.js` detects), `SilenceUsage` on runtime errors, `--format` and `--raw-output` validated before any API call (was: full fetch then error), `--version` flag via cobra `Version:`, de-duplicated `list workflows:` prefix, `--raw-output` without `--format llm` errors, repo-detection failures surface the underlying cause.
 
 ### U2. Actionable error messages for common failures [S]
 - 404/401/403 surface raw go-github errors ("GET … 404 Not Found []") with no hint that a private repo needs a scoped token; typo'd `--workflow` silently matches nothing and the "no runs found" error omits active filters (`internal/app/service.go:67-75,101`).
@@ -326,7 +319,7 @@ First eight — unblocked, small, highest trust-leverage:
 4. ~~**A3 + A4** branch filter for AllDetails + cost from all runs~~ ✅
 5. ~~**D2** re-run cache invalidation~~ ✅
 6. ~~**D4** GraphQL silent-drop warnings~~ ✅
-7. **U1** CLI paper-cut batch
+7. ~~**U1** CLI paper-cut batch~~ ✅
 8. **T1** `internal/app` service tests (pins 1, 3, 4, 5)
 
 Then: A1/A7/A8 (changepoint/outlier correctness) → D5/D6/D7 → T2/T3/T4 → remaining A → U → P → F. H items are opportunistic and can interleave; H1/H2 can ride along with any PR.

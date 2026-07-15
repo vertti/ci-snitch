@@ -58,10 +58,11 @@ const rateLimitSafetyMargin = 0.80
 func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResult, error) {
 	// Fetch workflows
 	s.Prog.Status("Discovering workflows...")
+	// The client wraps its own errors with context ("list workflows: ...").
 	workflows, err := s.Client.ListWorkflows(ctx)
 	if err != nil {
 		s.Prog.Done()
-		return analyze.AnalysisResult{}, fmt.Errorf("list workflows: %w", err)
+		return analyze.AnalysisResult{}, err
 	}
 
 	targetWorkflows := 0

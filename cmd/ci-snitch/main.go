@@ -12,9 +12,10 @@ var version = "dev"
 
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "ci-snitch",
-		Short: "Analyze GitHub Actions CI workflow performance",
-		Long:  "ci-snitch hunts for anomalies and performance trends in your CI pipelines.",
+		Use:     "ci-snitch",
+		Short:   "Analyze GitHub Actions CI workflow performance",
+		Long:    "ci-snitch hunts for anomalies and performance trends in your CI pipelines.",
+		Version: version,
 	}
 
 	cmd.AddCommand(newVersionCmd())
