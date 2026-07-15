@@ -30,6 +30,11 @@ func NewProgress() *Progress {
 	}
 }
 
+// NewProgressQuiet returns a Progress that discards everything (--quiet).
+func NewProgressQuiet() *Progress {
+	return &Progress{w: io.Discard}
+}
+
 // Status writes a transient status line that will be overwritten by the next call.
 // On non-TTY, each status is printed on its own line.
 func (p *Progress) Status(format string, args ...any) {

@@ -36,7 +36,7 @@ func (MarkdownFormatter) Format(w io.Writer, result *analyze.AnalysisResult) err
 			_, _ = fmt.Fprintln(w, "|-----|------|--------|-----|-----|-----|")
 			for _, job := range d.Jobs {
 				_, _ = fmt.Fprintf(w, "| %s | %d | %s | %s | %s | %s |\n",
-					job.Name, job.Stats.TotalRuns,
+					escMD(job.Name), job.Stats.TotalRuns,
 					fmtDur(job.Stats.Median), fmtDur(job.Stats.P95),
 					fmtDur(job.Stats.Min), fmtDur(job.Stats.Max))
 			}
@@ -81,12 +81,12 @@ func (MarkdownFormatter) Format(w io.Writer, result *analyze.AnalysisResult) err
 			if !ok {
 				continue
 			}
-			subject := d.WorkflowName
+			subject := escMD(d.WorkflowName)
 			if d.JobName != "" {
-				subject += " / " + d.JobName
+				subject += " / " + escMD(d.JobName)
 			}
-			_, _ = fmt.Fprintf(w, "| %s | %s | %d | %s | p%.0f | `%s` |\n",
-				d.MaxSeverity, subject, d.Count, fmtDur(d.WorstDuration), d.WorstPercentile, truncSHA(d.WorstCommitSHA))
+			_, _ = fmt.Fprintf(w, "| %s | %s | %d | %s | %s | `%s` |\n",
+				d.MaxSeverity, subject, d.Count, fmtDur(d.WorstDuration), fmtPercentile(d.WorstPercentile), truncSHA(d.WorstCommitSHA))
 		}
 		_, _ = fmt.Fprintln(w)
 	}

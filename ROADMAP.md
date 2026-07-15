@@ -177,8 +177,8 @@ Removed from the old "already correct" list — disproven by this review:
 - Exits 0/1 only (`cmd/ci-snitch/main.go:36-40`). A `--fail-on regression|failure-rate>N` mode makes ci-snitch usable as a CI gate; pairs with F7.
 - **Files:** `cmd/ci-snitch/`, docs
 
-### U7. Output polish batch [S total]
-- `fmtDur` renders 2.5h as "150m" (`internal/output/helpers.go:49-60`); `|` unescaped in markdown/LLM tables (`markdown.go:38`, `llm.go:126`); `"diagnostics": null` in JSON when empty (`internal/analyze/engine.go:23`) — emit `[]`; `Diagnostic.String()` drops the wrapped `Err` (`internal/diag/diag.go:37-42`); `compactResult` comment claims it drops outliers but filters only changepoints (`llm.go:240-243`); `-q` quiet mode; flag-value completion for `--format`; reject `--since 0d`/future dates before fetching.
+### U7. Output polish batch [S total] ✅ done
+- Shipped 2026-07-15: hours render as "2h30m"; `|` escaped in markdown/LLM table names; JSON emits `"diagnostics": []`/`"findings": []` instead of null (fixed at the formatter boundary); `Diagnostic.String()` shows the wrapped cause; percentile displays floor (no more "slower than 100% of runs"); `-q/--quiet` silences stderr entirely; `--format` shell completion; `--since 0d`/future dates rejected before any API call; `compactResult` comment matches the code.
 
 ---
 

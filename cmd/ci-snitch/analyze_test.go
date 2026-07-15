@@ -31,6 +31,8 @@ func TestParseSinceFrom(t *testing.T) {
 		{name: "months", input: "3mo", want: now.AddDate(0, -3, 0)},
 		{name: "single day", input: "1d", want: now.AddDate(0, 0, -1)},
 		{name: "single month", input: "1mo", want: now.AddDate(0, -1, 0)},
+		{name: "zero days", input: "0d", wantErr: "in the past"},
+		{name: "future date", input: "2026-06-01", wantErr: "in the past"}, // "now" in this test is 2026-04-15
 		{name: "too short", input: "x", wantErr: "unrecognized format"},
 		{name: "empty", input: "", wantErr: "unrecognized format"},
 		{name: "bad suffix", input: "5y", wantErr: "unrecognized format"},

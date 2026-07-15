@@ -29,6 +29,7 @@ func newAnalyzeCmd() *cobra.Command {
 		noCache         bool
 		includeFailures bool
 		verbose         bool
+		quiet           bool
 	)
 
 	cmd := &cobra.Command{
@@ -79,6 +80,9 @@ If no repository is specified, detects the GitHub remote from the current direct
 			}
 
 			prog := output.NewProgress()
+			if quiet {
+				prog = output.NewProgressQuiet()
+			}
 			prog.Log("Snitching on %s", repo)
 
 			// Open store
@@ -123,7 +127,9 @@ If no repository is specified, detects the GitHub remote from the current direct
 			}
 
 			// Blank line before output
-			_, _ = fmt.Fprintln(os.Stderr)
+			if !quiet {
+				_, _ = fmt.Fprintln(os.Stderr)
+			}
 
 			// Output
 			formatStart := time.Now()
@@ -144,6 +150,10 @@ If no repository is specified, detects the GitHub remote from the current direct
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "bypass local cache, fetch fresh data")
 	cmd.Flags().BoolVar(&includeFailures, "include-failures", false, "include failed runs in analysis")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "verbose output (show fetch details)")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "suppress progress and diagnostic output on stderr")
+
+	_ = cmd.RegisterFlagCompletionFunc("format", cobra.FixedCompletions(
+		[]string{"table", "json", "markdown", "llm"}, cobra.ShellCompDirectiveNoFileComp))
 
 	return cmd
 }
@@ -172,7 +182,7 @@ var sinceRe = regexp.MustCompile(`^(\d+)(d|w|mo)$`)
 func parseSinceFrom(s string, now time.Time) (time.Time, error) {
 	// Try absolute date first
 	if t, err := time.Parse("2006-01-02", s); err == nil {
-		return t, nil
+		return t, validateSincePast(t, now)
 	}
 
 	m := sinceRe.FindStringSubmatch(s)
@@ -181,13 +191,25 @@ func parseSinceFrom(s string, now time.Time) (time.Time, error) {
 	}
 
 	n, _ := strconv.Atoi(m[1]) // regex guarantees digits
+	var t time.Time
 	switch m[2] {
 	case "d":
-		return now.AddDate(0, 0, -n), nil
+		t = now.AddDate(0, 0, -n)
 	case "w":
-		return now.AddDate(0, 0, -n*7), nil
+		t = now.AddDate(0, 0, -n*7)
 	case "mo":
-		return now.AddDate(0, -n, 0), nil
+		t = now.AddDate(0, -n, 0)
+	default:
+		return time.Time{}, fmt.Errorf("unrecognized format %q", s)
 	}
-	return time.Time{}, fmt.Errorf("unrecognized format %q", s)
+	return t, validateSincePast(t, now)
+}
+
+// validateSincePast rejects windows that cannot contain any runs ("0d",
+// future dates) before they burn an API round trip.
+func validateSincePast(t, now time.Time) error {
+	if !t.Before(now) {
+		return fmt.Errorf("--since must be in the past, got %s", t.Format("2006-01-02"))
+	}
+	return nil
 }

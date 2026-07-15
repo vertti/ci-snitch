@@ -2,6 +2,8 @@ package output
 
 import (
 	"fmt"
+	"math"
+	"strings"
 	"time"
 
 	"github.com/vertti/ci-snitch/internal/analyze"
@@ -45,11 +47,17 @@ func groupByType(findings []analyze.Finding) groupedFindings {
 	return g
 }
 
-// fmtDur formats a duration as a compact human-readable string (e.g. "5m30s").
+// fmtDur formats a duration as a compact human-readable string (e.g. "5m30s",
+// "2h30m" — a 2.5-hour p95 as "150m" is unreadable).
 func fmtDur(ad analyze.Duration) string {
 	d := ad.Std().Round(time.Second)
 	if d < time.Minute {
 		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d >= time.Hour {
+		h := int(d.Hours())
+		m := int(d.Minutes()) % 60
+		return fmt.Sprintf("%dh%dm", h, m)
 	}
 	m := int(d.Minutes())
 	s := int(d.Seconds()) % 60
@@ -57,6 +65,17 @@ func fmtDur(ad analyze.Duration) string {
 		return fmt.Sprintf("%dm", m)
 	}
 	return fmt.Sprintf("%dm%02ds", m, s)
+}
+
+// fmtPercentile floors for display: "p100 — slower than 100% of runs" would
+// include the run itself.
+func fmtPercentile(p float64) string {
+	return fmt.Sprintf("p%.0f", math.Floor(p))
+}
+
+// escMD escapes pipes so names can't break markdown table rows.
+func escMD(s string) string {
+	return strings.ReplaceAll(s, "|", `\|`)
 }
 
 // fmtTotalTime formats a duration as hours and minutes (e.g. "2h30m").

@@ -97,7 +97,7 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 				Severity: severityFromPercentile(out.Percentile),
 				Title:    fmt.Sprintf("Slow run in %q", wfName),
 				Description: fmt.Sprintf("Run took %s (p%.0f — slower than %.0f%% of runs)",
-					d.Duration().Round(time.Second), out.Percentile, out.Percentile),
+					d.Duration().Round(time.Second), math.Floor(out.Percentile), math.Floor(out.Percentile)),
 				Detail: OutlierDetail{
 					RunID:        d.Run.ID,
 					CommitSHA:    d.Run.HeadSHA,
@@ -149,7 +149,7 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 				Severity: severityFromPercentile(out.Percentile),
 				Title:    fmt.Sprintf("Slow job %q in %q", job.Name, wfName),
 				Description: fmt.Sprintf("Job took %s (p%.0f — slower than %.0f%% of runs)",
-					job.Duration().Round(time.Second), out.Percentile, out.Percentile),
+					job.Duration().Round(time.Second), math.Floor(out.Percentile), math.Floor(out.Percentile)),
 				Detail: OutlierDetail{
 					RunID:        d.Run.ID,
 					CommitSHA:    d.Run.HeadSHA,
