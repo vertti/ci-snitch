@@ -79,25 +79,22 @@ func DefaultPath() (string, error) {
 }
 
 // Open opens or creates a SQLite database at the given path.
+//
+// busy_timeout and foreign_keys are per-connection settings, and database/sql
+// pools connections — a `PRAGMA` via db.Exec would bind to a single pooled
+// connection while concurrent workflow hydration opens others without it
+// (SQLITE_BUSY on parallel saves, unenforced foreign keys). DSN _pragma
+// parameters make the driver apply them to every connection it opens.
+// busy_timeout comes first so the journal_mode switch itself retries under
+// contention; WAL allows concurrent reads during parallel workflow writes.
 func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+	dsn := "file:" + path +
+		"?_pragma=busy_timeout(5000)" +
+		"&_pragma=journal_mode(WAL)" +
+		"&_pragma=foreign_keys(1)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
-	}
-
-	// WAL mode allows concurrent reads and avoids SQLITE_BUSY under
-	// parallel workflow writes. busy_timeout retries on lock contention
-	// instead of failing immediately. foreign_keys enforces the REFERENCES
-	// declarations in the schema (off by default in SQLite).
-	for _, pragma := range []string{
-		`PRAGMA journal_mode=WAL`,
-		`PRAGMA busy_timeout=5000`,
-		`PRAGMA foreign_keys=ON`,
-	} {
-		if _, err := db.Exec(pragma); err != nil {
-			_ = db.Close()
-			return nil, fmt.Errorf("exec %s: %w", pragma, err)
-		}
 	}
 
 	if _, err := db.Exec(schema); err != nil {
