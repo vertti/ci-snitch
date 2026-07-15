@@ -101,11 +101,14 @@ func (s *fakeStore) RunsSince(int64, time.Time) ([]model.WorkflowRun, error) {
 	return s.cachedRuns, nil
 }
 func (s *fakeStore) IncompleteRunIDs() ([]int64, error) { return nil, nil }
-func (s *fakeStore) LoadRunDetail(id int64) (*model.RunDetail, error) {
-	if d, ok := s.cachedDetails[id]; ok {
-		return d, nil
+func (s *fakeStore) LoadRunDetailsByIDs(ids []int64) ([]model.RunDetail, error) {
+	var out []model.RunDetail
+	for _, id := range ids {
+		if d, ok := s.cachedDetails[id]; ok {
+			out = append(out, *d)
+		}
 	}
-	return nil, errors.New("not cached")
+	return out, nil
 }
 
 func (s *fakeStore) SaveRunDetails(details []model.RunDetail) error {
