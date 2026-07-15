@@ -60,10 +60,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### D4. No silent drops in GraphQL batch parsing [XS–S] ✅ done
 - Shipped 2026-07-15: `parseBatchResponse` returns unaccounted runs (malformed payload, missing alias key) as `missed`; `fetchBatchGraphQL` hydrates them via REST with one aggregated `KindPartialData` warning. Null nodes keep their per-run warning. Also removed the dead `runByID` map and made the GraphQL endpoint a Client field (`graphqlURL`, default unchanged) so the layer is finally testable via httptest — first three behavior tests in new `graphql_test.go`; T2 builds on this.
 
-### D5. GraphQL truncation diagnostic — and don't cache truncated runs [S] (was 3.2)
-- `buildBatchQuery` requests `checkRuns(first:50)`/`steps(first:50)` with no `pageInfo` (`internal/github/graphql.go:124-137`); >50 jobs or >50 steps silently lose data. Worse: the truncated `RunDetail` is cached permanently, so even after pagination ships, poisoned rows would be served forever.
-- Fix: select `pageInfo{hasNextPage}` on both connections; one aggregated `diag.Warn` per analysis naming the connection; skip caching truncated runs (or add a completeness column). Full pagination is P2.
-- **Files:** `internal/github/graphql.go`, `internal/app/service.go`
+### D5. GraphQL truncation diagnostic — and don't cache truncated runs [S] (was 3.2) ✅ done
+- Shipped 2026-07-15: `pageInfo{hasNextPage}` selected on both connections; runs with >50 jobs or >50 steps/job are marked `RunDetail.Truncated`, produce one aggregated `KindPartialData` warning per fetch, and are analyzed but never cached (a cached row would serve incomplete data forever). Full pagination remains P2. Query verified against the live API.
 
 ### D6. Rate budget: audit the GraphQL pool, don't fall back to REST on rate-limit errors [S–M]
 - `checkRateBudget` estimates GraphQL query count but compares against `limits.Core` — the REST pool (`internal/app/service.go:268-303`, `internal/github/client.go:81-92`). False aborts when core is low; and when the GraphQL pool is exhausted mid-run, `fetchBatchGraphQL` (`graphql.go:63-67`) silently falls back to REST at ~20× the approved call count. No `Retry-After`/secondary-limit handling either: 20 workers keep hammering through an abuse-limit event.
@@ -153,9 +151,8 @@ Small, individually-XS fixes; batch into one PR:
 - Fix: endpoint as a Client field defaulting to the const; table tests for `buildBatchQuery`, `parseBatchResponse` (incl. D4's drop paths), `convertGraphQLJobs`, `graphqlConclusion`, `parseGraphQLTime`.
 - **Files:** `internal/github/graphql.go`, `internal/github/graphql_test.go` (new)
 
-### T3. Diagnostic consistency tests [S] (was 3.3) — MOSTLY DONE
-- Done: 1000-cap once-per-window (D3 PR), no-node-ID REST fallback without false warnings, missing-runner-labels aggregation (T1 PR).
-- Remains: >50-job truncation → one aggregated diagnostic — blocked on D5, add with it.
+### T3. Diagnostic consistency tests [S] (was 3.3) ✅ done
+- 1000-cap once-per-window (D3 PR), no-node-ID REST fallback without false warnings, missing-runner-labels aggregation (T1 PR), truncation → one aggregated diagnostic (D5 PR).
 
 ### T4. Race detector in CI [S]
 - CI runs plain `mise run test` (`.github/workflows/ci.yml:36-37`); the client uses bounded-concurrency goroutines and errgroup. `go test -race ./...` passes locally today — add it as a CI step so it stays that way.

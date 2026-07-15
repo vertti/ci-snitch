@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -125,6 +126,60 @@ func TestFetchRunDetailsGraphQL_NoNodeIDsFallsBackToRESTSilently(t *testing.T) {
 	assert.Len(t, details, 2)
 	assert.Empty(t, warnings, "clean REST fallback must not produce warnings")
 	assert.False(t, graphqlCalled, "no GraphQL request should be made when no run has a node ID")
+}
+
+func TestBuildBatchQuery_SelectsPageInfo(t *testing.T) {
+	query := buildBatchQuery(graphqlTestRuns(1))
+	require.Equal(t, 2, strings.Count(query, "pageInfo{hasNextPage}"),
+		"both checkRuns and steps connections must expose truncation")
+}
+
+func TestFetchRunDetailsGraphQL_TruncationWarnsOnceAndMarksDetails(t *testing.T) {
+	// r0's checkRuns connection reports more pages (>50 jobs); r1 has a job
+	// whose steps connection reports more pages. Both runs must be marked
+	// Truncated with ONE aggregated partial-data warning; r2 stays clean.
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /graphql", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data": {
+			"r0": {"databaseId": 1, "checkSuite": {"checkRuns": {
+				"pageInfo": {"hasNextPage": true},
+				"nodes": [{"name": "build", "databaseId": 1001, "status": "COMPLETED", "conclusion": "SUCCESS", "steps": {"nodes": []}}]
+			}}},
+			"r1": {"databaseId": 2, "checkSuite": {"checkRuns": {
+				"pageInfo": {"hasNextPage": false},
+				"nodes": [{"name": "build", "databaseId": 1002, "status": "COMPLETED", "conclusion": "SUCCESS",
+					"steps": {"pageInfo": {"hasNextPage": true}, "nodes": []}}]
+			}}},
+			"r2": {"databaseId": 3, "checkSuite": {"checkRuns": {
+				"pageInfo": {"hasNextPage": false},
+				"nodes": [{"name": "build", "databaseId": 1003, "status": "COMPLETED", "conclusion": "SUCCESS", "steps": {"nodes": []}}]
+			}}}
+		}}`))
+	})
+
+	c := testClient(t, mux)
+	runs := graphqlTestRuns(3)
+
+	details, warnings := c.FetchRunDetailsGraphQL(context.Background(), runs)
+	require.Len(t, details, 3)
+
+	truncatedByID := map[int64]bool{}
+	for i := range details {
+		truncatedByID[details[i].Run.ID] = details[i].Truncated
+	}
+	assert.True(t, truncatedByID[1], "jobs-truncated run must be marked")
+	assert.True(t, truncatedByID[2], "steps-truncated run must be marked")
+	assert.False(t, truncatedByID[3], "complete run must not be marked")
+
+	var truncationWarnings []string
+	for _, w := range warnings {
+		if w.Kind == diag.KindPartialData {
+			truncationWarnings = append(truncationWarnings, w.Message)
+		}
+	}
+	require.Len(t, truncationWarnings, 1, "one aggregated truncation warning, got %v", warnings)
+	assert.Contains(t, truncationWarnings[0], "2 runs")
 }
 
 func TestFetchRunDetailsGraphQL_NullNodeStillWarns(t *testing.T) {
