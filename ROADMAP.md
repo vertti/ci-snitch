@@ -134,10 +134,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### T1. Tests for `internal/app` orchestration [M] (was 3.4) ✅ done
 - Shipped 2026-07-15 (built up across the D2/D3/A3 PRs, completed in the T1 PR): `service_test.go` covers diagnostics plumbing (4 paths), cache partitioning incl. staleness + load-error fallback, budget abort (with no-hydration assertion) and non-fatal rate-limit read errors, branch filtering, all-filtered/no-branch-runs error paths, rerun-stats wiring into failure details, runner-label aggregation. Package coverage 0% → 91.5%.
 
-### T2. Test the GraphQL layer; injectable endpoint [M]
-- `internal/github/graphql.go` has 0% coverage across all 10 functions, and `graphqlEndpoint` is a hardcoded const (`graphql.go:72`) — untestable via httptest and broken for GHE (REST honors `WithEnterpriseURLs`, GraphQL doesn't).
-- Fix: endpoint as a Client field defaulting to the const; table tests for `buildBatchQuery`, `parseBatchResponse` (incl. D4's drop paths), `convertGraphQLJobs`, `graphqlConclusion`, `parseGraphQLTime`.
-- **Files:** `internal/github/graphql.go`, `internal/github/graphql_test.go` (new)
+### T2. Test the GraphQL layer; injectable endpoint [M] ✅ done
+- Endpoint injection shipped with D4; the D4–D8 behavior tests plus unit tables for `parseGraphQLTime`/`graphqlConclusion`/`convertGraphQLJobs`/`truncateBody` (T2 PR) take `internal/github` from 42% (graphql.go at 0%) to **87.5%**. GHE note: `graphqlURL` is injectable but the CLI doesn't expose enterprise URLs yet — that's F-scope if ever requested.
 
 ### T3. Diagnostic consistency tests [S] (was 3.3) ✅ done
 - 1000-cap once-per-window (D3 PR), no-node-ID REST fallback without false warnings, missing-runner-labels aggregation (T1 PR), truncation → one aggregated diagnostic (D5 PR).

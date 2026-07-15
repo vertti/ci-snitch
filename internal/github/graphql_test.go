@@ -264,6 +264,56 @@ func TestFetchRunDetailsGraphQL_CancelledContextAbortsCleanly(t *testing.T) {
 	assert.Empty(t, warnings, "cancellation must not masquerade as per-run fetch failures: %v", warnings)
 }
 
+func TestParseGraphQLTime(t *testing.T) {
+	ts := "2026-07-01T12:00:00Z"
+	parsed := parseGraphQLTime(&ts)
+	assert.Equal(t, 2026, parsed.Year())
+	assert.Equal(t, 12, parsed.Hour())
+
+	assert.True(t, parseGraphQLTime(nil).IsZero(), "nil timestamp is the zero time")
+	empty := ""
+	assert.True(t, parseGraphQLTime(&empty).IsZero())
+	garbage := "not-a-time"
+	assert.True(t, parseGraphQLTime(&garbage).IsZero(), "unparseable timestamps degrade to zero, not panic")
+}
+
+func TestGraphQLConclusion(t *testing.T) {
+	success := "SUCCESS"
+	assert.Equal(t, "success", graphqlConclusion(&success), "GraphQL enums are uppercase; REST uses lowercase")
+	assert.Empty(t, graphqlConclusion(nil), "in-progress runs have no conclusion")
+}
+
+func TestConvertGraphQLJobs(t *testing.T) {
+	started := "2026-07-01T12:00:00Z"
+	completed := "2026-07-01T12:05:00Z"
+	conclusion := "SUCCESS"
+	checkRuns := []graphqlCheckRun{{
+		Name: "build", DatabaseID: 42, Status: "COMPLETED", Conclusion: &conclusion,
+		StartedAt: &started, CompletedAt: &completed,
+	}}
+	checkRuns[0].Steps.Nodes = []graphqlStep{{
+		Name: "Checkout", Number: 1, Status: "COMPLETED", Conclusion: &conclusion,
+		StartedAt: &started, CompletedAt: &started,
+	}}
+
+	jobs := convertGraphQLJobs(checkRuns, 7)
+	require.Len(t, jobs, 1)
+	assert.Equal(t, int64(42), jobs[0].ID)
+	assert.Equal(t, int64(7), jobs[0].RunID, "jobs carry their parent run ID")
+	assert.Equal(t, "completed", jobs[0].Status, "statuses normalized to REST's lowercase")
+	assert.Equal(t, "success", jobs[0].Conclusion)
+	require.Len(t, jobs[0].Steps, 1)
+	assert.Equal(t, "Checkout", jobs[0].Steps[0].Name)
+	assert.Equal(t, 1, jobs[0].Steps[0].Number)
+}
+
+func TestTruncateBody(t *testing.T) {
+	assert.Equal(t, "short", truncateBody([]byte("short")))
+	long := truncateBody([]byte(strings.Repeat("x", 300)))
+	assert.Len(t, long, 203, "200 bytes plus ellipsis")
+	assert.True(t, strings.HasSuffix(long, "..."))
+}
+
 func TestFetchRunDetailsGraphQL_NullNodeStillWarns(t *testing.T) {
 	// A "rN": null node (deleted run / permissions) keeps its per-run
 	// warning — pins the pre-existing behavior.
