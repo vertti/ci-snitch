@@ -70,13 +70,13 @@ Removed from the old "already correct" list — disproven by this review:
 ### D7. Ctrl+C must abort, not degrade to partial analysis [S] ✅ done
 - Shipped 2026-07-15: cancellation skips REST fallback and per-run warning spam (one Ctrl+C previously manufactured N "failed to fetch jobs" warnings); `hydrateAll` propagates `gctx.Err()` so `Run` errors instead of analyzing a partial subset. Also wired `signal.NotifyContext` in `main` — SIGINT/SIGTERM now cancel gracefully (previously a hard kill; the context was never cancelled by signals at all). Verified live: SIGINT mid-run → `Error: ... context canceled`, exit 1.
 
-### D8. Match REST's `filter=latest` in GraphQL job fetching [XS–S]
-- REST hydration requests latest-attempt jobs only (`internal/github/client.go:236`); the GraphQL fragment has no `filterBy: {checkType: LATEST}` (`graphql.go:128`), so the two paths can disagree on re-run runs (duplicate old-attempt jobs skewing job/step stats). Needs one live verification against a re-run workflow, then add the filter.
-- **Files:** `internal/github/graphql.go`
+### D8. Match REST's `filter=latest` in GraphQL job fetching [XS–S] ✅ done
+- Shipped 2026-07-15: `filterBy:{checkType:LATEST}` on the `checkRuns` connection, matching REST's `filter=latest`; query verified against the live API.
 
-### D9. Bounded GraphQL error-body reads [XS] (was 3.6)
-- `doGraphQL` still does unbounded `io.ReadAll(resp.Body)` (`internal/github/graphql.go:92`). Wrap with `io.LimitReader(resp.Body, 64<<10)`.
-- **Files:** `internal/github/graphql.go`
+### D9. Bounded GraphQL error-body reads [XS] (was 3.6) ✅ done
+- Shipped 2026-07-15: error responses read via `LimitReader(64KiB)`; success responses guarded at 64MiB (pathological-payload guard, not a budget — an oversized payload fails JSON parse and takes the D4 REST fallback).
+
+**D section complete** — release checkpoint (v0.25.0, fetch-layer hardening).
 
 ---
 

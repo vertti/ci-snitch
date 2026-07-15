@@ -134,6 +134,31 @@ func TestBuildBatchQuery_SelectsPageInfo(t *testing.T) {
 		"both checkRuns and steps connections must expose truncation")
 }
 
+func TestBuildBatchQuery_FiltersLatestAttempt(t *testing.T) {
+	// REST hydration requests filter=latest; without the matching GraphQL
+	// filter, re-run runs carry duplicate old-attempt check runs and the two
+	// hydration paths disagree on job/step stats.
+	query := buildBatchQuery(graphqlTestRuns(1))
+	require.Contains(t, query, "filterBy:{checkType:LATEST}",
+		"checkRuns must fetch only the latest attempt, matching REST's filter=latest")
+}
+
+func TestDoGraphQL_ErrorBodyReadIsBounded(t *testing.T) {
+	// A misconfigured proxy can answer with an arbitrarily large error page;
+	// the error path must not slurp it into memory or into the error string.
+	huge := strings.Repeat("x", 8<<20) // 8 MiB
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /graphql", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(huge))
+	})
+
+	c := testClient(t, mux)
+	_, err := c.doGraphQL(context.Background(), "query{}")
+	require.Error(t, err)
+	require.Less(t, len(err.Error()), 500, "error string must stay truncated")
+}
+
 func TestFetchRunDetailsGraphQL_TruncationWarnsOnceAndMarksDetails(t *testing.T) {
 	// r0's checkRuns connection reports more pages (>50 jobs); r1 has a job
 	// whose steps connection reports more pages. Both runs must be marked
