@@ -93,7 +93,21 @@ ci-snitch analyze owner/repo --format llm
 | `--format` | `table` | `table`, `json`, `markdown`, or `llm` |
 | `--no-cache` | false | Bypass local cache, fetch fresh |
 | `--include-failures` | false | Include failed runs in analysis |
+| `--fail-on` | none | Exit 2 when conditions match: `regression`, `failure-rate>N` (comma-separated) |
+| `--raw-output` | none | With `--format llm`: write the full JSON to a file, keep the briefing compact |
+| `-q` | false | Quiet: suppress all progress and diagnostic output on stderr |
 | `-v` | false | Verbose output with per-phase timing |
+
+`markdown` can be abbreviated `md`. Shell completion is available via `ci-snitch completion <shell>`. `NO_COLOR` disables ANSI output.
+
+## CI gating
+
+```bash
+# Fail the pipeline (exit code 2) on any confirmed regression or a failure rate above 25%
+ci-snitch analyze your-org/your-repo --since 14d -q --fail-on "regression,failure-rate>25"
+```
+
+Exit codes: `0` clean, `1` operational error, `2` a `--fail-on` condition matched.
 
 ## Development
 
