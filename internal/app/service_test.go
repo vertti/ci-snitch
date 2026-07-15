@@ -27,7 +27,8 @@ type fakeFetcher struct {
 	listWarnings    []diag.Diagnostic
 	details         []model.RunDetail
 	hydrateWarnings []diag.Diagnostic
-	rateRemaining   int // 0 means "plenty" (5000)
+	coreRemaining   int // 0 means "plenty" (5000)
+	gqlRemaining    int // 0 means "plenty" (5000)
 	rateErr         error
 
 	mu          sync.Mutex
@@ -70,11 +71,16 @@ func (f *fakeFetcher) RateLimit(context.Context) (github.RateLimitStatus, error)
 	if f.rateErr != nil {
 		return github.RateLimitStatus{}, f.rateErr
 	}
-	remaining := f.rateRemaining
-	if remaining == 0 {
-		remaining = 5000
+	pool := func(remaining int) github.RatePool {
+		if remaining == 0 {
+			remaining = 5000
+		}
+		return github.RatePool{Remaining: remaining, Limit: 5000, ResetAt: testBase.Add(time.Hour)}
 	}
-	return github.RateLimitStatus{Remaining: remaining, Limit: 5000, ResetAt: testBase.Add(time.Hour)}, nil
+	return github.RateLimitStatus{
+		Core:    pool(f.coreRemaining),
+		GraphQL: pool(f.gqlRemaining),
+	}, nil
 }
 
 type fakeStore struct {
@@ -258,7 +264,7 @@ func manyRunsFetcher(n int) *fakeFetcher {
 
 func TestRun_RateBudgetAbortsBeforeHydration(t *testing.T) {
 	f := manyRunsFetcher(25) // ~2 estimated GraphQL calls
-	f.rateRemaining = 1      // budget floor: 0.8 * 1 = 0 allowed calls
+	f.gqlRemaining = 1       // hydration is GraphQL: budget floor 0.8 * 1 = 0 allowed calls
 
 	svc := &Service{Client: f, Store: nil, Prog: output.NewProgress()}
 	_, err := svc.Run(context.Background(), &Options{
@@ -273,6 +279,33 @@ func TestRun_RateBudgetAbortsBeforeHydration(t *testing.T) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	require.Empty(t, f.hydratedIDs, "no hydration calls may be spent after a budget abort")
+}
+
+func TestRun_BudgetChecksGraphQLPoolNotCore(t *testing.T) {
+	// Hydration spends GraphQL points; a depleted core pool (used only for
+	// listing, which has already happened) must not abort the run.
+	f := manyRunsFetcher(25)
+	f.coreRemaining = 1
+
+	svc := &Service{Client: f, Store: nil, Prog: output.NewProgress()}
+	_, err := svc.Run(context.Background(), &Options{
+		Repo:  "example-org/example-repo",
+		Since: testBase.Add(-24 * time.Hour),
+	})
+	require.NoError(t, err, "low core pool must not abort GraphQL hydration")
+}
+
+func TestRun_BudgetAbortNamesGraphQLPool(t *testing.T) {
+	f := manyRunsFetcher(25)
+	f.gqlRemaining = 1
+
+	svc := &Service{Client: f, Store: nil, Prog: output.NewProgress()}
+	_, err := svc.Run(context.Background(), &Options{
+		Repo:  "example-org/example-repo",
+		Since: testBase.Add(-24 * time.Hour),
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "GraphQL", "abort message must name the exhausted pool")
 }
 
 func TestRun_RateLimitReadErrorIsNonFatal(t *testing.T) {

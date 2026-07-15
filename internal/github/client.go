@@ -73,24 +73,34 @@ func (c *Client) log(msg string, args ...any) {
 }
 
 // RateLimitStatus contains the current rate limit state.
-type RateLimitStatus struct {
+// RatePool describes one rate-limit pool (core REST or GraphQL — GitHub
+// meters them separately).
+type RatePool struct {
 	Remaining int
 	Limit     int
 	ResetAt   time.Time
 }
 
-// RateLimit returns the current GitHub API rate limit status.
+type RateLimitStatus struct {
+	Core    RatePool
+	GraphQL RatePool
+}
+
+// RateLimit returns the current GitHub API rate limit status for both the
+// core REST pool and the GraphQL pool.
 func (c *Client) RateLimit(ctx context.Context) (RateLimitStatus, error) {
 	limits, _, err := c.gh.RateLimit.Get(ctx)
 	if err != nil {
 		return RateLimitStatus{}, fmt.Errorf("get rate limit: %w", err)
 	}
-	core := limits.Core
-	return RateLimitStatus{
-		Remaining: core.Remaining,
-		Limit:     core.Limit,
-		ResetAt:   core.Reset.Time,
-	}, nil
+	status := RateLimitStatus{}
+	if core := limits.Core; core != nil {
+		status.Core = RatePool{Remaining: core.Remaining, Limit: core.Limit, ResetAt: core.Reset.Time}
+	}
+	if gql := limits.GraphQL; gql != nil {
+		status.GraphQL = RatePool{Remaining: gql.Remaining, Limit: gql.Limit, ResetAt: gql.Reset.Time}
+	}
+	return status, nil
 }
 
 // ListWorkflows returns all workflows in the repository.

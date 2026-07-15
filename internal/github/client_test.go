@@ -130,6 +130,23 @@ func TestFetchRuns_SlidingWindows(t *testing.T) {
 	assert.Equal(t, 3, callCount, "15 days should produce 3 windows of 7 days each")
 }
 
+func TestRateLimit_ParsesBothPools(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /rate_limit", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"resources": {
+			"core":    {"limit": 5000, "remaining": 4000, "reset": 1752570000},
+			"graphql": {"limit": 5000, "remaining": 3000, "reset": 1752570000}
+		}}`))
+	})
+
+	c := testClient(t, mux)
+	rl, err := c.RateLimit(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 4000, rl.Core.Remaining)
+	assert.Equal(t, 3000, rl.GraphQL.Remaining, "hydration budgeting needs the GraphQL pool")
+}
+
 func TestFetchRuns_CapWarningEmittedOncePerWindow(t *testing.T) {
 	pages := 0
 	mux := http.NewServeMux()
