@@ -167,6 +167,9 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 	}
 	result := engine.Run(ctx, filtered, allDetails, rerunStats, workflowNames)
 	result.Meta.Repo = opts.Repo
+	result.Meta.Branch = opts.Branch
+	result.Meta.Workflow = opts.Workflow
+	result.Meta.Since = opts.Since
 	result.Diagnostics = append(result.Diagnostics, pipelineDiags...)
 
 	// Summarize any jobs missing runner labels (GraphQL doesn't expose them).

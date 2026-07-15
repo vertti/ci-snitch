@@ -161,9 +161,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### U2. Actionable error messages for common failures [S] ✅ done
 - Shipped 2026-07-15: 404/401/403 map to guidance (spelling/private-token, expired-credentials, scope/SAML); a workflow filter matching nothing errors immediately listing available names (sorted, capped at 15); the no-runs error names an active `--workflow` filter; the client logger is wired so rate-limit sleeps and REST fallbacks are visible instead of silent hangs. Live-verified against the real API.
 
-### U3. Record filter context in output meta [S]
-- `ResultMeta` has no Branch/Workflow/Since fields (`internal/analyze/engine.go:13-18`); a JSON/LLM consumer can't tell whether results were filtered — dangerous when comparing reports.
-- **Files:** `internal/analyze/engine.go`, formatters
+### U3. Record filter context in output meta [S] ✅ done
+- Shipped 2026-07-15: `ResultMeta` gains `branch`/`workflow` (omitempty) and `since`; populated from the run options, flows into JSON/LLM automatically.
 
 ### U4. Markdown format parity [M]
 - Markdown renders only summaries, non-info changepoints, and outliers — no failures, cost, pipeline, runner, steps, or triage sections, all present in table/JSON (`internal/output/markdown.go`). README markets it for PR comments alongside those features. Also prerequisite for F7 (PR comment bot).
