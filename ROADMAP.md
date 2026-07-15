@@ -182,9 +182,8 @@ Removed from the old "already correct" list — disproven by this review:
 
 ## P — Performance
 
-### P1. Batch cache hydration [M] (was 4.1)
-- `LoadRunDetails` loops `LoadRunDetail` per run, which loops `loadSteps` per job (`internal/store/sqlite.go:449-464,407`; `internal/app/service.go:330`): ~1500+ queries for a 500-run cached scan. Add `LoadRunDetailsBatch` (three `IN (…)` queries assembled with maps); benchmark before/after in the PR body.
-- **Files:** `internal/store/sqlite.go`, `internal/app/service.go`, `internal/store/sqlite_bench_test.go` (new)
+### P1. Batch cache hydration [M] (was 4.1) ✅ done
+- Shipped 2026-07-15: `LoadRunDetailsByIDs` hydrates in 3 `IN`-clause queries per 500-ID chunk (placeholders only — bound args); `hydrateWorkflow` partitions then batch-loads (`partitionCached`), with batch-miss/error degradation to fetch; `LoadRunDetails` reimplemented on top (smoke benefits too). Benchmark, 500 runs: **13.2ms → 3.3ms (4×)**, ~1500 queries → 3.
 
 ### P2. GraphQL pagination for truncated connections [M] (was 4.2)
 - Build on D5: page the affected `checkRuns`/`steps` connection with `after: $cursor` only when truncation fired. Keep the 20-run outer batch unchanged.

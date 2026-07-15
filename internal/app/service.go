@@ -33,7 +33,7 @@ type WorkflowFetcher interface {
 type RunStore interface {
 	RunsSince(workflowID int64, since time.Time) ([]model.WorkflowRun, error)
 	IncompleteRunIDs() ([]int64, error)
-	LoadRunDetail(runID int64) (*model.RunDetail, error)
+	LoadRunDetailsByIDs(ids []int64) ([]model.RunDetail, error)
 	SaveRunDetails(details []model.RunDetail) error
 }
 
@@ -378,6 +378,51 @@ func (s *Service) checkRateBudget(ctx context.Context, totalRuns, uncachedRuns i
 	return nil
 }
 
+// partitionCached splits runs into cache-served details and runs needing a
+// fetch. Servable runs hydrate in one batch call (3 queries) instead of
+// 1 + jobs queries per run; anything the batch cannot produce is re-fetched
+// (caching is best-effort).
+func (s *Service) partitionCached(wf model.Workflow, runs []model.WorkflowRun, opts *Options) (details []model.RunDetail, needsFetch []model.WorkflowRun) {
+	cachedAt := s.cachedUpdatedAt(wf.ID, opts.Since)
+
+	incompleteSet := make(map[int64]bool)
+	if incomplete, err := s.Store.IncompleteRunIDs(); err == nil {
+		for _, id := range incomplete {
+			incompleteSet[id] = true
+		}
+	}
+
+	var servable []model.WorkflowRun
+	var servableIDs []int64
+	for i := range runs {
+		if servableFromCache(cachedAt, incompleteSet, &runs[i]) {
+			servable = append(servable, runs[i])
+			servableIDs = append(servableIDs, runs[i].ID)
+		} else {
+			needsFetch = append(needsFetch, runs[i])
+		}
+	}
+	if len(servable) == 0 {
+		return details, needsFetch
+	}
+
+	cached, err := s.Store.LoadRunDetailsByIDs(servableIDs)
+	if err != nil {
+		return details, append(needsFetch, servable...)
+	}
+	loadedSet := make(map[int64]bool, len(cached))
+	for i := range cached {
+		loadedSet[cached[i].Run.ID] = true
+	}
+	details = append(details, cached...)
+	for i := range servable {
+		if !loadedSet[servable[i].ID] {
+			needsFetch = append(needsFetch, servable[i])
+		}
+	}
+	return details, needsFetch
+}
+
 // hydrateWorkflow loads run details from cache or API for a single workflow.
 func (s *Service) hydrateWorkflow(ctx context.Context, wf model.Workflow, runs []model.WorkflowRun, opts *Options) ([]model.RunDetail, []diag.Diagnostic) {
 	// Partition runs: serve completed from cache, fetch only new/incomplete from API.
@@ -386,26 +431,7 @@ func (s *Service) hydrateWorkflow(ctx context.Context, wf model.Workflow, runs [
 	var needsFetch []model.WorkflowRun
 
 	if s.Store != nil {
-		cachedAt := s.cachedUpdatedAt(wf.ID, opts.Since)
-
-		incompleteSet := make(map[int64]bool)
-		incomplete, incErr := s.Store.IncompleteRunIDs()
-		if incErr == nil {
-			for _, id := range incomplete {
-				incompleteSet[id] = true
-			}
-		}
-
-		for i := range runs {
-			if servableFromCache(cachedAt, incompleteSet, &runs[i]) {
-				d, loadErr := s.Store.LoadRunDetail(runs[i].ID)
-				if loadErr == nil {
-					details = append(details, *d)
-					continue
-				}
-			}
-			needsFetch = append(needsFetch, runs[i])
-		}
+		details, needsFetch = s.partitionCached(wf, runs, opts)
 
 		if opts.Verbose {
 			s.Prog.Log("  %q: %d cached, %d to fetch", wf.Name, len(details), len(needsFetch))

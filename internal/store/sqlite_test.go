@@ -463,6 +463,82 @@ func TestRunsSince_CorruptTimeReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "parse time")
 }
 
+func TestLoadRunDetailsByIDs(t *testing.T) {
+	s := testStore(t)
+	for i := range 3 {
+		d := testRunDetail()
+		d.Run.ID = int64(1001 + i)
+		d.Jobs[0].ID = int64(2001 + i)
+		d.Jobs[0].RunID = d.Run.ID
+		require.NoError(t, s.SaveRunDetail(&d))
+	}
+
+	details, err := s.LoadRunDetailsByIDs([]int64{1001, 1003})
+	require.NoError(t, err)
+	require.Len(t, details, 2, "exactly the requested runs")
+
+	byID := map[int64]model.RunDetail{}
+	for _, d := range details {
+		byID[d.Run.ID] = d
+	}
+	require.Contains(t, byID, int64(1001))
+	require.Contains(t, byID, int64(1003))
+	require.Len(t, byID[1001].Jobs, 1, "jobs hydrated")
+	require.Len(t, byID[1001].Jobs[0].Steps, 2, "steps hydrated")
+	require.Equal(t, "Checkout", byID[1001].Jobs[0].Steps[0].Name)
+	require.Equal(t, []string{"ubuntu-latest"}, byID[1001].Jobs[0].Labels)
+
+	empty, err := s.LoadRunDetailsByIDs(nil)
+	require.NoError(t, err)
+	require.Empty(t, empty)
+}
+
+// benchStore seeds n runs (1 job, 2 steps each) and returns the store + IDs.
+func benchStore(b *testing.B, n int) (s *Store, ids []int64) {
+	b.Helper()
+	path := filepath.Join(b.TempDir(), "bench.db")
+	s, err := Open(path)
+	require.NoError(b, err)
+	b.Cleanup(func() { _ = s.Close() })
+
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	details := make([]model.RunDetail, n)
+	ids = make([]int64, n)
+	for i := range details {
+		d := testRunDetail()
+		d.Run.ID = int64(10_000 + i)
+		d.Run.CreatedAt = base.Add(time.Duration(i) * time.Minute)
+		d.Jobs[0].ID = int64(50_000 + i)
+		d.Jobs[0].RunID = d.Run.ID
+		details[i] = d
+		ids[i] = d.Run.ID
+	}
+	require.NoError(b, s.SaveRunDetails(details))
+	return s, ids
+}
+
+func BenchmarkLoadRunDetails_PerRun(b *testing.B) {
+	s, ids := benchStore(b, 500)
+	b.ResetTimer()
+	for range b.N {
+		for _, id := range ids {
+			if _, err := s.LoadRunDetail(id); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+}
+
+func BenchmarkLoadRunDetails_Batch(b *testing.B) {
+	s, ids := benchStore(b, 500)
+	b.ResetTimer()
+	for range b.N {
+		if _, err := s.LoadRunDetailsByIDs(ids); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkSaveRunDetails(b *testing.B) {
 	path := filepath.Join(b.TempDir(), "bench.db")
 	s, err := Open(path)

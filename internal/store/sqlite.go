@@ -448,16 +448,148 @@ func (s *Store) LoadRunDetails(workflowID int64, since time.Time) ([]model.RunDe
 	if err != nil {
 		return nil, err
 	}
-
-	details := make([]model.RunDetail, 0, len(runs))
+	ids := make([]int64, len(runs))
 	for i := range runs {
-		d, err := s.LoadRunDetail(runs[i].ID)
+		ids[i] = runs[i].ID
+	}
+	return s.LoadRunDetailsByIDs(ids)
+}
+
+// idChunkSize bounds the number of SQL placeholders per IN clause.
+const idChunkSize = 500
+
+// LoadRunDetailsByIDs hydrates the given runs in three queries per chunk
+// (runs, jobs, steps) instead of 1 + N + N×jobs individual lookups — a
+// 500-run cached scan previously issued ~1500 queries.
+func (s *Store) LoadRunDetailsByIDs(ids []int64) ([]model.RunDetail, error) {
+	details := make([]model.RunDetail, 0, len(ids))
+	for start := 0; start < len(ids); start += idChunkSize {
+		end := min(start+idChunkSize, len(ids))
+		chunk, err := s.loadRunDetailsChunk(ids[start:end])
 		if err != nil {
 			return nil, err
 		}
-		details = append(details, *d)
+		details = append(details, chunk...)
 	}
 	return details, nil
+}
+
+func (s *Store) loadRunDetailsChunk(ids []int64) ([]model.RunDetail, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	ph, args := placeholders(ids)
+
+	//nolint:gosec // ph is "?,?,..." placeholders, values are bound args
+	runRows, err := s.db.Query(`SELECT id, workflow_id, workflow_name, name, event, status, conclusion, head_branch, head_sha, run_attempt, created_at, started_at, updated_at
+		FROM runs WHERE id IN (`+ph+`) ORDER BY created_at ASC`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer runRows.Close() //nolint:errcheck // error on deferred close has no actionable caller
+	runs, err := scanRuns(runRows)
+	if err != nil {
+		return nil, err
+	}
+
+	jobsByRun, jobIDs, err := s.loadJobsForRuns(ph, args)
+	if err != nil {
+		return nil, err
+	}
+	stepsByJob, err := s.loadStepsForJobs(jobIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	details := make([]model.RunDetail, 0, len(runs))
+	for i := range runs {
+		jobs := jobsByRun[runs[i].ID]
+		for j := range jobs {
+			jobs[j].Steps = stepsByJob[jobs[j].ID]
+		}
+		details = append(details, model.RunDetail{Run: runs[i], Jobs: jobs})
+	}
+	return details, nil
+}
+
+func (s *Store) loadJobsForRuns(runPh string, runArgs []any) (jobsByRun map[int64][]model.Job, jobIDs []int64, err error) {
+	//nolint:gosec // runPh is "?,?,..." placeholders, values are bound args
+	rows, err := s.db.Query(`SELECT id, run_id, name, status, conclusion, started_at, completed_at, runner_name, runner_group_name, labels
+		FROM jobs WHERE run_id IN (`+runPh+`) ORDER BY started_at ASC`, runArgs...)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close() //nolint:errcheck // error on deferred close has no actionable caller
+
+	jobsByRun = make(map[int64][]model.Job)
+	for rows.Next() {
+		var j model.Job
+		var startStr, compStr, labelsStr string
+		if err := rows.Scan(&j.ID, &j.RunID, &j.Name, &j.Status, &j.Conclusion, &startStr, &compStr,
+			&j.RunnerName, &j.RunnerGroupName, &labelsStr); err != nil {
+			return nil, nil, err
+		}
+		if j.StartedAt, err = parseTime(startStr); err != nil {
+			return nil, nil, err
+		}
+		if j.CompletedAt, err = parseTime(compStr); err != nil {
+			return nil, nil, err
+		}
+		if labelsStr != "" {
+			j.Labels = strings.Split(labelsStr, ",")
+		}
+		jobsByRun[j.RunID] = append(jobsByRun[j.RunID], j)
+		jobIDs = append(jobIDs, j.ID)
+	}
+	return jobsByRun, jobIDs, rows.Err()
+}
+
+func (s *Store) loadStepsForJobs(jobIDs []int64) (map[int64][]model.Step, error) {
+	stepsByJob := make(map[int64][]model.Step)
+	for start := 0; start < len(jobIDs); start += idChunkSize {
+		end := min(start+idChunkSize, len(jobIDs))
+		ph, args := placeholders(jobIDs[start:end])
+		//nolint:gosec // ph is "?,?,..." placeholders, values are bound args
+		rows, err := s.db.Query(`SELECT job_id, name, number, status, conclusion, started_at, completed_at
+			FROM steps WHERE job_id IN (`+ph+`) ORDER BY number ASC`, args...)
+		if err != nil {
+			return nil, err
+		}
+		if err := scanStepsInto(rows, stepsByJob); err != nil {
+			return nil, err
+		}
+	}
+	return stepsByJob, nil
+}
+
+func scanStepsInto(rows *sql.Rows, stepsByJob map[int64][]model.Step) error {
+	defer rows.Close() //nolint:errcheck // error on deferred close has no actionable caller
+	for rows.Next() {
+		var jobID int64
+		var st model.Step
+		var sStart, sComp string
+		if err := rows.Scan(&jobID, &st.Name, &st.Number, &st.Status, &st.Conclusion, &sStart, &sComp); err != nil {
+			return err
+		}
+		var err error
+		if st.StartedAt, err = parseTime(sStart); err != nil {
+			return err
+		}
+		if st.CompletedAt, err = parseTime(sComp); err != nil {
+			return err
+		}
+		stepsByJob[jobID] = append(stepsByJob[jobID], st)
+	}
+	return rows.Err()
+}
+
+// placeholders returns "?,?,..." and the matching args slice for an IN clause.
+func placeholders(ids []int64) (ph string, args []any) {
+	args = make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	return strings.TrimSuffix(strings.Repeat("?,", len(ids)), ","), args
 }
 
 func scanRuns(rows *sql.Rows) ([]model.WorkflowRun, error) {
