@@ -66,7 +66,18 @@ func (c *Client) fetchBatchGraphQL(ctx context.Context, runs []model.WorkflowRun
 		return c.FetchRunDetails(ctx, runs)
 	}
 
-	return parseBatchResponse(raw, runs)
+	details, missed, warnings := parseBatchResponse(raw, runs)
+	if len(missed) > 0 {
+		warnings = append(warnings, diag.New(
+			diag.Warn, diag.KindPartialData, "graphql",
+			fmt.Sprintf("%d of %d runs missing from GraphQL batch response, fetching them via REST",
+				len(missed), len(runs)),
+		))
+		restDetails, restWarnings := c.FetchRunDetails(ctx, missed)
+		details = append(details, restDetails...)
+		warnings = append(warnings, restWarnings...)
+	}
+	return details, warnings
 }
 
 const graphqlEndpoint = "https://api.github.com/graphql"
@@ -77,7 +88,7 @@ func (c *Client) doGraphQL(ctx context.Context, query string) (json.RawMessage, 
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, graphqlEndpoint, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.graphqlURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -167,22 +178,21 @@ type graphqlStep struct {
 	Conclusion  *string `json:"conclusion"`
 }
 
-func parseBatchResponse(raw json.RawMessage, runs []model.WorkflowRun) (details []model.RunDetail, warnings []Warning) {
+// parseBatchResponse converts the aliased batch payload into run details.
+// Runs the response does not account for — a malformed top-level payload or a
+// missing alias key — are returned in missed so the caller can fetch them via
+// REST; dropping them silently would lose data with no diagnostic.
+func parseBatchResponse(raw json.RawMessage, runs []model.WorkflowRun) (details []model.RunDetail, missed []model.WorkflowRun, warnings []Warning) {
 	var response map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &response); err != nil {
-		return nil, nil
-	}
-
-	// Build a lookup from databaseId to the original run (for metadata)
-	runByID := make(map[int64]model.WorkflowRun, len(runs))
-	for i := range runs {
-		runByID[runs[i].ID] = runs[i]
+		return nil, runs, nil
 	}
 
 	for i := range runs {
 		key := fmt.Sprintf("r%d", i)
 		nodeRaw, ok := response[key]
 		if !ok {
+			missed = append(missed, runs[i])
 			continue
 		}
 
@@ -196,7 +206,7 @@ func parseBatchResponse(raw json.RawMessage, runs []model.WorkflowRun) (details 
 		details = append(details, model.RunDetail{Run: runs[i], Jobs: jobs})
 	}
 
-	return details, warnings
+	return details, missed, warnings
 }
 
 func convertGraphQLJobs(checkRuns []graphqlCheckRun, runID int64) []model.Job {
