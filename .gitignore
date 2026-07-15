@@ -3,3 +3,5 @@ dist/
 *.exe
 *.db
 .claude/settings.local.json
+local/
+*.out

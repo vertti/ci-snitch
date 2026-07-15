@@ -3,6 +3,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,7 +32,6 @@ CREATE TABLE IF NOT EXISTS runs (
 	updated_at   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_runs_workflow_created ON runs(workflow_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
 
 CREATE TABLE IF NOT EXISTS jobs (
 	id               INTEGER PRIMARY KEY,
@@ -131,7 +131,39 @@ func migrate(db *sql.DB) error {
 			}
 		}
 	}
+	// idx_runs_status could not serve its only query (an inequality) — dead
+	// weight on every write. Dropped in existing databases too.
+	if _, err := db.Exec(`DROP INDEX IF EXISTS idx_runs_status`); err != nil {
+		return fmt.Errorf("drop dead status index: %w", err)
+	}
 	return nil
+}
+
+// encodeLabels stores labels as JSON — labels can contain commas.
+func encodeLabels(labels []string) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(labels)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// decodeLabels reads JSON-encoded labels, falling back to the legacy
+// comma-joined format for rows written before the JSON encoding.
+func decodeLabels(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	if strings.HasPrefix(raw, "[") {
+		var labels []string
+		if err := json.Unmarshal([]byte(raw), &labels); err == nil {
+			return labels
+		}
+	}
+	return strings.Split(raw, ",")
 }
 
 var validTables = map[string]bool{"runs": true, "jobs": true, "steps": true}
@@ -219,7 +251,7 @@ func (s *Store) SaveRunDetail(d *model.RunDetail) error {
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			d.Jobs[j].ID, r.ID, d.Jobs[j].Name, d.Jobs[j].Status, d.Jobs[j].Conclusion,
 			fmtTime(d.Jobs[j].StartedAt), fmtTime(d.Jobs[j].CompletedAt),
-			d.Jobs[j].RunnerName, d.Jobs[j].RunnerGroupName, strings.Join(d.Jobs[j].Labels, ","),
+			d.Jobs[j].RunnerName, d.Jobs[j].RunnerGroupName, encodeLabels(d.Jobs[j].Labels),
 		)
 		if err != nil {
 			return fmt.Errorf("insert job %d: %w", d.Jobs[j].ID, err)
@@ -312,7 +344,7 @@ func (s *Store) SaveRunDetails(details []model.RunDetail) error {
 			if _, err := jobStmt.Exec(
 				job.ID, r.ID, job.Name, job.Status, job.Conclusion,
 				fmtTime(job.StartedAt), fmtTime(job.CompletedAt),
-				job.RunnerName, job.RunnerGroupName, strings.Join(job.Labels, ","),
+				job.RunnerName, job.RunnerGroupName, encodeLabels(job.Labels),
 			); err != nil {
 				return fmt.Errorf("insert job %d: %w", job.ID, err)
 			}
@@ -397,9 +429,7 @@ func (s *Store) LoadRunDetail(runID int64) (*model.RunDetail, error) {
 		if j.CompletedAt, err = parseTime(compStr); err != nil {
 			return nil, err
 		}
-		if labelsStr != "" {
-			j.Labels = strings.Split(labelsStr, ",")
-		}
+		j.Labels = decodeLabels(labelsStr)
 
 		steps, err := s.loadSteps(j.ID)
 		if err != nil {
@@ -535,9 +565,7 @@ func (s *Store) loadJobsForRuns(runPh string, runArgs []any) (jobsByRun map[int6
 		if j.CompletedAt, err = parseTime(compStr); err != nil {
 			return nil, nil, err
 		}
-		if labelsStr != "" {
-			j.Labels = strings.Split(labelsStr, ",")
-		}
+		j.Labels = decodeLabels(labelsStr)
 		jobsByRun[j.RunID] = append(jobsByRun[j.RunID], j)
 		jobIDs = append(jobIDs, j.ID)
 	}

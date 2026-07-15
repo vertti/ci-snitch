@@ -463,6 +463,42 @@ func TestRunsSince_CorruptTimeReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "parse time")
 }
 
+func TestLabels_RoundTripWithCommas(t *testing.T) {
+	// Self-hosted runner labels can contain commas; a comma-joined TEXT
+	// column split them into garbage on load.
+	s := testStore(t)
+	d := testRunDetail()
+	d.Jobs[0].Labels = []string{"self-hosted", "gpu,large", "linux"}
+	require.NoError(t, s.SaveRunDetail(&d))
+
+	loaded, err := s.LoadRunDetail(d.Run.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"self-hosted", "gpu,large", "linux"}, loaded.Jobs[0].Labels)
+}
+
+func TestLabels_LegacyCommaFormatStillReads(t *testing.T) {
+	// Rows written before the JSON encoding hold comma-joined labels.
+	s := testStore(t)
+	d := testRunDetail()
+	require.NoError(t, s.SaveRunDetail(&d))
+	_, err := s.db.Exec(`UPDATE jobs SET labels = 'ubuntu-latest,x64' WHERE id = 2001`)
+	require.NoError(t, err)
+
+	loaded, err := s.LoadRunDetail(d.Run.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"ubuntu-latest", "x64"}, loaded.Jobs[0].Labels)
+}
+
+func TestMigration_DropsDeadStatusIndex(t *testing.T) {
+	// idx_runs_status can't serve its only query (an inequality); it's dead
+	// weight on every write.
+	s := testStore(t)
+	var count int
+	require.NoError(t, s.db.QueryRow(
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_runs_status'`).Scan(&count))
+	assert.Equal(t, 0, count, "the dead index must not exist (dropped on migrate for old DBs)")
+}
+
 func TestLoadRunDetailsByIDs(t *testing.T) {
 	s := testStore(t)
 	for i := range 3 {

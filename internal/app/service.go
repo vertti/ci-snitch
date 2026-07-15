@@ -315,10 +315,15 @@ func (s *Service) countRuns(allWfRuns []workflowRuns, opts *Options) (total, unc
 // the caching-is-best-effort behavior elsewhere.
 func (s *Service) cachedUpdatedAt(workflowID int64, since time.Time) map[int64]time.Time {
 	cachedAt := make(map[int64]time.Time)
-	if cached, err := s.Store.RunsSince(workflowID, since); err == nil {
-		for i := range cached {
-			cachedAt[cached[i].ID] = cached[i].UpdatedAt
-		}
+	cached, err := s.Store.RunsSince(workflowID, since)
+	if err != nil {
+		// Degrades to a full re-fetch — say so instead of silently burning
+		// the API budget with no hint why.
+		s.Prog.Log("WARNING: cache read failed for workflow %d (%v); re-fetching from API", workflowID, err)
+		return cachedAt
+	}
+	for i := range cached {
+		cachedAt[cached[i].ID] = cached[i].UpdatedAt
 	}
 	return cachedAt
 }
