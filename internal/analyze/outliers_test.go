@@ -121,6 +121,60 @@ func TestOutlierAnalyzer_DetectsSlowJob(t *testing.T) {
 	assert.True(t, foundSlowJob, "should detect the slow build job")
 }
 
+func TestOutlierAnalyzer_SmallSampleOutlierIsReported(t *testing.T) {
+	// Eight runs: seven ~5min, one 20min. The fence flags it, but a strict
+	// percentile rank caps at (n-1)/n = 87.5 for n=8 — below the p95 gate —
+	// so small samples could structurally never report an outlier even
+	// though minRunsForOutliers is 5.
+	details := makeOutlierDetails(8)
+	for i := range details {
+		jitter := time.Duration(i*5) * time.Second
+		details[i].Jobs[0].CompletedAt = details[i].Jobs[0].CompletedAt.Add(jitter)
+	}
+	slow := &details[5]
+	slow.Jobs[0].CompletedAt = slow.Jobs[0].StartedAt.Add(20 * time.Minute)
+
+	analyzer := OutlierAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{Details: details})
+	require.NoError(t, err)
+
+	found := false
+	for _, f := range findings {
+		if d, ok := f.Detail.(OutlierDetail); ok && d.RunID == slow.Run.ID {
+			found = true
+		}
+	}
+	assert.True(t, found, "a fence-detected outlier in a small sample must be reported")
+}
+
+func TestOutlierAnalyzer_TiedWorstOutliersAreReported(t *testing.T) {
+	// 30 runs with two identical 20min outliers. Strict ranking puts both at
+	// 28/30 = 93.3 < 95 (each "sees" the other), suppressing both; midrank
+	// puts them at 96.7.
+	details := makeOutlierDetails(30)
+	for i := range details {
+		jitter := time.Duration(i*3) * time.Second
+		details[i].Jobs[0].CompletedAt = details[i].Jobs[0].CompletedAt.Add(jitter)
+	}
+	slowIDs := map[int64]bool{}
+	for _, idx := range []int{10, 20} {
+		details[idx].Jobs[0].CompletedAt = details[idx].Jobs[0].StartedAt.Add(20 * time.Minute)
+		slowIDs[details[idx].Run.ID] = true
+	}
+
+	analyzer := OutlierAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{Details: details})
+	require.NoError(t, err)
+
+	reported := 0
+	for _, f := range findings {
+		if d, ok := f.Detail.(OutlierDetail); ok && slowIDs[d.RunID] {
+			reported++
+		}
+	}
+	assert.Equal(t, 2, reported, "duplicated worst values must not suppress each other")
+}
+
 func TestOutlierAnalyzer_MinPercentileFilter(t *testing.T) {
 	details := makeOutlierDetails(100)
 	// Add several outliers of varying severity

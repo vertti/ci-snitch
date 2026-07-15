@@ -108,10 +108,8 @@ Removed from the old "already correct" list — disproven by this review:
 - Queue time = `StartedAt − CreatedAt` (`internal/analyze/summary.go:77-83`), but `run_started_at` resets to the latest attempt's start while `CreatedAt` stays at creation. A run re-run the next morning contributes a ~12h "queue time" to p95. Skip when `RunAttempt > 1`.
 - **Files:** `internal/analyze/summary.go`
 
-### A7. Fix outlier percentile gating for small n [S]
-- `percentileRank` counts strictly-smaller values, so the max of n points ranks `(n−1)/n×100` — below the `MinPercentile=95` gate for all n < 20 (`internal/stats/outlier.go:140-152`, `internal/analyze/outliers.go:44-51`). Outlier findings are structurally impossible for 5–19-run series even though `minRunsForOutliers = 5`; `critical` (99) needs n ≥ 100; duplicated worst values suppress even large-n outliers. Existing tests use n=20/100, masking it.
-- Fix: midrank percentile (`(less + equal/2)/n`) or gate on fence-based `IsOutlier` instead.
-- **Files:** `internal/stats/outlier.go`, `internal/analyze/outliers.go`, tests with n=5..19
+### A7. Fix outlier percentile gating for small n [S] ✅ done
+- Shipped 2026-07-15: `percentileRank` uses midrank (ties contribute half), and the reporting gate is capped at the highest percentile a sample of size n can produce (`effectiveMinPercentile`). Small samples (5–19 runs) and duplicated worst values now report; `critical` (p99) achievable from n=50 instead of n=100. Tests: small-sample (n=8), tied-worst (n=30, two identical outliers), plus midrank unit tests.
 
 ### A8. Deterministic change-point p-values [S] (was 3.5)
 - `changepoint.go:136` still calls non-deterministic `stats.MannWhitneyU`; permutation-path p-values drift ~5% near the 0.05 boundary between runs. Derive a seed from `(workflowID, jobName, cp.Index)` and call `MannWhitneyURand`. Snapshot test: same input → same p-values.

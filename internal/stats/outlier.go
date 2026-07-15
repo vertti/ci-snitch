@@ -136,17 +136,23 @@ func ClampOutliers(data []float64, multiplier float64) []float64 {
 	return result
 }
 
-// percentileRank returns what percentile a value falls at in a sorted slice (0-100).
+// percentileRank returns what percentile a value falls at in a sorted slice
+// (0-100), using the midrank convention: ties contribute half their count.
+// Strict counting caps the maximum at (n-1)/n and lets duplicated worst
+// values suppress each other below fixed reporting gates.
 func percentileRank(sorted []float64, value float64) float64 {
 	n := len(sorted)
 	if n == 0 {
 		return 0
 	}
-	count := 0
+	less, equal := 0, 0
 	for _, v := range sorted {
-		if v < value {
-			count++
+		switch {
+		case v < value:
+			less++
+		case v == value:
+			equal++
 		}
 	}
-	return float64(count) / float64(n) * 100
+	return (float64(less) + float64(equal)/2) / float64(n) * 100
 }

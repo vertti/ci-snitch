@@ -129,8 +129,12 @@ func TestClampOutliers_TooFewPoints(t *testing.T) {
 
 func TestPercentileRank(t *testing.T) {
 	sorted := []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
-	assert.InDelta(t, 0.0, percentileRank(sorted, 1), 0.1)
-	assert.InDelta(t, 50.0, percentileRank(sorted, 6), 5)
-	assert.InDelta(t, 90.0, percentileRank(sorted, 10), 0.1)
+	assert.InDelta(t, 5.0, percentileRank(sorted, 1), 0.1, "minimum midranks at 1/(2n)")
+	assert.InDelta(t, 55.0, percentileRank(sorted, 6), 0.1)
+	assert.InDelta(t, 95.0, percentileRank(sorted, 10), 0.1, "maximum midranks at (n-0.5)/n, not (n-1)/n")
 	assert.InDelta(t, 0.0, percentileRank(nil, 5), 0.001)
+
+	// Tied worst pair: (8 + 2/2)/10 = 90 each, not 80.
+	tied := []float64{1, 2, 3, 4, 5, 6, 7, 8, 20, 20}
+	assert.InDelta(t, 90.0, percentileRank(tied, 20), 0.1)
 }
