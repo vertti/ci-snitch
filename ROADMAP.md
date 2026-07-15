@@ -235,8 +235,7 @@ Removed from the old "already correct" list — disproven by this review:
 
 ### H2. `mise run check`: order fmt before lint [XS] ✅ done (batch 1) — `lint` depends on `fmt`.
 
-### H3. govulncheck in CI [S] (was 7.2)
-- `mise run vuln` task + CI step after lint. Fatal from day one if baseline is clean.
+### H3. govulncheck in CI [S] (was 7.2) ✅ done (batch 2) — `mise run vuln` + fatal CI step (baseline verified by the introducing PR's own CI run).
 
 ### H4. `ci-snitch doctor` [S] (was 7.3)
 - Validate token, rate limit, cache path writable, SQLite openable, git remote detectable. One line per check.
@@ -244,13 +243,11 @@ Removed from the old "already correct" list — disproven by this review:
 ### H5. Fix install.sh Windows path [S]
 - The MINGW/MSYS/CYGWIN branch downloads the zip then `mv`s a binary named `ci-snitch` (archive contains `ci-snitch.exe`) into `/usr/local/bin` with `sudo` — can never succeed (`install.sh:17,41-46,74`). Handle `.exe` + a sensible dir, or explicitly refuse with a pointer to the release zip.
 
-### H6. Smoke test the production path [S]
-- `cmd/smoke/main.go:77` exercises REST `FetchRunDetails`, but the CLI uses `FetchRunDetailsGraphQL` (`internal/app/service.go:349`), and it stops before analyzers/formatters. The mandated pre-PR smoke test skips the most bug-prone path. Switch to the GraphQL path and run the full pipeline through a formatter.
+### H6. Smoke test the production path [S] ✅ done (batch 2) — smoke hydrates via `FetchRunDetailsGraphQL` and finishes with engine + LLM formatter: fetch → store → analyze → render.
 
 ### H7. goreleaser: migrate deprecated `format` keys [XS] ✅ done (batch 1) — `formats: [tar.gz]` / `[zip]`.
 
-### H8. Make the CI migration step real, or drop it [S]
-- "Test schema migration" re-runs `TestMigration` already covered by `mise run test` (`.github/workflows/ci.yml:42-43`). Either build the last tagged release, create a DB, and open it with new code — or delete the step.
+### H8. Make the CI migration step real, or drop it [S] ✅ done (batch 2) — dropped; it re-ran `TestMigration` already covered by `mise run test`, and the migration unit tests construct genuine old-schema DBs.
 
 ### H9. Store-layer cleanups batch [XS total] ✅ done (batch 1)
 - Labels stored as JSON (legacy comma rows still read); dead `idx_runs_status` dropped from schema and migrated DBs; cache read failures log a warning instead of silently re-fetching everything. (`runByID` went with D4.)

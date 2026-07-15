@@ -17,6 +17,10 @@ run = "go test ./..."
 description = "Run all tests with the race detector"
 run = "go test -race ./..."
 
+[tasks.vuln]
+description = "Scan dependencies for known vulnerabilities"
+run = "go run golang.org/x/vuln/cmd/govulncheck@latest ./..."
+
 [tasks.fmt]
 description = "Run goimports and gofmt on all Go files"
 run = "golangci-lint fmt ./..."
