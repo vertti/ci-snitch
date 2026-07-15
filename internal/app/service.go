@@ -233,6 +233,11 @@ func (s *Service) hydrateAll(ctx context.Context, allWfRuns []workflowRuns, opts
 		wr := allWfRuns[i]
 		g.Go(func() error {
 			details, wfDiags := s.hydrateWorkflow(gctx, wr.wf, wr.runs, opts)
+			// A cancelled hydration returns whatever subset it had fetched;
+			// analyzing that silently would look like a normal result.
+			if err := gctx.Err(); err != nil {
+				return err
+			}
 			mu.Lock()
 			allDetails = append(allDetails, details...)
 			diags = append(diags, wfDiags...)

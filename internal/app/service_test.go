@@ -30,6 +30,8 @@ type fakeFetcher struct {
 	coreRemaining   int // 0 means "plenty" (5000)
 	gqlRemaining    int // 0 means "plenty" (5000)
 	rateErr         error
+	// cancelDuringHydration simulates Ctrl+C arriving mid-hydration.
+	cancelDuringHydration context.CancelFunc
 
 	mu          sync.Mutex
 	hydratedIDs []int64 // run IDs requested via FetchRunDetails*()
@@ -50,6 +52,9 @@ func (f *fakeFetcher) FetchRunDetails(ctx context.Context, runs []model.Workflow
 // FetchRunDetailsGraphQL records the requested run IDs and returns the
 // configured details for exactly those runs.
 func (f *fakeFetcher) FetchRunDetailsGraphQL(_ context.Context, runs []model.WorkflowRun) ([]model.RunDetail, []diag.Diagnostic) {
+	if f.cancelDuringHydration != nil {
+		f.cancelDuringHydration()
+	}
 	requested := make(map[int64]bool, len(runs))
 	f.mu.Lock()
 	for i := range runs {
@@ -407,6 +412,23 @@ func TestRun_MissingRunnerLabelsAggregatedIntoOneDiagnostic(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, labelDiags, "one aggregated diagnostic, not one per job/workflow: %v", res.Diagnostics)
+}
+
+func TestRun_CancellationMidHydrationReturnsError(t *testing.T) {
+	// Ctrl+C lands while a workflow is hydrating. Run must return the
+	// context error — not a normal-looking analysis built from whatever
+	// subset happened to hydrate before the cancel.
+	f := baseFetcher()
+	ctx, cancel := context.WithCancel(context.Background())
+	f.cancelDuringHydration = cancel
+
+	svc := &Service{Client: f, Store: nil, Prog: output.NewProgress()}
+	_, err := svc.Run(ctx, &Options{
+		Repo:  "example-org/example-repo",
+		Since: testBase.Add(-24 * time.Hour),
+	})
+	require.Error(t, err, "a cancelled run must not produce a normal-looking result")
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestRun_TruncatedRunsAreNotCached(t *testing.T) {

@@ -302,6 +302,11 @@ func (c *Client) FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) 
 			for run := range work {
 				jobs, err := c.FetchJobs(ctx, run.ID)
 				if err != nil {
+					// Cancellation is not a per-run fetch failure; the caller
+					// observes ctx.Err() and aborts.
+					if ctx.Err() != nil {
+						continue
+					}
 					results <- result{
 						warn: &Warning{
 							Severity: diag.Warn,
