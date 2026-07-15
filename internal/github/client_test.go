@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -55,6 +56,38 @@ func TestNewClient_InvalidRepo(t *testing.T) {
 	for _, input := range tests {
 		_, err := NewClient("token", input)
 		assert.Error(t, err, "input: %q", input)
+	}
+}
+
+func TestListWorkflows_ActionableErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		status     int
+		wantHints  []string
+		dontLeakGo bool
+	}{
+		{name: "404 repo not found", status: 404,
+			wantHints: []string{"not found", "private", "token"}},
+		{name: "401 bad credentials", status: 401,
+			wantHints: []string{"token", "expired"}},
+		{name: "403 forbidden", status: 403,
+			wantHints: []string{"access"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc("GET /repos/test-owner/test-repo/actions/workflows", func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(`{"message": "whatever"}`))
+			})
+			c := testClient(t, mux)
+			_, err := c.ListWorkflows(context.Background())
+			require.Error(t, err)
+			for _, hint := range tt.wantHints {
+				assert.Contains(t, strings.ToLower(err.Error()), hint,
+					"a raw go-github error gives the user nothing to act on")
+			}
+		})
 	}
 }
 

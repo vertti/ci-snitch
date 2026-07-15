@@ -452,6 +452,37 @@ func TestRun_TruncatedRunsAreNotCached(t *testing.T) {
 	require.NotContains(t, savedIDs, f.details[1].Run.ID, "truncated run must not be cached")
 }
 
+func TestRun_WorkflowFilterMatchingNothingListsAvailable(t *testing.T) {
+	f := baseFetcher()
+	f.workflows = append(f.workflows, model.Workflow{ID: 2, Name: "Deploy"})
+
+	svc := &Service{Client: f, Store: nil, Prog: output.NewProgress()}
+	_, err := svc.Run(context.Background(), &Options{
+		Repo:     "example-org/example-repo",
+		Since:    testBase.Add(-24 * time.Hour),
+		Workflow: "Depoy", // typo
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `"Depoy"`, "the typo'd filter must be named")
+	require.Contains(t, err.Error(), "Deploy", "available workflow names help fix the typo")
+	require.Contains(t, err.Error(), "CI")
+}
+
+func TestRun_NoRunsErrorMentionsWorkflowFilter(t *testing.T) {
+	f := baseFetcher()
+	f.runs = map[int64][]model.WorkflowRun{} // workflow exists, no runs
+
+	svc := &Service{Client: f, Store: nil, Prog: output.NewProgress()}
+	_, err := svc.Run(context.Background(), &Options{
+		Repo:     "example-org/example-repo",
+		Since:    testBase.Add(-24 * time.Hour),
+		Workflow: "CI",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `workflow "CI"`,
+		"an active filter that produced zero runs must be visible in the error")
+}
+
 func TestRun_ListWorkflowsErrorNotDoubleWrapped(t *testing.T) {
 	// The client already wraps its error with "list workflows:"; the service
 	// must not add the same prefix again.
