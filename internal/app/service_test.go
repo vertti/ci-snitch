@@ -1,0 +1,152 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/vertti/ci-snitch/internal/analyze"
+	"github.com/vertti/ci-snitch/internal/diag"
+	"github.com/vertti/ci-snitch/internal/github"
+	"github.com/vertti/ci-snitch/internal/model"
+	"github.com/vertti/ci-snitch/internal/output"
+)
+
+var testBase = time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+
+type fakeFetcher struct {
+	workflows       []model.Workflow
+	runs            map[int64][]model.WorkflowRun
+	listWarnings    []diag.Diagnostic
+	details         []model.RunDetail
+	hydrateWarnings []diag.Diagnostic
+}
+
+func (f *fakeFetcher) ListWorkflows(context.Context) ([]model.Workflow, error) {
+	return f.workflows, nil
+}
+
+func (f *fakeFetcher) FetchRuns(_ context.Context, workflowID int64, _ time.Time, _ string) ([]model.WorkflowRun, []diag.Diagnostic, error) {
+	return f.runs[workflowID], f.listWarnings, nil
+}
+
+func (f *fakeFetcher) FetchRunDetails(context.Context, []model.WorkflowRun) ([]model.RunDetail, []diag.Diagnostic) {
+	return f.details, f.hydrateWarnings
+}
+
+func (f *fakeFetcher) FetchRunDetailsGraphQL(context.Context, []model.WorkflowRun) ([]model.RunDetail, []diag.Diagnostic) {
+	return f.details, f.hydrateWarnings
+}
+
+func (f *fakeFetcher) RateLimit(context.Context) (github.RateLimitStatus, error) {
+	return github.RateLimitStatus{Remaining: 5000, Limit: 5000, ResetAt: testBase.Add(time.Hour)}, nil
+}
+
+type fakeStore struct {
+	saveErr error
+}
+
+func (s *fakeStore) RunsSince(int64, time.Time) ([]model.WorkflowRun, error) { return nil, nil }
+func (s *fakeStore) IncompleteRunIDs() ([]int64, error)                      { return nil, nil }
+func (s *fakeStore) LoadRunDetail(int64) (*model.RunDetail, error) {
+	return nil, errors.New("not cached")
+}
+func (s *fakeStore) SaveRunDetails([]model.RunDetail) error { return s.saveErr }
+
+func fakeRunDetail(id int64, conclusion string) model.RunDetail {
+	created := testBase.Add(time.Duration(id) * time.Minute)
+	return model.RunDetail{
+		Run: model.WorkflowRun{
+			ID: id, WorkflowID: 1, WorkflowName: "CI", Name: "push",
+			Event: "push", Status: "completed", Conclusion: conclusion,
+			HeadBranch: "main", HeadSHA: "abc123", RunAttempt: 1,
+			CreatedAt: created, StartedAt: created.Add(5 * time.Second),
+			UpdatedAt: created.Add(3 * time.Minute),
+		},
+		Jobs: []model.Job{{
+			ID: 1000 + id, RunID: id, Name: "build", Status: "completed", Conclusion: conclusion,
+			StartedAt: created.Add(10 * time.Second), CompletedAt: created.Add(2 * time.Minute),
+			Labels: []string{"ubuntu-latest"},
+		}},
+	}
+}
+
+func baseFetcher() *fakeFetcher {
+	details := []model.RunDetail{fakeRunDetail(1, "success"), fakeRunDetail(2, "success")}
+	runs := make([]model.WorkflowRun, len(details))
+	for i := range details {
+		runs[i] = details[i].Run
+	}
+	return &fakeFetcher{
+		workflows: []model.Workflow{{ID: 1, Name: "CI"}},
+		runs:      map[int64][]model.WorkflowRun{1: runs},
+		details:   details,
+	}
+}
+
+func runService(t *testing.T, f *fakeFetcher, store RunStore) (analyze.AnalysisResult, error) {
+	t.Helper()
+	svc := &Service{Client: f, Store: store, Prog: output.NewProgress()}
+	return svc.Run(context.Background(), &Options{
+		Repo:  "example-org/example-repo",
+		Since: testBase.Add(-24 * time.Hour),
+	})
+}
+
+func assertHasDiagnostic(t *testing.T, diags []diag.Diagnostic, kind diag.Kind, substr string) {
+	t.Helper()
+	for _, d := range diags {
+		if d.Kind == kind && strings.Contains(d.Message, substr) {
+			return
+		}
+	}
+	t.Errorf("no %s diagnostic containing %q in %v", kind, substr, diags)
+}
+
+func TestRun_ListWarningsSurfaceInDiagnostics(t *testing.T) {
+	f := baseFetcher()
+	f.listWarnings = []diag.Diagnostic{diag.New(
+		diag.Warn, diag.KindPartialData, "workflow-1",
+		"has 1500 runs in window, results may be truncated (GitHub API cap is 1000)",
+	)}
+
+	res, err := runService(t, f, nil)
+	require.NoError(t, err)
+	assertHasDiagnostic(t, res.Diagnostics, diag.KindPartialData, "truncated")
+}
+
+func TestRun_HydrationWarningsSurfaceInDiagnostics(t *testing.T) {
+	f := baseFetcher()
+	f.hydrateWarnings = []diag.Diagnostic{diag.New(
+		diag.Warn, diag.KindNetwork, "run-2",
+		"failed to fetch run 2: boom",
+	)}
+
+	res, err := runService(t, f, nil)
+	require.NoError(t, err)
+	assertHasDiagnostic(t, res.Diagnostics, diag.KindNetwork, "failed to fetch run 2")
+}
+
+func TestRun_PreprocessWarningsSurfaceInDiagnostics(t *testing.T) {
+	f := baseFetcher()
+	// One failed run: with IncludeFailures=false preprocess excludes it and warns.
+	f.details = append(f.details, fakeRunDetail(3, "failure"))
+	f.runs[1] = append(f.runs[1], f.details[2].Run)
+
+	res, err := runService(t, f, nil)
+	require.NoError(t, err)
+	assertHasDiagnostic(t, res.Diagnostics, diag.KindPreprocess, "excluded 1 non-success runs")
+}
+
+func TestRun_CacheSaveFailureSurfacesInDiagnostics(t *testing.T) {
+	f := baseFetcher()
+	st := &fakeStore{saveErr: errors.New("disk full")}
+
+	res, err := runService(t, f, st)
+	require.NoError(t, err)
+	assertHasDiagnostic(t, res.Diagnostics, diag.KindCache, "failed to cache")
+}

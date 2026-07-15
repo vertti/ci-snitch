@@ -56,10 +56,8 @@ Removed from the old "already correct" list — disproven by this review:
 - Fix: make `cachedSet` a `map[int64]time.Time` from `RunsSince` and re-fetch when the listing's `UpdatedAt` (or `RunAttempt`) is newer than the cached one.
 - **Files:** `internal/app/service.go`, `internal/store/sqlite.go`, test in new `internal/app/service_test.go` (T1)
 
-### D3. Surface fetch/hydration diagnostics in `result.Diagnostics` [S]
-- The 1000-cap `KindPartialData` warnings and failed-hydration warnings are only `Prog.Log`'d to stderr (`internal/app/service.go:195-197,353-355`); preprocess warnings are verbose-only (`:121-125`). `--format json`/`llm` consumers cannot tell the dataset was truncated. Found independently by two reviewers.
-- Fix: collect warnings from `fetchRunLists`/`hydrateWorkflow`/preprocess and append to `result.Diagnostics`. While here: the 1000-cap warning appends once **per page** (`internal/github/client.go:177-183`) — aggregate to one per window.
-- **Files:** `internal/app/service.go`, `internal/github/client.go`
+### D3. Surface fetch/hydration diagnostics in `result.Diagnostics` [S] ✅ done
+- Shipped 2026-07-15: list/hydration/preprocess/cache-save diagnostics are collected through `fetchRunLists`/`hydrateAll`/`hydrateWorkflow` and appended to `result.Diagnostics`, so JSON/LLM output now carries partial-data caveats; the CLI prints them once at end of run (live `WARNING:` logs removed to avoid double-printing). The 1000-cap warning now fires once per window instead of once per page. Tests: `internal/app/service_test.go` (new — starts T1) with fake fetcher/store covering all four diagnostic paths; `TestFetchRuns_CapWarningEmittedOncePerWindow`.
 
 ### D4. No silent drops in GraphQL batch parsing [XS–S]
 - `parseBatchResponse`: top-level unmarshal error returns `nil, nil` — a whole 20-run batch vanishes without diagnostics; a missing alias key is `continue`d silently (`internal/github/graphql.go:171-174,184-187`). Un-cached, the runs also inflate the uncached count every subsequent scan.
@@ -324,7 +322,7 @@ Every PR:
 
 ## Versioning
 
-Tag a new minor version after each PR merge to main. Semver: minor for features, patch for fixes.
+Thematic batch releases: tag a version when a roadmap section milestone lands (e.g. the D data-integrity batch, the A analysis-correctness batch), so each release has a coherent story and number-shifting fixes ship together with one explanation. Urgent fixes can still get an ad-hoc patch tag. Semver: minor for features, patch for fixes.
 
 ## Implementation order
 
@@ -332,7 +330,7 @@ First eight — unblocked, small, highest trust-leverage:
 
 1. ~~**D1** SQLite pragmas per connection~~ ✅
 2. ~~**A2** postprocess (workflow, job) keying~~ ✅
-3. **D3** diagnostics plumbing to JSON/LLM output
+3. ~~**D3** diagnostics plumbing to JSON/LLM output~~ ✅
 4. **A3 + A4** branch filter for AllDetails + cost from all runs (one PR)
 5. **D2** re-run cache invalidation
 6. **D4** GraphQL silent-drop warnings

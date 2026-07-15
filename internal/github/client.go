@@ -174,7 +174,8 @@ func (c *Client) fetchRunsWindow(ctx context.Context, workflowID int64, start, e
 			return nil, nil, err
 		}
 
-		if result.GetTotalCount() > 1000 {
+		// Warn once per window (opts.Page is 0 only on the first page).
+		if opts.Page == 0 && result.GetTotalCount() > 1000 {
 			warnings = append(warnings, diag.New(
 				diag.Warn, diag.KindPartialData, fmt.Sprintf("workflow-%d", workflowID),
 				fmt.Sprintf("has %d runs in window %s, results may be truncated (GitHub API cap is 1000)",
