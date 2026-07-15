@@ -46,11 +46,11 @@ type costJobKey struct {
 }
 
 type jobAccum struct {
-	billable     float64
-	selfHosted   float64
-	multiplier   float64
-	isSelfHosted bool
-	runs         int
+	billable   float64
+	selfHosted float64
+	multiplier float64   // most recent run's multiplier (display only)
+	lastSeen   time.Time // CreatedAt of the run that set multiplier
+	runs       int
 }
 
 type costAccum struct {
@@ -84,18 +84,25 @@ func accumulateCosts(details []model.RunDetail) costAccum {
 		for j := range details[i].Jobs {
 			k := costJobKey{wfID, details[i].Jobs[j].Name}
 			if acc.jobCosts[k] == nil {
-				sh := cost.IsSelfHosted(details[i].Jobs[j].Labels)
-				acc.jobCosts[k] = &jobAccum{
-					multiplier:   cost.LookupMultiplier(details[i].Jobs[j].Labels),
-					isSelfHosted: sh,
-				}
+				acc.jobCosts[k] = &jobAccum{}
 			}
 			jc := acc.jobCosts[k]
+
+			// Price each run by its own labels: a job migrated mid-window
+			// (e.g. ubuntu-latest -> self-hosted) must not have every run
+			// billed at whichever variant happened to be seen first.
+			labels := details[i].Jobs[j].Labels
+			multiplier := cost.LookupMultiplier(labels)
+			if jc.lastSeen.IsZero() || !t.Before(jc.lastSeen) {
+				jc.multiplier = multiplier
+				jc.lastSeen = t
+			}
+
 			rawMinutes := cost.BillableMinutes(details[i].Jobs[j].Duration())
-			if jc.isSelfHosted {
+			if cost.IsSelfHosted(labels) {
 				jc.selfHosted += rawMinutes
 			} else {
-				billable := rawMinutes * jc.multiplier
+				billable := rawMinutes * multiplier
 				jc.billable += billable
 				runBillable += billable
 			}

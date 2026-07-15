@@ -110,6 +110,60 @@ func TestCostAnalyzer_IncludesNonSuccessRuns(t *testing.T) {
 	assert.Equal(t, 11, ciCost.TotalRuns, "failed runs count toward total")
 }
 
+func TestCostAnalyzer_MultiplierLookedUpPerRun(t *testing.T) {
+	// A job migrated mid-window (ubuntu-latest -> self-hosted) must have
+	// each run priced by its own labels — not all runs priced by whichever
+	// variant happened to be seen first.
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	mkRun := func(id int64, offset time.Duration, labels []string) model.RunDetail {
+		start := base.Add(offset)
+		return model.RunDetail{
+			Run: model.WorkflowRun{
+				ID: id, WorkflowID: 100, WorkflowName: "CI",
+				Status: "completed", Conclusion: "success",
+				CreatedAt: start, StartedAt: start, UpdatedAt: start.Add(10 * time.Minute),
+			},
+			Jobs: []model.Job{{
+				Name: "build", StartedAt: start, CompletedAt: start.Add(3*time.Minute + 30*time.Second),
+				Labels: labels,
+			}},
+		}
+	}
+
+	for name, details := range map[string][]model.RunDetail{
+		"hosted first": {
+			mkRun(1, 0, []string{"ubuntu-latest"}),
+			mkRun(2, time.Hour, []string{"self-hosted", "linux"}),
+		},
+		"self-hosted first": {
+			mkRun(2, time.Hour, []string{"self-hosted", "linux"}),
+			mkRun(1, 0, []string{"ubuntu-latest"}),
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			analyzer := CostAnalyzer{}
+			findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{
+				Details:       details,
+				WorkflowNames: map[int64]string{100: "CI"},
+			})
+			require.NoError(t, err)
+
+			var ciCost *CostDetail
+			for _, f := range findings {
+				if d, ok := f.Detail.(CostDetail); ok && d.Workflow == "CI" {
+					ciCost = &d
+					break
+				}
+			}
+			require.NotNil(t, ciCost)
+			// One hosted run: 3m30s -> 4 billable minutes at 1x.
+			// One self-hosted run: 4 free minutes.
+			assert.InDelta(t, 4, ciCost.BillableMinutes, 0.001, "only the hosted run is billed")
+			assert.InDelta(t, 4, ciCost.SelfHostedMinutes, 0.001, "the self-hosted run's minutes are free")
+		})
+	}
+}
+
 func TestCostAnalyzer_Empty(t *testing.T) {
 	analyzer := CostAnalyzer{}
 	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{})

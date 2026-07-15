@@ -120,9 +120,8 @@ Removed from the old "already correct" list — disproven by this review:
 - p95/median at n=5 means one slow run labels a stable workflow "volatile" (`internal/analyze/summary.go:219-224`; same metric in `steps.go:184-186`). Require n ≥ 10 for the label (or use p90 below that); otherwise "insufficient data".
 - **Files:** `internal/analyze/summary.go`, `internal/analyze/steps.go`
 
-### A13. Look up cost multiplier per run, not per first-seen job [S]
-- `jobCosts[k]` freezes `multiplier`/`isSelfHosted` from the first run encountered in map order (`internal/analyze/cost.go:78-96`); a job migrated mid-window (ubuntu → self-hosted) is priced entirely at whichever variant was seen first.
-- **Files:** `internal/analyze/cost.go`
+### A13. Look up cost multiplier per run, not per first-seen job [S] ✅ done
+- Shipped 2026-07-15: `IsSelfHosted`/`LookupMultiplier` evaluated per run; the breakdown's displayed multiplier tracks the most recent run by `CreatedAt`. Tested with a mid-window ubuntu→self-hosted migration in both orderings.
 
 ### A14. Statistical/labeling hygiene batch [S total]
 Small, individually-XS fixes; batch into one PR:
