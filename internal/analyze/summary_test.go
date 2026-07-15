@@ -298,6 +298,38 @@ func TestSummaryAnalyzer_QueueTime(t *testing.T) {
 	assert.Equal(t, Duration(30*time.Second), d.Queue.P95)
 }
 
+func TestSummaryAnalyzer_QueueTimeSkipsRerunAttempts(t *testing.T) {
+	// GitHub resets run_started_at to the latest attempt's start while
+	// created_at stays at original creation: a run re-run 12 hours later
+	// would contribute a fake 12-hour "queue time" and explode the p95.
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	details := make([]model.RunDetail, 10)
+	for i := range details {
+		created := base.Add(time.Duration(i) * time.Hour)
+		started := created.Add(30 * time.Second)
+		details[i] = model.RunDetail{
+			Run: model.WorkflowRun{
+				WorkflowID: 100, WorkflowName: "CI", RunAttempt: 1,
+				CreatedAt: created, StartedAt: started, UpdatedAt: started.Add(5 * time.Minute),
+			},
+		}
+	}
+	// Re-run the next morning: attempt 2 starts 12h after creation.
+	details[9].Run.RunAttempt = 2
+	details[9].Run.StartedAt = details[9].Run.CreatedAt.Add(12 * time.Hour)
+	details[9].Run.UpdatedAt = details[9].Run.StartedAt.Add(5 * time.Minute)
+
+	analyzer := SummaryAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{Details: details})
+	require.NoError(t, err)
+	require.NotEmpty(t, findings)
+
+	d, ok := findings[0].Detail.(SummaryDetail)
+	require.True(t, ok)
+	assert.Equal(t, Duration(30*time.Second), d.Queue.P95,
+		"a re-run attempt's start-created gap is not queue time")
+}
+
 func TestSummaryDetail_Type(t *testing.T) {
 	d := SummaryDetail{}
 	assert.Equal(t, "summary", d.DetailType())

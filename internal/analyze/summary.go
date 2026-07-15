@@ -74,8 +74,12 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 		if dur > 0 {
 			wfDurations[wfID] = append(wfDurations[wfID], dur)
 		}
-		// Queue time: how long the run waited before starting
-		if !ac.Details[i].Run.CreatedAt.IsZero() && !ac.Details[i].Run.StartedAt.IsZero() {
+		// Queue time: how long the run waited before starting. Only valid
+		// for first attempts — GitHub resets run_started_at on re-run while
+		// created_at stays at original creation, so attempt >1 gaps measure
+		// "time until someone clicked re-run", not queue wait.
+		if ac.Details[i].Run.RunAttempt <= 1 &&
+			!ac.Details[i].Run.CreatedAt.IsZero() && !ac.Details[i].Run.StartedAt.IsZero() {
 			qt := ac.Details[i].Run.StartedAt.Sub(ac.Details[i].Run.CreatedAt)
 			if qt >= 0 {
 				wfQueueTimes[wfID] = append(wfQueueTimes[wfID], qt)

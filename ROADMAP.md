@@ -97,9 +97,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### A5. Unify runner core-count/cost label parsing [S] ✅ done
 - Shipped 2026-07-15: shared `cost.ParseCoreCount` handles both the split (`-16-cores`) and adjacent (`32core`, `16vcpu`) conventions; `runners.go` delegates to it (16-core runners no longer get "undersized" advice) and `largerRunnerMultiplier` bills adjacent-convention labels — but only on recognized GitHub OS prefixes, so third-party vendor labels (Blacksmith etc.) are not billed at invented GitHub rates (pinned by test). Created `runners_test.go` (the analyzer previously had zero tests).
 
-### A6. Skip queue-time for re-run attempts [XS]
-- Queue time = `StartedAt − CreatedAt` (`internal/analyze/summary.go:77-83`), but `run_started_at` resets to the latest attempt's start while `CreatedAt` stays at creation. A run re-run the next morning contributes a ~12h "queue time" to p95. Skip when `RunAttempt > 1`.
-- **Files:** `internal/analyze/summary.go`
+### A6. Skip queue-time for re-run attempts [XS] ✅ done
+- Shipped 2026-07-15: queue time only computed for `RunAttempt <= 1`; a re-run's start-created gap measures "time until someone clicked re-run", not queue wait.
 
 ### A7. Fix outlier percentile gating for small n [S] ✅ done
 - Shipped 2026-07-15: `percentileRank` uses midrank (ties contribute half), and the reporting gate is capped at the highest percentile a sample of size n can produce (`effectiveMinPercentile`). Small samples (5–19 runs) and duplicated worst values now report; `critical` (p99) achievable from n=50 instead of n=100. Tests: small-sample (n=8), tied-worst (n=30, two identical outliers), plus midrank unit tests.
