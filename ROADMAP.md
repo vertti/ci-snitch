@@ -231,11 +231,9 @@ Removed from the old "already correct" list — disproven by this review:
 
 ## H — Tooling & housekeeping
 
-### H1. gitignore `local/` and coverage artifacts [XS]
-- `local/` (never-committed scratch, contains real repo data) is not in `.gitignore` — one `git add -A` away from violating the anonymization rule. Add `local/` and `*.out`.
+### H1. gitignore `local/` and coverage artifacts [XS] ✅ done (batch 1)
 
-### H2. `mise run check`: order fmt before lint [XS]
-- `check` declares `depends = ["fmt", "lint", "test"]` with no ordering (`mise.toml:24-26`); mise runs independent deps in parallel, so lint can read files fmt is rewriting. Make `lint` depend on `fmt` or order the run.
+### H2. `mise run check`: order fmt before lint [XS] ✅ done (batch 1) — `lint` depends on `fmt`.
 
 ### H3. govulncheck in CI [S] (was 7.2)
 - `mise run vuln` task + CI step after lint. Fatal from day one if baseline is clean.
@@ -249,14 +247,13 @@ Removed from the old "already correct" list — disproven by this review:
 ### H6. Smoke test the production path [S]
 - `cmd/smoke/main.go:77` exercises REST `FetchRunDetails`, but the CLI uses `FetchRunDetailsGraphQL` (`internal/app/service.go:349`), and it stops before analyzers/formatters. The mandated pre-PR smoke test skips the most bug-prone path. Switch to the GraphQL path and run the full pipeline through a formatter.
 
-### H7. goreleaser: migrate deprecated `format` keys [XS]
-- `archives.format`/`format_overrides.format` deprecated since v2.6 (`.goreleaser.yml:19-23`); release workflow floats on `~> v2`, so this breaks on the next major. Rename to `formats:`.
+### H7. goreleaser: migrate deprecated `format` keys [XS] ✅ done (batch 1) — `formats: [tar.gz]` / `[zip]`.
 
 ### H8. Make the CI migration step real, or drop it [S]
 - "Test schema migration" re-runs `TestMigration` already covered by `mise run test` (`.github/workflows/ci.yml:42-43`). Either build the last tagged release, create a DB, and open it with new code — or delete the step.
 
-### H9. Store-layer cleanups batch [XS total]
-- Labels round-trip breaks on commas — store as JSON (`internal/store/sqlite.go:225,318,403-405`); `idx_runs_status` can't serve its only (inequality) query (`sqlite.go:34` vs `:355`); dead `runByID` map (`internal/github/graphql.go:176-180`); log swallowed store read errors in verbose mode (`internal/app/service.go:240,252,313-323`).
+### H9. Store-layer cleanups batch [XS total] ✅ done (batch 1)
+- Labels stored as JSON (legacy comma rows still read); dead `idx_runs_status` dropped from schema and migrated DBs; cache read failures log a warning instead of silently re-fetching everything. (`runByID` went with D4.)
 
 ### H10. Docs batch [XS]
 - README flags table: add `--raw-output`; document `md` alias, `completion` subcommand, NO_COLOR/FORCE_COLOR support. Optional: linter adds (`errname`, `noctx`, `embeddedstructfieldcheck`).

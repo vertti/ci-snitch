@@ -24,7 +24,10 @@ run = "golangci-lint fmt ./..."
 [tasks.lint]
 description = "Run golangci-lint"
 run = "golangci-lint run ./..."
+# fmt must finish before lint reads the files: `check` runs independent
+# depends in parallel, which raced golangci-lint fmt against run.
+depends = ["fmt"]
 
 [tasks.check]
 description = "Format, lint, and test"
-depends = ["fmt", "lint", "test"]
+depends = ["lint", "test"] # lint depends on fmt
