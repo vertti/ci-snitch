@@ -36,16 +36,25 @@ func newAnalyzeCmd() *cobra.Command {
 		Long: `Fetch workflow run data and compute performance statistics, outliers, and trends.
 
 If no repository is specified, detects the GitHub remote from the current directory.`,
-		Args: cobra.MaximumNArgs(1),
+		Args:         cobra.MaximumNArgs(1),
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Validate output options before anything that costs a network call.
+			formatter, ok := output.Get(format, output.Options{Verbose: verbose, RawOutputPath: rawOutput})
+			if !ok {
+				return fmt.Errorf("unknown format %q (supported: table, json, markdown, llm)", format)
+			}
+			if rawOutput != "" && format != "llm" {
+				return errors.New("--raw-output requires --format llm")
+			}
+
 			var repo string
 			if len(args) > 0 {
 				repo = args[0]
 			} else {
 				detected, err := detectGitHubRepo()
 				if err != nil {
-					cmd.SilenceUsage = true
-					return errors.New("provide a repository: ci-snitch analyze <owner/repo>\nor run from inside a GitHub repo directory")
+					return fmt.Errorf("%w\nprovide a repository: ci-snitch analyze <owner/repo>\nor run from inside a GitHub repo directory", err)
 				}
 				repo = detected
 			}
@@ -114,10 +123,6 @@ If no repository is specified, detects the GitHub remote from the current direct
 
 			// Output
 			formatStart := time.Now()
-			formatter, ok := output.Get(format, output.Options{Verbose: verbose, RawOutputPath: rawOutput})
-			if !ok {
-				return fmt.Errorf("unknown format %q (supported: table, json, markdown, llm)", format)
-			}
 			err = formatter.Format(cmd.OutOrStdout(), &result)
 			if verbose {
 				prog.Log("Format: %s", time.Since(formatStart))
@@ -139,7 +144,7 @@ If no repository is specified, detects the GitHub remote from the current direct
 	return cmd
 }
 
-var gitHubRemoteRe = regexp.MustCompile(`github\.com[:/]([^/]+/[^/.]+?)(?:\.git)?$`)
+var gitHubRemoteRe = regexp.MustCompile(`github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$`)
 
 // detectGitHubRepo extracts owner/repo from the git remote in the current directory.
 func detectGitHubRepo() (string, error) {

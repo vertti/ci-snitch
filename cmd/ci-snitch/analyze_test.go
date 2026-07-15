@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
@@ -62,6 +63,10 @@ func TestGitHubRemoteRe(t *testing.T) {
 		{name: "https", url: "https://github.com/vertti/ci-snitch.git", want: "vertti/ci-snitch", ok: true},
 		{name: "https no .git", url: "https://github.com/vertti/ci-snitch", want: "vertti/ci-snitch", ok: true},
 		{name: "ssh no .git", url: "git@github.com:org/repo", want: "org/repo", ok: true},
+		{name: "ssh dotted repo", url: "git@github.com:vercel/next.js.git", want: "vercel/next.js", ok: true},
+		{name: "https dotted repo", url: "https://github.com/socketio/socket.io.git", want: "socketio/socket.io", ok: true},
+		{name: "https dotted no .git", url: "https://github.com/socketio/socket.io", want: "socketio/socket.io", ok: true},
+		{name: "dotted owner", url: "git@github.com:my.org/repo.git", want: "my.org/repo", ok: true},
 		{name: "not github", url: "git@gitlab.com:org/repo.git", ok: false},
 		{name: "bare path", url: "/tmp/some-repo", ok: false},
 	}
@@ -77,6 +82,47 @@ func TestGitHubRemoteRe(t *testing.T) {
 			assert.Equal(t, tt.want, m[1])
 		})
 	}
+}
+
+func TestAnalyze_RuntimeErrorDoesNotPrintUsage(t *testing.T) {
+	cmd := newRootCmd()
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"analyze", "owner/repo", "--since", "garbage"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.NotContains(t, out.String(), "Usage:",
+		"a runtime error must not bury the message under the full usage block")
+}
+
+func TestAnalyze_UnknownFormatFailsBeforeFetching(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "dummy-token-no-network-expected")
+	cmd := newRootCmd()
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"analyze", "owner/repo", "--format", "yaml"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unknown format "yaml"`,
+		"format must be validated before any API call is made")
+}
+
+func TestAnalyze_RawOutputRequiresLLMFormat(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "dummy-token-no-network-expected")
+	cmd := newRootCmd()
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"analyze", "owner/repo", "--format", "json", "--raw-output", "x.json"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--raw-output requires --format llm",
+		"silently ignoring --raw-output hides a user mistake")
 }
 
 // stubFetcher implements app.WorkflowFetcher for testing.

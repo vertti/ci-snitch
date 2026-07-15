@@ -22,6 +22,7 @@ var testBase = time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
 
 type fakeFetcher struct {
 	workflows       []model.Workflow
+	listWorkflowErr error
 	runs            map[int64][]model.WorkflowRun
 	listWarnings    []diag.Diagnostic
 	details         []model.RunDetail
@@ -32,7 +33,7 @@ type fakeFetcher struct {
 }
 
 func (f *fakeFetcher) ListWorkflows(context.Context) ([]model.Workflow, error) {
-	return f.workflows, nil
+	return f.workflows, f.listWorkflowErr
 }
 
 func (f *fakeFetcher) FetchRuns(_ context.Context, workflowID int64, _ time.Time, _ string) ([]model.WorkflowRun, []diag.Diagnostic, error) {
@@ -220,6 +221,18 @@ func TestRun_BranchWithNoRuns_ErrorNamesTheBranch(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), `branch "nope"`,
 		"error must name the branch filter instead of a generic preprocessing message")
+}
+
+func TestRun_ListWorkflowsErrorNotDoubleWrapped(t *testing.T) {
+	// The client already wraps its error with "list workflows:"; the service
+	// must not add the same prefix again.
+	f := baseFetcher()
+	f.listWorkflowErr = errors.New(`list workflows: GET "https://api.github.com/...": 404`)
+
+	_, err := runService(t, f, nil)
+	require.Error(t, err)
+	require.Equal(t, 1, strings.Count(err.Error(), "list workflows:"),
+		"error prefix duplicated: %v", err)
 }
 
 func TestRun_StaleCachedRunIsRefetched(t *testing.T) {
