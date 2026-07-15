@@ -147,17 +147,21 @@ func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 		})
 	}
 
-	// Precompute median by job name for O(1) sort comparisons
-	medianByJob := make(map[string]time.Duration)
+	// Precompute median per (workflow, job) for O(1) sort comparisons —
+	// same-named jobs in different workflows must not share an entry.
+	type wfJobName struct{ wf, job string }
+	medianByJob := make(map[wfJobName]time.Duration)
 	for jk, med := range jobMedians {
-		medianByJob[jk.job] = med
+		medianByJob[wfJobName{ac.WorkflowName(jk.wfID), jk.job}] = med
 	}
 
 	// Sort findings by job median descending (slowest jobs first)
 	slices.SortFunc(findings, func(a, b Finding) int {
 		ad, _ := a.Detail.(StepTimingDetail)
 		bd, _ := b.Detail.(StepTimingDetail)
-		return cmp.Compare(medianByJob[bd.JobName], medianByJob[ad.JobName])
+		return cmp.Compare(
+			medianByJob[wfJobName{bd.WorkflowName, bd.JobName}],
+			medianByJob[wfJobName{ad.WorkflowName, ad.JobName}])
 	})
 
 	return findings, nil

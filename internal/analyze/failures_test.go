@@ -102,6 +102,88 @@ func TestFailureAnalyzer_TrendComparesDisjointPeriods(t *testing.T) {
 		"a 12%%→20%% week-over-week rise must not be diluted to 'stable' by including the recent week in the baseline")
 }
 
+func TestFailureAnalyzer_SkippedRunsExcludedFromRate(t *testing.T) {
+	// Path-filtered workflows produce lots of skipped runs; counting them in
+	// the denominator deflates the failure rate of the runs that actually ran.
+	details := makeConclusionDetails(map[string]int{
+		conclusionSuccess: 4, "skipped": 4, conclusionFailure: 2,
+	})
+
+	analyzer := FailureAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{
+		AllDetails:    details,
+		WorkflowNames: map[int64]string{100: "CI"},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, findings)
+
+	d, ok := findings[0].Detail.(FailureDetail)
+	require.True(t, ok)
+	assert.Equal(t, 6, d.TotalRuns, "skipped runs never executed and don't belong in the denominator")
+	assert.InDelta(t, 2.0/6.0, d.FailureRate, 0.001)
+}
+
+func TestFailureAnalyzer_NeutralIsNotAFailure(t *testing.T) {
+	// "neutral" is a deliberate non-failing conclusion (checks that opt out);
+	// treating it as a failure invents a 50% failure rate here.
+	details := makeConclusionDetails(map[string]int{
+		conclusionSuccess: 5, "neutral": 5,
+	})
+
+	analyzer := FailureAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{
+		AllDetails:    details,
+		WorkflowNames: map[int64]string{100: "CI"},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, findings, "neutral conclusions must not produce failure findings")
+}
+
+func TestFailureAnalyzer_KindUnknownWithoutStepData(t *testing.T) {
+	// Failures with no failing-step attribution (e.g. steps not fetched)
+	// give no evidence for the flaky-vs-systematic call.
+	details := makeConclusionDetails(map[string]int{
+		conclusionSuccess: 5, conclusionFailure: 3,
+	})
+	// makeConclusionDetails attaches no failing steps.
+
+	analyzer := FailureAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{
+		AllDetails:    details,
+		WorkflowNames: map[int64]string{100: "CI"},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, findings)
+
+	d, ok := findings[0].Detail.(FailureDetail)
+	require.True(t, ok)
+	assert.Equal(t, FailureKindUnknown, d.FailureKind,
+		"no step data means no evidence for flaky vs systematic")
+}
+
+// makeConclusionDetails builds runs with the given conclusion counts (jobs
+// carry the run's conclusion but no steps).
+func makeConclusionDetails(counts map[string]int) []model.RunDetail {
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	var details []model.RunDetail
+	id := 1000
+	for _, conclusion := range []string{conclusionSuccess, conclusionFailure, "skipped", "neutral", "cancelled"} {
+		for range counts[conclusion] {
+			start := base.Add(time.Duration(id-1000) * time.Hour)
+			details = append(details, model.RunDetail{
+				Run: model.WorkflowRun{
+					ID: int64(id), WorkflowID: 100, WorkflowName: "CI",
+					Status: "completed", Conclusion: conclusion, HeadSHA: "abc123",
+					CreatedAt: start, StartedAt: start, UpdatedAt: start.Add(5 * time.Minute),
+				},
+				Jobs: []model.Job{{Name: "build", Status: "completed", Conclusion: conclusion}},
+			})
+			id++
+		}
+	}
+	return details
+}
+
 func TestFailureAnalyzer_DetectsFailures(t *testing.T) {
 	details := makeFailureDetails()
 
