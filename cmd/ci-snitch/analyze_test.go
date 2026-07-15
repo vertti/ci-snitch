@@ -19,6 +19,13 @@ import (
 func TestParseSinceFrom(t *testing.T) {
 	now := time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC)
 
+	// Relative forms truncate to UTC midnight: the GitHub `created` filter is
+	// date-only, so a mid-day `since` timestamp disagrees with what the API
+	// returns — runs from the since-day's morning were listed by the API but
+	// never recognized as cached (timestamp comparison), re-fetched forever.
+	day := func(t time.Time) time.Time {
+		return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+	}
 	tests := []struct {
 		name    string
 		input   string
@@ -26,11 +33,11 @@ func TestParseSinceFrom(t *testing.T) {
 		wantErr string
 	}{
 		{name: "absolute date", input: "2026-01-01", want: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
-		{name: "days", input: "60d", want: now.AddDate(0, 0, -60)},
-		{name: "weeks", input: "2w", want: now.AddDate(0, 0, -14)},
-		{name: "months", input: "3mo", want: now.AddDate(0, -3, 0)},
-		{name: "single day", input: "1d", want: now.AddDate(0, 0, -1)},
-		{name: "single month", input: "1mo", want: now.AddDate(0, -1, 0)},
+		{name: "days", input: "60d", want: day(now.AddDate(0, 0, -60))},
+		{name: "weeks", input: "2w", want: day(now.AddDate(0, 0, -14))},
+		{name: "months", input: "3mo", want: day(now.AddDate(0, -3, 0))},
+		{name: "single day", input: "1d", want: day(now.AddDate(0, 0, -1))},
+		{name: "single month", input: "1mo", want: day(now.AddDate(0, -1, 0))},
 		{name: "zero days", input: "0d", wantErr: "in the past"},
 		{name: "future date", input: "2026-06-01", wantErr: "in the past"}, // "now" in this test is 2026-04-15
 		{name: "too short", input: "x", wantErr: "unrecognized format"},
