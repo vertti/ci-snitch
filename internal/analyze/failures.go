@@ -26,6 +26,7 @@ const (
 const (
 	FailureKindSystematic = "systematic" // >90% of failures hit the same root-cause step
 	FailureKindFlaky      = "flaky"      // failures spread across multiple steps
+	FailureKindUnknown    = "unknown"    // no failing-step data to judge from
 )
 
 // Failure category classifications based on step name heuristics.
@@ -132,6 +133,11 @@ func collectFailureStats(details []model.RunDetail) map[int64]*workflowFailureSt
 
 	wfStats := make(map[int64]*workflowFailureStat)
 	for i := range details {
+		// Skipped runs never executed: they belong in neither the failure
+		// count nor the denominator (path-filtered workflows produce many).
+		if details[i].Run.Conclusion == "skipped" {
+			continue
+		}
 		wfID := details[i].Run.WorkflowID
 		if wfStats[wfID] == nil {
 			wfStats[wfID] = &workflowFailureStat{
@@ -146,8 +152,8 @@ func collectFailureStats(details []model.RunDetail) map[int64]*workflowFailureSt
 			s.recentTotal++
 		}
 		switch details[i].Run.Conclusion {
-		case "success", "skipped":
-			// not a failure
+		case "success", "neutral":
+			// not a failure ("neutral" is a deliberate non-failing conclusion)
 		case "cancelled":
 			s.cancellations++
 			s.byConclusion[details[i].Run.Conclusion]++
@@ -202,8 +208,11 @@ func buildFailureFinding(ac *AnalysisContext, wfID int64, s *workflowFailureStat
 		return b.Count - a.Count
 	})
 
-	kind := FailureKindFlaky
+	// Without failing-step data there is no evidence for the flaky-vs-
+	// systematic call — say so instead of defaulting to "flaky".
+	kind := FailureKindUnknown
 	if len(failingSteps) > 0 && s.failures > 0 {
+		kind = FailureKindFlaky
 		if float64(failingSteps[0].Count)/float64(s.failures) >= 0.9 {
 			kind = FailureKindSystematic
 		}

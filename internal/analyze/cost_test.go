@@ -164,6 +164,37 @@ func TestCostAnalyzer_MultiplierLookedUpPerRun(t *testing.T) {
 	}
 }
 
+func TestCostAnalyzer_JobBreakdownSeparatesSelfHostedMinutes(t *testing.T) {
+	// A field named "billable_minutes" must not contain free self-hosted
+	// minutes; they get their own field, matching the workflow-level split.
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	detail := model.RunDetail{
+		Run: model.WorkflowRun{
+			ID: 1, WorkflowID: 100, WorkflowName: "CI",
+			Status: "completed", Conclusion: "success",
+			CreatedAt: base, StartedAt: base, UpdatedAt: base.Add(10 * time.Minute),
+		},
+		Jobs: []model.Job{{
+			Name: "build", StartedAt: base, CompletedAt: base.Add(3*time.Minute + 30*time.Second),
+			Labels: []string{"self-hosted", "linux"},
+		}},
+	}
+
+	analyzer := CostAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{
+		Details:       []model.RunDetail{detail},
+		WorkflowNames: map[int64]string{100: "CI"},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, findings)
+
+	d, ok := findings[0].Detail.(CostDetail)
+	require.True(t, ok)
+	require.Len(t, d.Jobs, 1)
+	assert.InDelta(t, 0, d.Jobs[0].BillableMinutes, 0.001, "self-hosted minutes are not billable")
+	assert.InDelta(t, 4, d.Jobs[0].SelfHostedMinutes, 0.001)
+}
+
 func TestCostAnalyzer_Empty(t *testing.T) {
 	analyzer := CostAnalyzer{}
 	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{})

@@ -97,8 +97,16 @@ func (RunnerAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 		switch {
 		case ja.cores >= oversizedMinCores && median < oversizedThresholdSec:
 			issue = "oversized"
-			suggestion = fmt.Sprintf("job takes %s on %d cores — consider downsizing to save ~%.0fx cost",
-				fmtSeconds(median), ja.cores, ja.mult)
+			// Only claim a saving when GitHub actually bills this runner at
+			// a known rate; for self-hosted (0) or unknown vendors (default
+			// 1) a "~1x cost" claim would be invented.
+			if ja.mult > 1 {
+				suggestion = fmt.Sprintf("job takes %s on %d cores — consider downsizing to save ~%.0fx cost",
+					fmtSeconds(median), ja.cores, ja.mult)
+			} else {
+				suggestion = fmt.Sprintf("job takes %s on %d cores — consider downsizing",
+					fmtSeconds(median), ja.cores)
+			}
 		case ja.cores <= undersizedMaxCores && median > undersizedThresholdSec:
 			issue = "undersized"
 			suggestion = fmt.Sprintf("job takes %s on %d cores — consider larger runner to reduce wait",
@@ -156,7 +164,7 @@ func parseCoreCount(label string) int {
 	case strings.Contains(lower, "windows"):
 		return 2
 	case strings.Contains(lower, "macos"):
-		return 4 // M1 runners
+		return 3 // current arm64 macOS runners have 3 vCPUs
 	}
 	return 0
 }

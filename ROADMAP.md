@@ -121,12 +121,11 @@ Removed from the old "already correct" list — disproven by this review:
 ### A13. Look up cost multiplier per run, not per first-seen job [S] ✅ done
 - Shipped 2026-07-15: `IsSelfHosted`/`LookupMultiplier` evaluated per run; the breakdown's displayed multiplier tracks the most recent run by `CreatedAt`. Tested with a mid-window ubuntu→self-hosted migration in both orderings.
 
-### A14. Statistical/labeling hygiene batch [S total] — stats half ✅ done
-- ✅ Stats (shipped 2026-07-15): exact MW path now enumerates value assignments with tie-aware U — the rank-position enumeration was **anti-conservative** on tied data (measured: reported p=0.31 where the tie-aware truth is 0.52; second-resolution durations tie constantly); permutation p uses `(count+1)/(reps+1)` (never exactly 0); normal approximation gets the continuity correction. Not adopted: tie-corrected sigma in the normal path (requires both segments >20 runs with heavy ties — rare; the correction direction would make results *more* significant, the risky direction).
-Remaining analyzer-labeling fixes (one PR):
-- Runner advice: skip "~1x cost" claims when multiplier is unknown/0, and don't give GitHub-billing advice for self-hosted/third-party runners (`internal/analyze/runners.go:99-102`); macOS core fallback documents 4, current arm64 runners have 3 (`:171-172`).
-- `FailureKind` defaults to "flaky" with zero failing-step data — make it explicit "unknown" (`internal/analyze/failures.go:205-210`); `skipped` counts toward the failure-rate denominator, `neutral`/`stale` count as failures (`:148-159`).
-- `medianByJob` keyed by bare job name scrambles cross-workflow sort order (`internal/analyze/steps.go:150-161`); `JobCostBreakdown.BillableMinutes` includes free self-hosted minutes (`internal/analyze/cost.go:120-125`).
+### A14. Statistical/labeling hygiene batch [S total] ✅ done
+- ✅ Stats (2026-07-15): exact MW path enumerates value assignments with tie-aware U — the rank-position enumeration was **anti-conservative** on tied data (measured: p=0.31 reported where the tie-aware truth is 0.52); permutation p uses `(count+1)/(reps+1)`; normal approximation gets the continuity correction. Not adopted: tie-corrected sigma in the normal path (rare + corrects in the more-significant direction).
+- ✅ Analyzers (2026-07-15): oversized-runner advice only claims "~Nx cost" with a known multiplier >1; macOS core fallback 4→3; `FailureKind` "unknown" without step data; `skipped` excluded from the failure denominator and `neutral` no longer a failure; step sort keyed per (workflow, job); `JobCostBreakdown` splits `SelfHostedMinutes` out of `BillableMinutes`.
+
+**A section complete** — release checkpoint (v0.26.0, analysis correctness) — HOLD until `HOMEBREW_TAP_TOKEN` is rotated.
 
 ---
 

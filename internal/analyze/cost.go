@@ -25,10 +25,11 @@ type CostDetail struct {
 
 // JobCostBreakdown holds cost info for a single job within a workflow.
 type JobCostBreakdown struct {
-	Name            string  `json:"name"`
-	BillableMinutes float64 `json:"billable_minutes"`
-	Multiplier      float64 `json:"multiplier"`
-	Runs            int     `json:"runs"`
+	Name              string  `json:"name"`
+	BillableMinutes   float64 `json:"billable_minutes"`
+	SelfHostedMinutes float64 `json:"self_hosted_minutes,omitempty"`
+	Multiplier        float64 `json:"multiplier"`
+	Runs              int     `json:"runs"`
 }
 
 // DetailType implements FindingDetail.
@@ -149,10 +150,11 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 			totalBillable += jc.billable
 			totalSelfHosted += jc.selfHosted
 			jobs = append(jobs, JobCostBreakdown{
-				Name:            k.job,
-				BillableMinutes: jc.billable + jc.selfHosted,
-				Multiplier:      jc.multiplier,
-				Runs:            jc.runs,
+				Name:              k.job,
+				BillableMinutes:   jc.billable,
+				SelfHostedMinutes: jc.selfHosted,
+				Multiplier:        jc.multiplier,
+				Runs:              jc.runs,
 			})
 		}
 
