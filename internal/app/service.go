@@ -108,6 +108,19 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 		return analyze.AnalysisResult{}, fmt.Errorf("no runs found for %s since %s", opts.Repo, opts.Since.Format("2006-01-02"))
 	}
 
+	// Apply --branch to the full set so every consumer respects it: failure
+	// rates, rerun stats, and cost all read allDetails, not just the filtered
+	// duration series produced by preprocess.Run below.
+	if opts.Branch != "" {
+		before := len(allDetails)
+		allDetails = preprocess.FilterByBranch(allDetails, opts.Branch)
+		if len(allDetails) == 0 {
+			return analyze.AnalysisResult{}, fmt.Errorf(
+				"no runs found for branch %q for %s since %s (%d runs on other branches)",
+				opts.Branch, opts.Repo, opts.Since.Format("2006-01-02"), before)
+		}
+	}
+
 	// Compute rerun stats before deduplication (needs to see all attempts)
 	rerunStats := preprocess.ComputeRerunStats(allDetails)
 
