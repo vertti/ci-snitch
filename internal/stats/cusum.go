@@ -54,11 +54,27 @@ func CUSUMDetect(data []float64, thresholdMultiplier float64, minSegment int) []
 		sLow = math.Max(0, sLow+(mu-data[i]-k))
 
 		if (sHigh > h || sLow > h) && (i-lastChangeIdx) >= minSegment {
-			// Compute before/after means
-			beforeStart := lastChangeIdx
-			beforeMean := Mean(data[beforeStart:i])
-			afterEnd := min(i+minSegment, n)
-			afterMean := Mean(data[i:afterEnd])
+			// The alarm lags the true shift: the cumulative statistic needs
+			// several samples to cross h. Walk back over the consecutive
+			// shifted-side points immediately before the alarm so the
+			// reported index is the change onset — commit attribution and
+			// segment splits key off it. (Consecutive-only, so a slow noise
+			// drift far into the baseline cannot drag the onset with it.)
+			onset := i
+			if sHigh > h {
+				for onset > lastChangeIdx+1 && data[onset-1] > mu+k {
+					onset--
+				}
+			} else {
+				for onset > lastChangeIdx+1 && data[onset-1] < mu-k {
+					onset--
+				}
+			}
+
+			// Compute before/after means around the onset
+			beforeMean := Mean(data[lastChangeIdx:onset])
+			afterEnd := min(onset+minSegment, n)
+			afterMean := Mean(data[onset:afterEnd])
 
 			pctChange := 0.0
 			if beforeMean != 0 {
@@ -71,7 +87,7 @@ func CUSUMDetect(data []float64, thresholdMultiplier float64, minSegment int) []
 			}
 
 			points = append(points, ChangePoint{
-				Index:      i,
+				Index:      onset,
 				BeforeMean: beforeMean,
 				AfterMean:  afterMean,
 				PctChange:  pctChange,
@@ -82,7 +98,7 @@ func CUSUMDetect(data []float64, thresholdMultiplier float64, minSegment int) []
 			sHigh = 0
 			sLow = 0
 			mu = afterMean
-			sigma = Stddev(data[i:afterEnd])
+			sigma = Stddev(data[onset:afterEnd])
 			if sigma == 0 {
 				sigma = Stddev(data)
 			}
