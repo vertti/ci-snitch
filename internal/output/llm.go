@@ -124,7 +124,7 @@ func llmWriteSummaryTable(w io.Writer, summaries []analyze.Finding) {
 			queueStr = fmtDur(d.Queue.Median)
 		}
 		_, _ = fmt.Fprintf(w, "| %s | %d | %s | %s | %s | %s | %s |\n",
-			d.Workflow, d.Stats.TotalRuns,
+			escMD(d.Workflow), d.Stats.TotalRuns,
 			fmtDur(d.Stats.Median), fmtDur(d.Stats.P95),
 			queueStr,
 			fmtTotalTime(d.Stats.TotalTime), d.Stats.VolatilityLabel)
@@ -238,8 +238,9 @@ func writeJSONFile(path string, result *analyze.AnalysisResult) error {
 }
 
 // compactResult strips noise from the analysis result for LLM consumption.
-// Drops oscillating/minor changepoints and low-severity outliers that inflate
-// the JSON from ~54k tokens to ~5k without adding actionable information.
+// Drops oscillating/minor changepoints, which inflate the JSON from ~54k
+// tokens to ~5k without adding actionable information (other finding types
+// pass through unchanged).
 func compactResult(result *analyze.AnalysisResult) analyze.AnalysisResult {
 	var filtered []analyze.Finding
 	for _, f := range result.Findings {

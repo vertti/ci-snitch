@@ -302,6 +302,76 @@ func TestLLMFormatter_RawOutputWritesJSONFile(t *testing.T) {
 		"the briefing should point the LLM at the raw file")
 }
 
+func TestFmtDur_HoursRenderAsHours(t *testing.T) {
+	assert.Equal(t, "2h30m", fmtDur(dur(150*time.Minute)), "a 2.5h p95 rendered as '150m'")
+	assert.Equal(t, "1h0m", fmtDur(dur(time.Hour)))
+	assert.Equal(t, "5m30s", fmtDur(dur(5*time.Minute+30*time.Second)))
+	assert.Equal(t, "45s", fmtDur(dur(45*time.Second)))
+}
+
+func TestJSONFormatter_EmptyDiagnosticsIsArray(t *testing.T) {
+	var buf bytes.Buffer
+	err := JSONFormatter{}.Format(&buf, &analyze.AnalysisResult{})
+	require.NoError(t, err)
+	assert.Contains(t, buf.String(), `"diagnostics": []`,
+		`null breaks jq '.diagnostics[]' consumers`)
+}
+
+func TestMarkdownFormatter_EscapesPipesInNames(t *testing.T) {
+	result := &analyze.AnalysisResult{
+		Findings: []analyze.Finding{{
+			Type: analyze.TypeOutlier, Severity: analyze.SeverityWarning,
+			Detail: analyze.OutlierGroupDetail{
+				WorkflowName: "build|test", JobName: "job|name", Count: 2,
+				WorstDuration: dur(10 * time.Minute), WorstPercentile: 97,
+				WorstCommitSHA: "aabbccdd", MaxSeverity: analyze.SeverityWarning,
+			},
+		}},
+	}
+	var buf bytes.Buffer
+	require.NoError(t, MarkdownFormatter{}.Format(&buf, result))
+	assert.Contains(t, buf.String(), `build\|test`,
+		"an unescaped pipe in a name breaks the markdown table")
+	assert.NotContains(t, buf.String(), "| build|test |")
+}
+
+func TestMarkdownFormatter_PercentileDisplayFloors(t *testing.T) {
+	result := &analyze.AnalysisResult{
+		Findings: []analyze.Finding{{
+			Type: analyze.TypeOutlier, Severity: analyze.SeverityWarning,
+			Detail: analyze.OutlierGroupDetail{
+				WorkflowName: "CI", JobName: "build", Count: 1,
+				WorstDuration: dur(10 * time.Minute), WorstPercentile: 99.8,
+				WorstCommitSHA: "aabbccdd", MaxSeverity: analyze.SeverityWarning,
+			},
+		}},
+	}
+	var buf bytes.Buffer
+	require.NoError(t, MarkdownFormatter{}.Format(&buf, result))
+	assert.Contains(t, buf.String(), "p99")
+	assert.NotContains(t, buf.String(), "p100",
+		`"slower than 100% of runs" includes the run itself`)
+}
+
+func TestProgress_QuietDiscardsEverything(t *testing.T) {
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	old := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = old }()
+
+	p := NewProgressQuiet()
+	p.Status("working")
+	p.Log("noise")
+	p.Done()
+	require.NoError(t, w.Close())
+	os.Stderr = old
+
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	assert.Empty(t, string(out), "quiet mode must write nothing to stderr")
+}
+
 func TestProgress_NonTTYWritesLines(t *testing.T) {
 	// Capture stderr through a pipe: exercises the real constructor's
 	// non-TTY branch (plain lines, no ANSI clearing).

@@ -553,11 +553,11 @@ func writeOutlierTable(w io.Writer, findings []analyze.Finding) error {
 		if d.Count == 1 {
 			countStr = "  "
 		}
-		_, _ = fmt.Fprintf(w, "  %s %-*s  %s%-3s%s %s%-8s%s %sp%.0f%s  %s%s%s\n",
+		_, _ = fmt.Fprintf(w, "  %s %-*s  %s%-3s%s %s%-8s%s %s%s%s  %s%s%s\n",
 			severityDot(d.MaxSeverity), maxSubject, subject,
 			bold, countStr, reset,
 			durColor, fmtDur(d.WorstDuration), reset,
-			dim, d.WorstPercentile, reset,
+			dim, fmtPercentile(d.WorstPercentile), reset,
 			dim, truncSHA(d.WorstCommitSHA), reset)
 	}
 	_, _ = fmt.Fprintln(w)

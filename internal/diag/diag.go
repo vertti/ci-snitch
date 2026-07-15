@@ -1,7 +1,10 @@
 // Package diag provides a unified diagnostic type for non-fatal issues.
 package diag
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Severity indicates how important a diagnostic is.
 type Severity string
@@ -35,10 +38,16 @@ type Diagnostic struct {
 }
 
 func (d Diagnostic) String() string {
-	if d.Scope != "" {
-		return fmt.Sprintf("[%s] %s: %s", d.Severity, d.Scope, d.Message)
+	msg := d.Message
+	// The wrapped cause is the actionable part of a failure — show it unless
+	// the message already embeds it.
+	if d.Err != nil && !strings.Contains(msg, d.Err.Error()) {
+		msg += ": " + d.Err.Error()
 	}
-	return fmt.Sprintf("[%s] %s", d.Severity, d.Message)
+	if d.Scope != "" {
+		return fmt.Sprintf("[%s] %s: %s", d.Severity, d.Scope, msg)
+	}
+	return fmt.Sprintf("[%s] %s", d.Severity, msg)
 }
 
 // New creates a Diagnostic with the given severity, kind, scope, and message.
