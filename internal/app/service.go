@@ -266,19 +266,36 @@ func (s *Service) countRuns(allWfRuns []workflowRuns, opts *Options) (total, unc
 		runs := allWfRuns[i].runs
 		total += len(runs)
 
-		cachedSet := make(map[int64]bool)
-		if cached, err := s.Store.RunsSince(wf.ID, opts.Since); err == nil {
-			for j := range cached {
-				cachedSet[cached[j].ID] = true
-			}
-		}
+		cachedAt := s.cachedUpdatedAt(wf.ID, opts.Since)
 		for j := range runs {
-			if !cachedSet[runs[j].ID] || incompleteSet[runs[j].ID] {
+			if !servableFromCache(cachedAt, incompleteSet, &runs[j]) {
 				uncached++
 			}
 		}
 	}
 	return total, uncached
+}
+
+// cachedUpdatedAt returns run ID → cached UpdatedAt for a workflow's cached
+// runs. Read errors degrade to "nothing cached" (a full re-fetch), matching
+// the caching-is-best-effort behavior elsewhere.
+func (s *Service) cachedUpdatedAt(workflowID int64, since time.Time) map[int64]time.Time {
+	cachedAt := make(map[int64]time.Time)
+	if cached, err := s.Store.RunsSince(workflowID, since); err == nil {
+		for i := range cached {
+			cachedAt[cached[i].ID] = cached[i].UpdatedAt
+		}
+	}
+	return cachedAt
+}
+
+// servableFromCache reports whether a listed run can be served from the cache.
+// A cached run is stale once the listing shows a newer UpdatedAt — GitHub
+// bumps it when a run is re-run, so bare ID membership would serve the old
+// attempt forever.
+func servableFromCache(cachedAt map[int64]time.Time, incomplete map[int64]bool, run *model.WorkflowRun) bool {
+	at, ok := cachedAt[run.ID]
+	return ok && !incomplete[run.ID] && !run.UpdatedAt.After(at)
 }
 
 // checkRateBudget estimates API cost and verifies sufficient rate limit remains.
@@ -328,13 +345,7 @@ func (s *Service) hydrateWorkflow(ctx context.Context, wf model.Workflow, runs [
 	var needsFetch []model.WorkflowRun
 
 	if s.Store != nil {
-		cachedSet := make(map[int64]bool)
-		cached, cacheErr := s.Store.RunsSince(wf.ID, opts.Since)
-		if cacheErr == nil {
-			for i := range cached {
-				cachedSet[cached[i].ID] = true
-			}
-		}
+		cachedAt := s.cachedUpdatedAt(wf.ID, opts.Since)
 
 		incompleteSet := make(map[int64]bool)
 		incomplete, incErr := s.Store.IncompleteRunIDs()
@@ -345,7 +356,7 @@ func (s *Service) hydrateWorkflow(ctx context.Context, wf model.Workflow, runs [
 		}
 
 		for i := range runs {
-			if cachedSet[runs[i].ID] && !incompleteSet[runs[i].ID] {
+			if servableFromCache(cachedAt, incompleteSet, &runs[i]) {
 				d, loadErr := s.Store.LoadRunDetail(runs[i].ID)
 				if loadErr == nil {
 					details = append(details, *d)

@@ -51,10 +51,8 @@ Removed from the old "already correct" list — disproven by this review:
 - Shipped 2026-07-15: pragmas moved to DSN `_pragma` params so the driver applies `busy_timeout`/`journal_mode(WAL)`/`foreign_keys` to every pooled connection. Regression tests hold two pooled connections and assert all three pragmas, verify FK enforcement on the fresh connection, and reproduce the concurrent-writer `SQLITE_BUSY` failure (8 goroutines × 40 batched saves).
 - Decision — no `ON DELETE CASCADE` (drops the 3.1 remainder for good): with `INSERT OR REPLACE` semantics the explicit child deletes must remain for pre-CASCADE databases anyway, so adding CASCADE to the schema would only create fresh-vs-existing schema divergence without removing any code.
 
-### D2. Invalidate cached runs that were re-run [S]
-- Cache partitioning checks only ID membership (`internal/app/service.go:328-336`), never `UpdatedAt`/`RunAttempt`. A run cached as attempt 1 (failure) then re-run to attempt 2 (success) serves the stale attempt-1 row forever — wrong conclusion, jobs, duration; rerun stats never see attempt 2. The `IncompleteRunIDs` guard defends an impossible case (only completed runs are ever saved; `internal/github/client.go:161`).
-- Fix: make `cachedSet` a `map[int64]time.Time` from `RunsSince` and re-fetch when the listing's `UpdatedAt` (or `RunAttempt`) is newer than the cached one.
-- **Files:** `internal/app/service.go`, `internal/store/sqlite.go`, test in new `internal/app/service_test.go` (T1)
+### D2. Invalidate cached runs that were re-run [S] ✅ done
+- Shipped 2026-07-15: `servableFromCache` compares the listing's `UpdatedAt` against the cached row's (`cachedUpdatedAt` map); a re-run bumps `UpdatedAt` so the stale attempt is re-fetched. `countRuns` uses the same rule, keeping the rate budget honest. Tests cover stale-refetch, fresh-cache-hit, and budget counting.
 
 ### D3. Surface fetch/hydration diagnostics in `result.Diagnostics` [S] ✅ done
 - Shipped 2026-07-15: list/hydration/preprocess/cache-save diagnostics are collected through `fetchRunLists`/`hydrateAll`/`hydrateWorkflow` and appended to `result.Diagnostics`, so JSON/LLM output now carries partial-data caveats; the CLI prints them once at end of run (live `WARNING:` logs removed to avoid double-printing). The 1000-cap warning now fires once per window instead of once per page. Tests: `internal/app/service_test.go` (new — starts T1) with fake fetcher/store covering all four diagnostic paths; `TestFetchRuns_CapWarningEmittedOncePerWindow`.
@@ -328,7 +326,7 @@ First eight — unblocked, small, highest trust-leverage:
 2. ~~**A2** postprocess (workflow, job) keying~~ ✅
 3. ~~**D3** diagnostics plumbing to JSON/LLM output~~ ✅
 4. ~~**A3 + A4** branch filter for AllDetails + cost from all runs~~ ✅
-5. **D2** re-run cache invalidation
+5. ~~**D2** re-run cache invalidation~~ ✅
 6. **D4** GraphQL silent-drop warnings
 7. **U1** CLI paper-cut batch
 8. **T1** `internal/app` service tests (pins 1, 3, 4, 5)
