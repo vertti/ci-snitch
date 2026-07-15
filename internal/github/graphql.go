@@ -70,26 +70,61 @@ func (c *Client) FetchRunDetailsGraphQL(ctx context.Context, runs []model.Workfl
 		warnings = append(warnings, restWarnings...)
 	}
 
-	// One aggregated truncation warning per fetch, not one per run/batch.
-	if truncated := countTruncated(details); truncated > 0 {
-		warnings = append(warnings, diag.New(
-			diag.Warn, diag.KindPartialData, "graphql",
-			fmt.Sprintf("%d runs exceed %d jobs or %d steps per job; extra entries were not fetched (affected runs are analyzed but not cached)",
-				truncated, graphqlMaxJobs, graphqlMaxSteps),
-		))
-	}
+	details, warnings = c.completeTruncated(ctx, details, warnings)
 
 	return details, warnings
 }
 
-func countTruncated(details []model.RunDetail) int {
-	n := 0
+// completeTruncated refetches runs whose jobs or steps exceeded the GraphQL
+// per-query limits via REST, which paginates jobs fully and embeds complete
+// steps. Rare (>50 jobs or >50 steps per job) and bounded to one REST fetch
+// per affected run — and the completed result is cacheable, so it beats
+// re-fetching the truncated run on every future scan.
+func (c *Client) completeTruncated(ctx context.Context, details []model.RunDetail, warnings []Warning) (outDetails []model.RunDetail, outWarnings []Warning) {
+	var truncatedRuns []model.WorkflowRun
 	for i := range details {
 		if details[i].Truncated {
-			n++
+			truncatedRuns = append(truncatedRuns, details[i].Run)
 		}
 	}
-	return n
+	if len(truncatedRuns) == 0 {
+		return details, warnings
+	}
+	outDetails, outWarnings = details, warnings
+
+	restDetails, restWarnings := c.FetchRunDetails(ctx, truncatedRuns)
+	outWarnings = append(outWarnings, restWarnings...)
+	complete := make(map[int64]model.RunDetail, len(restDetails))
+	for i := range restDetails {
+		complete[restDetails[i].Run.ID] = restDetails[i]
+	}
+
+	completed, stillTruncated := 0, 0
+	for i := range outDetails {
+		if !outDetails[i].Truncated {
+			continue
+		}
+		if full, ok := complete[outDetails[i].Run.ID]; ok {
+			outDetails[i] = full
+			completed++
+		} else {
+			stillTruncated++ // REST failed for this run; keep it uncacheable
+		}
+	}
+	if completed > 0 {
+		outWarnings = append(outWarnings, diag.New(
+			diag.Info, diag.KindPartialData, "graphql",
+			fmt.Sprintf("%d runs exceeded the GraphQL page size (%d jobs or %d steps per query); fetched completely via REST",
+				completed, graphqlMaxJobs, graphqlMaxSteps),
+		))
+	}
+	if stillTruncated > 0 {
+		outWarnings = append(outWarnings, diag.New(
+			diag.Warn, diag.KindPartialData, "graphql",
+			fmt.Sprintf("%d runs exceed the GraphQL page size and could not be completed via REST; analyzed with partial data, not cached", stillTruncated),
+		))
+	}
+	return outDetails, outWarnings
 }
 
 // fetchBatchGraphQL hydrates one batch. A non-nil error is returned only for
