@@ -452,6 +452,25 @@ func TestRun_TruncatedRunsAreNotCached(t *testing.T) {
 	require.NotContains(t, savedIDs, f.details[1].Run.ID, "truncated run must not be cached")
 }
 
+func TestRun_FilterContextRecordedInMeta(t *testing.T) {
+	// A JSON/LLM consumer comparing two reports must be able to tell whether
+	// one of them was filtered — otherwise a --branch main report and an
+	// all-branches report look interchangeable.
+	f := baseFetcher()
+
+	svc := &Service{Client: f, Store: nil, Prog: output.NewProgress()}
+	res, err := svc.Run(context.Background(), &Options{
+		Repo:     "example-org/example-repo",
+		Since:    testBase.Add(-24 * time.Hour),
+		Branch:   "main",
+		Workflow: "CI",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "main", res.Meta.Branch)
+	require.Equal(t, "CI", res.Meta.Workflow)
+	require.Equal(t, testBase.Add(-24*time.Hour), res.Meta.Since)
+}
+
 func TestRun_WorkflowFilterMatchingNothingListsAvailable(t *testing.T) {
 	f := baseFetcher()
 	f.workflows = append(f.workflows, model.Workflow{ID: 2, Name: "Deploy"})
