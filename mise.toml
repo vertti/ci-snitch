@@ -13,6 +13,10 @@ go build -ldflags "-s -w -X main.version=$VERSION" -o bin/ci-snitch ./cmd/ci-sni
 description = "Run all tests"
 run = "go test ./..."
 
+[tasks.test-race]
+description = "Run all tests with the race detector"
+run = "go test -race ./..."
+
 [tasks.fmt]
 description = "Run goimports and gofmt on all Go files"
 run = "golangci-lint fmt ./..."

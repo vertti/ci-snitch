@@ -36,6 +36,9 @@ jobs:
       - name: Test
         run: mise run test
 
+      - name: Test (race detector)
+        run: mise run test-race
+
       - name: Build binary
         run: mise run build
 

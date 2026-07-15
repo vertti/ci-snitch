@@ -142,13 +142,11 @@ Removed from the old "already correct" list — disproven by this review:
 ### T3. Diagnostic consistency tests [S] (was 3.3) ✅ done
 - 1000-cap once-per-window (D3 PR), no-node-ID REST fallback without false warnings, missing-runner-labels aggregation (T1 PR), truncation → one aggregated diagnostic (D5 PR).
 
-### T4. Race detector in CI [S]
-- CI runs plain `mise run test` (`.github/workflows/ci.yml:36-37`); the client uses bounded-concurrency goroutines and errgroup. `go test -race ./...` passes locally today — add it as a CI step so it stays that way.
-- **Files:** `.github/workflows/ci.yml`, optionally a `mise` task
+### T4. Race detector in CI [S] ✅ done
+- Shipped 2026-07-15: `mise run test-race` task + CI step after Test (full race suite ~passes locally in seconds).
 
-### T5. Auth bootstrap and subprocess tests [S]
-- `ResolveToken` (`internal/github/auth.go:14-31`) and `internal/system/exec.go` are at 0% and are the first code every real invocation runs. exec's timeout also surfaces as bare `signal: killed` — wrap with "timed out after 10s" (check `ctx.Err()`).
-- **Files:** `internal/github/auth_test.go`, `internal/system/exec_test.go`, `internal/system/exec.go`
+### T5. Auth bootstrap and subprocess tests [S] ✅ done
+- Shipped 2026-07-15: `auth_test.go` covers env-var, gh-missing, gh-unauthenticated, empty-token, and happy paths via fake `gh` scripts on PATH; `exec_test.go` covers stdout/not-found/stderr/timeout. Deadline kills now say "timed out" instead of `signal: killed` (was red).
 
 ### T6. Formatter coverage for primary features [S–M]
 - `progress.go` 0%, `writePipelineTable`/`writeRunnerTable` 0% (`internal/output/table.go:340,377`), llm sections 12–30%, `writeJSONFile` 0%. Extend `formatter_test.go` fixtures with pipeline/runner findings; temp-file test for `--raw-output`.
