@@ -109,9 +109,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### A9. CUSUM onset backtracking [S] ✅ done
 - Shipped 2026-07-15: the reported index walks back over consecutive shifted-side points immediately before the alarm — commit/date attribution and segment splits now point at the onset, not the lagged detection. Deliberately consecutive-only rather than last-zero-of-the-statistic: the textbook estimator let slow noise drift drag the onset deep into the baseline (caught by `TestIntegration_GenuineSpeedupDetected`, which collapsed to −1.9%/p=0.29 under it).
 
-### A10. Benjamini-Hochberg across change-point p-values [S]
-- One test per CP per (workflow, job) at α=0.05 across dozens of jobs guarantees ~1 false "significant regression" per 20 stable jobs, further inflated by post-selection (split point chosen by CUSUM on the same data) (`changepoint.go:136,258`). Apply BH across all CP p-values per analysis; document the post-selection caveat.
-- **Files:** `internal/analyze/changepoint.go` or `postprocess.go`
+### A10. Benjamini-Hochberg across change-point p-values [S] ✅ done
+- Shipped 2026-07-15: `stats.BenjaminiHochberg` q-values computed across all change points in post-processing (before oscillation counting/dedup); `ChangePointDetail.QValue` exported in JSON; findings with q > α demoted to info/Minor. Live validation on cli/cli: 6 of 52 CPs had raw p < 0.05 but q > 0.05 — the predicted false-positive rate, now demoted. Post-selection caveat (CUSUM picks the split on the same data) documented here: q-values are still optimistic; treat borderline q as suggestive, not proof.
 
 ### A11. Non-overlapping failure-trend windows [XS]
 - `recentRate` (last 7d) is compared against the overall rate that includes those 7 days (`internal/analyze/failures.go:212-222`), diluting the signal; with `--since 7d` the trend is always "stable". Compare recent vs the prior period.

@@ -1,6 +1,7 @@
 package analyze
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -107,6 +108,43 @@ func TestPostProcess_RegressionDedupScopedToWorkflow(t *testing.T) {
 	}
 	assert.Equal(t, map[string]int{"CI": 1, "Deploy": 1}, regressionsByWf,
 		"each workflow must keep its own regression; cross-workflow dedup by job name loses real regressions")
+}
+
+func TestPostProcess_MultipleComparisonsDemoteBorderlineChangePoints(t *testing.T) {
+	// One Mann-Whitney test per change point across dozens of jobs at
+	// alpha=0.05 guarantees ~1 false "significant regression" per 20 stable
+	// jobs. Borderline raw p-values must not survive BH correction over the
+	// whole batch; strong signals must.
+	mk := func(job string, p float64, sev string) Finding {
+		return Finding{Type: TypeChangepoint, Severity: sev, Detail: ChangePointDetail{
+			WorkflowName: "CI", JobName: job, Direction: DirectionSlowdown,
+			Persistence: PersistencePersistent, PctChange: 40, PValue: p,
+			Date: time.Now(),
+		}}
+	}
+	findings := []Finding{
+		mk("real", 0.0001, SeverityWarning),
+		mk("borderline", 0.045, SeverityWarning),
+	}
+	for i := range 18 {
+		findings = append(findings, mk(fmt.Sprintf("noise-%d", i), 0.5, SeverityInfo))
+	}
+
+	result := postProcess(findings)
+	byJob := map[string]ChangePointDetail{}
+	for _, f := range result {
+		if d, ok := f.Detail.(ChangePointDetail); ok {
+			byJob[d.JobName] = d
+		}
+	}
+
+	require.Contains(t, byJob, "real")
+	require.Contains(t, byJob, "borderline")
+	assert.Equal(t, CategoryRegression, byJob["real"].Category)
+	assert.Less(t, byJob["real"].QValue, 0.05)
+	assert.Equal(t, CategoryMinor, byJob["borderline"].Category,
+		"raw p=0.045 among 20 tests must not survive multiple-comparison correction")
+	assert.Greater(t, byJob["borderline"].QValue, 0.05)
 }
 
 func TestPostProcess_GroupOutliers(t *testing.T) {
