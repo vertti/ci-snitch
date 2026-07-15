@@ -104,6 +104,29 @@ func TestFetchRunDetailsGraphQL_MissingAliasFallsBackToREST(t *testing.T) {
 	assert.Equal(t, 1, partial, "one aggregated partial-data warning expected, got %v", warnings)
 }
 
+func TestFetchRunDetailsGraphQL_NoNodeIDsFallsBackToRESTSilently(t *testing.T) {
+	// Runs without node IDs (e.g. loaded from an old cache) go straight to
+	// REST — no GraphQL request, no spurious warnings.
+	graphqlCalled := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /graphql", func(w http.ResponseWriter, _ *http.Request) {
+		graphqlCalled = true
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	restJobsHandler(mux, 1, 2)
+
+	c := testClient(t, mux)
+	runs := graphqlTestRuns(2)
+	for i := range runs {
+		runs[i].NodeID = ""
+	}
+
+	details, warnings := c.FetchRunDetailsGraphQL(context.Background(), runs)
+	assert.Len(t, details, 2)
+	assert.Empty(t, warnings, "clean REST fallback must not produce warnings")
+	assert.False(t, graphqlCalled, "no GraphQL request should be made when no run has a node ID")
+}
+
 func TestFetchRunDetailsGraphQL_NullNodeStillWarns(t *testing.T) {
 	// A "rN": null node (deleted run / permissions) keeps its per-run
 	// warning — pins the pre-existing behavior.

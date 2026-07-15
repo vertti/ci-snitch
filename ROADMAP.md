@@ -149,19 +149,17 @@ Small, individually-XS fixes; batch into one PR:
 
 ## T — Regression protection (pin the behavior before/while fixing it)
 
-### T1. Tests for `internal/app` orchestration [M] (was 3.4)
-- Still no `service_test.go`; cmd-level tests reach 61% incidentally but miss exactly what matters: `hydrateWorkflow` 36% (all tests run with nil Store — cache partitioning untested), `checkRateBudget` abort path untested, `countRuns` 20%.
-- Cover: cache partitioning (with D2's staleness rules), budget abort, rerun-stats-before-dedup ordering, "no runs"/"all filtered" paths, D3's diagnostics plumbing. Mock `WorkflowFetcher`/`RunStore`.
-- **Files:** `internal/app/service_test.go` (new)
+### T1. Tests for `internal/app` orchestration [M] (was 3.4) ✅ done
+- Shipped 2026-07-15 (built up across the D2/D3/A3 PRs, completed in the T1 PR): `service_test.go` covers diagnostics plumbing (4 paths), cache partitioning incl. staleness + load-error fallback, budget abort (with no-hydration assertion) and non-fatal rate-limit read errors, branch filtering, all-filtered/no-branch-runs error paths, rerun-stats wiring into failure details, runner-label aggregation. Package coverage 0% → 91.5%.
 
 ### T2. Test the GraphQL layer; injectable endpoint [M]
 - `internal/github/graphql.go` has 0% coverage across all 10 functions, and `graphqlEndpoint` is a hardcoded const (`graphql.go:72`) — untestable via httptest and broken for GHE (REST honors `WithEnterpriseURLs`, GraphQL doesn't).
 - Fix: endpoint as a Client field defaulting to the const; table tests for `buildBatchQuery`, `parseBatchResponse` (incl. D4's drop paths), `convertGraphQLJobs`, `graphqlConclusion`, `parseGraphQLTime`.
 - **Files:** `internal/github/graphql.go`, `internal/github/graphql_test.go` (new)
 
-### T3. Diagnostic consistency tests [S] (was 3.3)
-- Assert: one aggregated `KindPartialData` per crossed 1000-cap window (not per page — D3); GraphQL no-node-ID → REST fallback without false warnings; >50-job truncation → one aggregated diagnostic (after D5); missing runner labels → one aggregated diagnostic.
-- **Files:** `internal/github/client_test.go`, `internal/app/service_test.go`
+### T3. Diagnostic consistency tests [S] (was 3.3) — MOSTLY DONE
+- Done: 1000-cap once-per-window (D3 PR), no-node-ID REST fallback without false warnings, missing-runner-labels aggregation (T1 PR).
+- Remains: >50-job truncation → one aggregated diagnostic — blocked on D5, add with it.
 
 ### T4. Race detector in CI [S]
 - CI runs plain `mise run test` (`.github/workflows/ci.yml:36-37`); the client uses bounded-concurrency goroutines and errgroup. `go test -race ./...` passes locally today — add it as a CI step so it stays that way.
@@ -320,7 +318,7 @@ First eight — unblocked, small, highest trust-leverage:
 5. ~~**D2** re-run cache invalidation~~ ✅
 6. ~~**D4** GraphQL silent-drop warnings~~ ✅
 7. ~~**U1** CLI paper-cut batch~~ ✅
-8. **T1** `internal/app` service tests (pins 1, 3, 4, 5)
+8. ~~**T1** `internal/app` service tests~~ ✅ (all first-eight items complete)
 
 Then: A1/A7/A8 (changepoint/outlier correctness) → D5/D6/D7 → T2/T3/T4 → remaining A → U → P → F. H items are opportunistic and can interleave; H1/H2 can ride along with any PR.
 
