@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/vertti/ci-snitch/internal/cost"
+	"github.com/vertti/ci-snitch/internal/model"
 	"github.com/vertti/ci-snitch/internal/stats"
 )
 
@@ -39,53 +40,58 @@ type CostAnalyzer struct{}
 // Name implements Analyzer.
 func (CostAnalyzer) Name() string { return "cost" }
 
-// Analyze implements Analyzer.
-func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, error) {
-	if len(ac.Details) == 0 {
-		return nil, nil
+type costJobKey struct {
+	wfID int64
+	job  string
+}
+
+type jobAccum struct {
+	billable     float64
+	selfHosted   float64
+	multiplier   float64
+	isSelfHosted bool
+	runs         int
+}
+
+type costAccum struct {
+	wfRuns     map[int64]int
+	wfBillable map[int64][]float64 // per-run billable minutes (for priority scoring)
+	jobCosts   map[costJobKey]*jobAccum
+	minTime    time.Time
+	maxTime    time.Time
+}
+
+func accumulateCosts(details []model.RunDetail) costAccum {
+	acc := costAccum{
+		wfRuns:     make(map[int64]int),
+		wfBillable: make(map[int64][]float64),
+		jobCosts:   make(map[costJobKey]*jobAccum),
 	}
 
-	type jobKey struct {
-		wfID int64
-		job  string
-	}
-	type jobAccum struct {
-		billable     float64
-		selfHosted   float64
-		multiplier   float64
-		isSelfHosted bool
-		runs         int
-	}
+	for i := range details {
+		wfID := details[i].Run.WorkflowID
+		acc.wfRuns[wfID]++
 
-	wfRuns := make(map[int64]int)
-	wfBillable := make(map[int64][]float64) // per-run billable minutes (for priority scoring)
-	jobCosts := make(map[jobKey]*jobAccum)
-	var minTime, maxTime time.Time
-
-	for i := range ac.Details {
-		wfID := ac.Details[i].Run.WorkflowID
-		wfRuns[wfID]++
-
-		t := ac.Details[i].Run.CreatedAt
-		if minTime.IsZero() || t.Before(minTime) {
-			minTime = t
+		t := details[i].Run.CreatedAt
+		if acc.minTime.IsZero() || t.Before(acc.minTime) {
+			acc.minTime = t
 		}
-		if t.After(maxTime) {
-			maxTime = t
+		if t.After(acc.maxTime) {
+			acc.maxTime = t
 		}
 
 		var runBillable float64
-		for j := range ac.Details[i].Jobs {
-			k := jobKey{wfID, ac.Details[i].Jobs[j].Name}
-			if jobCosts[k] == nil {
-				sh := cost.IsSelfHosted(ac.Details[i].Jobs[j].Labels)
-				jobCosts[k] = &jobAccum{
-					multiplier:   cost.LookupMultiplier(ac.Details[i].Jobs[j].Labels),
+		for j := range details[i].Jobs {
+			k := costJobKey{wfID, details[i].Jobs[j].Name}
+			if acc.jobCosts[k] == nil {
+				sh := cost.IsSelfHosted(details[i].Jobs[j].Labels)
+				acc.jobCosts[k] = &jobAccum{
+					multiplier:   cost.LookupMultiplier(details[i].Jobs[j].Labels),
 					isSelfHosted: sh,
 				}
 			}
-			jc := jobCosts[k]
-			rawMinutes := cost.BillableMinutes(ac.Details[i].Jobs[j].Duration())
+			jc := acc.jobCosts[k]
+			rawMinutes := cost.BillableMinutes(details[i].Jobs[j].Duration())
 			if jc.isSelfHosted {
 				jc.selfHosted += rawMinutes
 			} else {
@@ -96,11 +102,29 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 			jc.runs++
 		}
 		if runBillable > 0 {
-			wfBillable[wfID] = append(wfBillable[wfID], runBillable)
+			acc.wfBillable[wfID] = append(acc.wfBillable[wfID], runBillable)
 		}
 	}
 
-	days := maxTime.Sub(minTime).Hours() / 24
+	return acc
+}
+
+// Analyze implements Analyzer.
+func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, error) {
+	// GitHub bills failed and cancelled runs too, so cost comes from the
+	// unfiltered set. Fall back to Details when AllDetails isn't provided.
+	details := ac.AllDetails
+	if len(details) == 0 {
+		details = ac.Details
+	}
+	if len(details) == 0 {
+		return nil, nil
+	}
+
+	acc := accumulateCosts(details)
+	wfRuns, wfBillable, jobCosts := acc.wfRuns, acc.wfBillable, acc.jobCosts
+
+	days := acc.maxTime.Sub(acc.minTime).Hours() / 24
 	if days < 1 {
 		days = 1
 	}

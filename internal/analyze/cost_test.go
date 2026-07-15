@@ -69,6 +69,47 @@ func TestCostAnalyzer_ComputesCost(t *testing.T) {
 	assert.Greater(t, ciCost.DailyRate, 0.0)
 }
 
+func TestCostAnalyzer_IncludesNonSuccessRuns(t *testing.T) {
+	// GitHub bills failed and cancelled runs too, so cost must be computed
+	// from AllDetails, not the success-only Details.
+	details := makeCostDetails() // 10 success runs
+	base := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+	failed := model.RunDetail{
+		Run: model.WorkflowRun{
+			ID: 2000, WorkflowID: 100, WorkflowName: "CI",
+			Status: "completed", Conclusion: "failure",
+			CreatedAt: base, StartedAt: base, UpdatedAt: base.Add(10 * time.Minute),
+		},
+		Jobs: []model.Job{{
+			Name: "build", StartedAt: base, CompletedAt: base.Add(3*time.Minute + 30*time.Second),
+			Labels: []string{"ubuntu-latest"},
+		}},
+	}
+	all := append(append([]model.RunDetail{}, details...), failed)
+
+	analyzer := CostAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{
+		Details:       details,
+		AllDetails:    all,
+		WorkflowNames: map[int64]string{100: "CI"},
+	})
+	require.NoError(t, err)
+
+	var ciCost *CostDetail
+	for _, f := range findings {
+		if d, ok := f.Detail.(CostDetail); ok && d.Workflow == "CI" {
+			ciCost = &d
+			break
+		}
+	}
+	require.NotNil(t, ciCost)
+
+	// 340 from the 10 success runs (see TestCostAnalyzer_ComputesCost)
+	// + failed run's build job: 3m30s -> 4 billable minutes * 1x = 4
+	assert.InDelta(t, 344, ciCost.BillableMinutes, 1, "failed runs are billed and must be counted")
+	assert.Equal(t, 11, ciCost.TotalRuns, "failed runs count toward total")
+}
+
 func TestCostAnalyzer_Empty(t *testing.T) {
 	analyzer := CostAnalyzer{}
 	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{})

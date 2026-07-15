@@ -142,6 +142,58 @@ func TestRun_PreprocessWarningsSurfaceInDiagnostics(t *testing.T) {
 	assertHasDiagnostic(t, res.Diagnostics, diag.KindPreprocess, "excluded 1 non-success runs")
 }
 
+func TestRun_BranchFilterAppliesToFailureAnalysis(t *testing.T) {
+	// 6 successes on main, 4 failures on a feature branch. With --branch main
+	// the failure analyzer must not see the feature-branch failures.
+	var details []model.RunDetail
+	for i := int64(1); i <= 6; i++ {
+		details = append(details, fakeRunDetail(i, "success"))
+	}
+	for i := int64(7); i <= 10; i++ {
+		d := fakeRunDetail(i, "failure")
+		d.Run.HeadBranch = "feature"
+		details = append(details, d)
+	}
+	runs := make([]model.WorkflowRun, len(details))
+	for i := range details {
+		runs[i] = details[i].Run
+	}
+	f := &fakeFetcher{
+		workflows: []model.Workflow{{ID: 1, Name: "CI"}},
+		runs:      map[int64][]model.WorkflowRun{1: runs},
+		details:   details,
+	}
+
+	svc := &Service{Client: f, Store: nil, Prog: output.NewProgress()}
+	res, err := svc.Run(context.Background(), &Options{
+		Repo:   "example-org/example-repo",
+		Since:  testBase.Add(-24 * time.Hour),
+		Branch: "main",
+	})
+	require.NoError(t, err)
+
+	for _, finding := range res.Findings {
+		if finding.Type == analyze.TypeFailure {
+			t.Errorf("failure finding %q leaked from a filtered-out branch: %s",
+				finding.Title, finding.Description)
+		}
+	}
+}
+
+func TestRun_BranchWithNoRuns_ErrorNamesTheBranch(t *testing.T) {
+	f := baseFetcher() // all runs on main
+
+	svc := &Service{Client: f, Store: nil, Prog: output.NewProgress()}
+	_, err := svc.Run(context.Background(), &Options{
+		Repo:   "example-org/example-repo",
+		Since:  testBase.Add(-24 * time.Hour),
+		Branch: "nope",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `branch "nope"`,
+		"error must name the branch filter instead of a generic preprocessing message")
+}
+
 func TestRun_CacheSaveFailureSurfacesInDiagnostics(t *testing.T) {
 	f := baseFetcher()
 	st := &fakeStore{saveErr: errors.New("disk full")}

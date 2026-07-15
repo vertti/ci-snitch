@@ -98,15 +98,11 @@ Removed from the old "already correct" list — disproven by this review:
 ### A2. Key change-point post-processing by (workflow, job) [XS] ✅ done
 - Shipped 2026-07-15: `jobCounts` and `latestRegression` now key by `(WorkflowName, JobName)`, matching the analyzer and `groupOutliers`. Regression tests cover cross-workflow oscillation false positives and cross-workflow regression demotion.
 
-### A3. Apply `--branch` to failure/rerun analysis [S]
-- The branch filter only shapes `filtered`; `allDetails` (dedup only) goes to the engine as `AllDetails` (`internal/app/service.go:105-140`), which `FailureAnalyzer` consumes and rerun stats derive from. `--branch main` still reports PR-branch failures — the README contradicts this. Distinct from the F4 branch-category feature.
-- Fix: branch-filter `allDetails` before `engine.Run` (keep rerun stats computed pre-dedup but post-branch-filter).
-- **Files:** `internal/app/service.go`, `internal/preprocess/filter.go`
+### A3. Apply `--branch` to failure/rerun analysis [S] ✅ done
+- Shipped 2026-07-15: `allDetails` is branch-filtered before rerun stats, dedup, and the engine, so failure rates, rerun stats, and cost all respect `--branch`. A branch filter matching zero runs now errors with the branch name instead of a generic preprocessing message.
 
-### A4. Cost from all runs, not success-only [S]
-- `CostAnalyzer` iterates `ac.Details` (success-only by default; `internal/analyze/cost.go:43-44`), but GitHub bills failed and cancelled runs too. A 20% failure rate → ~20% underestimate in the exact numbers users act on (`DailyRate`, `PriorityScore`).
-- Fix: compute cost from `AllDetails` (after A3).
-- **Files:** `internal/analyze/cost.go`
+### A4. Cost from all runs, not success-only [S] ✅ done
+- Shipped 2026-07-15 (same PR as A3): `CostAnalyzer` reads `AllDetails` (fallback to `Details`), so failed/cancelled runs count toward billable minutes, `DailyRate`, and `PriorityScore`.
 
 ### A5. Unify runner core-count/cost label parsing [S]
 - Mirror-image bugs: `parseCoreCount` splits on `-` so GitHub's canonical `ubuntu-latest-16-cores` falls through to the 2-core default (`internal/analyze/runners.go:147-175`) → a 16-core runner gets "undersized — consider larger runner" advice; while `cost.largerRunnerRe` = `-(\d+)-cores?$` (`internal/cost/model.go:45`) misses the `32core`/`16vcpu` style that runners.go handles → up to 16× cost underestimate. Each parser accepts only what the other rejects.
@@ -331,7 +327,7 @@ First eight — unblocked, small, highest trust-leverage:
 1. ~~**D1** SQLite pragmas per connection~~ ✅
 2. ~~**A2** postprocess (workflow, job) keying~~ ✅
 3. ~~**D3** diagnostics plumbing to JSON/LLM output~~ ✅
-4. **A3 + A4** branch filter for AllDetails + cost from all runs (one PR)
+4. ~~**A3 + A4** branch filter for AllDetails + cost from all runs~~ ✅
 5. **D2** re-run cache invalidation
 6. **D4** GraphQL silent-drop warnings
 7. **U1** CLI paper-cut batch
