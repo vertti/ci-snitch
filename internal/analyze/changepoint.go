@@ -128,16 +128,31 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 			detailIdx := sorted[sortedIdx].idx
 			d := ac.Details[detailIdx]
 
-			// Use raw (unclamped) durations for significance testing and reporting.
-			// CUSUM detects the change point index on clamped data; we verify
-			// and report using the original values.
-			before := js.durations[:cp.Index]
-			after := js.durations[cp.Index:]
+			// Both segments are bounded by the neighboring change points:
+			// comparing the full prefix/suffix would mix levels from other
+			// segments (a 5m→8m→5m series would report the speedup against a
+			// 6.5m average instead of the 8m plateau) and make the p-value
+			// test the wrong hypothesis.
+			segStart := 0
+			if cpIdx > 0 {
+				segStart = cps[cpIdx-1].Index
+			}
+			postChangeEnd := len(js.durations)
+			if cpIdx+1 < len(cps) {
+				postChangeEnd = cps[cpIdx+1].Index
+			}
+			before := js.durations[segStart:cp.Index]
+			after := js.durations[cp.Index:postChangeEnd]
+
+			// Significance on raw values: Mann-Whitney is rank-based, so a
+			// single outlier has bounded influence.
 			_, pValue := stats.MannWhitneyU(before, after)
 
-			// Recompute means from raw data for accurate reporting
-			beforeMean := stats.Mean(before)
-			afterMean := stats.Mean(after)
+			// Segment levels from the clamped series (what CUSUM saw): with
+			// bounded segments a raw mean would let one extreme outlier
+			// manufacture a large "% change" out of an otherwise flat level.
+			beforeMean := stats.Mean(clamped[segStart:cp.Index])
+			afterMean := stats.Mean(clamped[cp.Index:postChangeEnd])
 			pctChange := 0.0
 			if beforeMean != 0 {
 				pctChange = (afterMean - beforeMean) / beforeMean * 100
@@ -148,11 +163,7 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 			}
 
 			// Persistence: how many runs after the change, how stable, did it revert?
-			postChangeEnd := len(js.durations)
-			if cpIdx+1 < len(cps) {
-				postChangeEnd = cps[cpIdx+1].Index
-			}
-			postSegment := js.durations[cp.Index:postChangeEnd]
+			postSegment := after
 			postChangeRuns := len(postSegment)
 			postChangeCV := coefficientOfVariation(postSegment)
 			persistence := classifyPersistence(postChangeRuns, minSeg, cps, cpIdx)
