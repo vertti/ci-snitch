@@ -67,10 +67,8 @@ Removed from the old "already correct" list — disproven by this review:
 - Shipped 2026-07-15: `RateLimitStatus` carries both pools; `checkRateBudget` audits GraphQL (falls back to core only when the API exposes no GraphQL pool, e.g. some GHE) and the abort names the pool. GraphQL `RATE_LIMITED` errors are typed; hydration stops with one aggregated `KindRateLimit` warning instead of falling back to REST at ~20× core spend.
 - Deferred remainder: REST secondary-limit (`Retry-After`) backoff in `FetchJobs` workers — bounded by run count today; revisit after a real abuse-limit incident (consistent with the not-adopted central-limiter decision).
 
-### D7. Ctrl+C must abort, not degrade to partial analysis [S]
-- `hydrateWorkflow` never returns errors, `fetchBatchGraphQL` falls back to REST on any error including `ctx.Err()`, and `FetchRunDetails` converts per-run `ctx.Err()` to warnings (`internal/app/service.go:207-225`, `internal/github/graphql.go:63-67`, `client.go:288-307`). Cancel mid-hydration → a normal-looking analysis of whatever subset hydrated.
-- Fix: skip fallback when `errors.Is(err, context.Canceled/DeadlineExceeded)`; propagate `ctx.Err()` out of `hydrateWorkflow`/`hydrateAll`.
-- **Files:** `internal/app/service.go`, `internal/github/graphql.go`, `internal/github/client.go`
+### D7. Ctrl+C must abort, not degrade to partial analysis [S] ✅ done
+- Shipped 2026-07-15: cancellation skips REST fallback and per-run warning spam (one Ctrl+C previously manufactured N "failed to fetch jobs" warnings); `hydrateAll` propagates `gctx.Err()` so `Run` errors instead of analyzing a partial subset. Also wired `signal.NotifyContext` in `main` — SIGINT/SIGTERM now cancel gracefully (previously a hard kill; the context was never cancelled by signals at all). Verified live: SIGINT mid-run → `Error: ... context canceled`, exit 1.
 
 ### D8. Match REST's `filter=latest` in GraphQL job fetching [XS–S]
 - REST hydration requests latest-attempt jobs only (`internal/github/client.go:236`); the GraphQL fragment has no `filterBy: {checkType: LATEST}` (`graphql.go:128`), so the two paths can disagree on re-run runs (duplicate old-attempt jobs skewing job/step stats). Needs one live verification against a re-run workflow, then add the filter.

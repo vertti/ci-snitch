@@ -56,6 +56,11 @@ func (c *Client) FetchRunDetailsGraphQL(ctx context.Context, runs []model.Workfl
 			))
 			break
 		}
+		if ctx.Err() != nil {
+			// Cancellation is not a data problem: no warnings, no fallback —
+			// the caller observes ctx.Err() and aborts the run.
+			return details, warnings
+		}
 	}
 
 	// Fall back to REST for runs without node IDs
@@ -95,7 +100,7 @@ func (c *Client) fetchBatchGraphQL(ctx context.Context, runs []model.WorkflowRun
 
 	raw, err := c.doGraphQL(ctx, query)
 	if err != nil {
-		if errors.Is(err, errGraphQLRateLimited) {
+		if errors.Is(err, errGraphQLRateLimited) || ctx.Err() != nil {
 			return nil, nil, err
 		}
 		c.log("GraphQL batch failed, falling back to REST", "error", err, "batch_size", len(runs))

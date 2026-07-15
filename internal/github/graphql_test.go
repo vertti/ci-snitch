@@ -214,6 +214,31 @@ func TestFetchRunDetailsGraphQL_RateLimitedDoesNotFallBackToREST(t *testing.T) {
 	assert.Equal(t, 1, rateWarnings, "one aggregated rate-limit warning, got %v", warnings)
 }
 
+func TestFetchRunDetailsGraphQL_CancelledContextAbortsCleanly(t *testing.T) {
+	// A cancelled context is not a data problem: no REST fallback (it would
+	// fail identically) and no per-run warning spam — the caller sees the
+	// context error through ctx.Err().
+	restCalls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /graphql", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	mux.HandleFunc("GET /repos/test-owner/test-repo/actions/runs/{id}/jobs", func(w http.ResponseWriter, _ *http.Request) {
+		restCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"total_count": 0, "jobs": []}`))
+	})
+
+	c := testClient(t, mux)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // simulate Ctrl+C before/mid hydration
+
+	details, warnings := c.FetchRunDetailsGraphQL(ctx, graphqlTestRuns(45))
+	assert.Empty(t, details)
+	assert.Equal(t, 0, restCalls, "no REST fallback on a cancelled context")
+	assert.Empty(t, warnings, "cancellation must not masquerade as per-run fetch failures: %v", warnings)
+}
+
 func TestFetchRunDetailsGraphQL_NullNodeStillWarns(t *testing.T) {
 	// A "rN": null node (deleted run / permissions) keeps its per-run
 	// warning — pins the pre-existing behavior.
