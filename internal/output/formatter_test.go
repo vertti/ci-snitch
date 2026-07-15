@@ -3,6 +3,9 @@ package output
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -233,6 +236,29 @@ func richTestResult() *analyze.AnalysisResult {
 				WorstCommitSHA: "aabbccdd11223344", MaxSeverity: analyze.SeverityCritical,
 			},
 		},
+		analyze.Finding{
+			Type: analyze.TypePipeline, Severity: analyze.SeverityInfo,
+			Title: "Pipeline structure for \"CI\"",
+			Detail: analyze.PipelineDetail{
+				Workflow: "CI", TotalRuns: 50,
+				MedianWallClock: dur(20 * time.Minute), MedianJobSum: dur(35 * time.Minute),
+				Parallelism:  0.6,
+				CriticalPath: "deploy-stage",
+				Stages: []analyze.PipelineStage{
+					{Name: "build-stage", Jobs: []string{"build"}, Duration: dur(8 * time.Minute), PctOfPipeline: 40},
+					{Name: "deploy-stage", Jobs: []string{"deploy"}, Duration: dur(12 * time.Minute), PctOfPipeline: 60, Sequential: true},
+				},
+			},
+		},
+		analyze.Finding{
+			Type: analyze.TypeRunner, Severity: analyze.SeverityInfo,
+			Title: "Runner sizing: CI / quick",
+			Detail: analyze.RunnerDetail{
+				WorkflowName: "CI", JobName: "quick", RunnerLabel: "ubuntu-latest-16-cores",
+				Cores: 16, MedianDur: dur(45 * time.Second), Runs: 30, Multiplier: 8,
+				Issue: "oversized", Suggestion: "job takes 45s on 16 cores — consider downsizing to save ~8x cost",
+			},
+		},
 	)
 	return base
 }
@@ -253,6 +279,50 @@ func TestTableFormatter_AllSections(t *testing.T) {
 	assert.Contains(t, out, "Change Points")
 	assert.Contains(t, out, "build")
 	assert.Contains(t, out, "Volatility")
+	// Pipeline table (was 0% covered)
+	assert.Contains(t, out, "deploy-stage")
+	assert.Contains(t, out, "critical path")
+	// Runner sizing table (was 0% covered; "oversized" renders as the ▼ icon)
+	assert.Contains(t, out, "16 cores")
+	assert.Contains(t, out, "consider downsizing")
+}
+
+func TestLLMFormatter_RawOutputWritesJSONFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "raw.json")
+	var buf bytes.Buffer
+	err := LLMFormatter{RawOutputPath: path}.Format(&buf, richTestResult())
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(path) //nolint:gosec // path is a test temp file
+	require.NoError(t, err, "--raw-output must write the file")
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal(data, &parsed), "raw output must be valid JSON")
+	assert.Contains(t, parsed, "findings")
+	assert.Contains(t, buf.String(), filepath.Base(path),
+		"the briefing should point the LLM at the raw file")
+}
+
+func TestProgress_NonTTYWritesLines(t *testing.T) {
+	// Capture stderr through a pipe: exercises the real constructor's
+	// non-TTY branch (plain lines, no ANSI clearing).
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	old := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = old }()
+
+	p := NewProgress()
+	p.Status("working on %s", "thing")
+	p.Log("found %d items", 3)
+	p.Done()
+	require.NoError(t, w.Close())
+	os.Stderr = old
+
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	assert.Contains(t, string(out), "working on thing")
+	assert.Contains(t, string(out), "found 3 items")
+	assert.NotContains(t, string(out), "\033[", "no ANSI escapes on a non-TTY")
 }
 
 func TestMarkdownFormatter_SpeedupArrow(t *testing.T) {

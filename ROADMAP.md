@@ -146,9 +146,10 @@ Removed from the old "already correct" list — disproven by this review:
 ### T5. Auth bootstrap and subprocess tests [S] ✅ done
 - Shipped 2026-07-15: `auth_test.go` covers env-var, gh-missing, gh-unauthenticated, empty-token, and happy paths via fake `gh` scripts on PATH; `exec_test.go` covers stdout/not-found/stderr/timeout. Deadline kills now say "timed out" instead of `signal: killed` (was red).
 
-### T6. Formatter coverage for primary features [S–M]
-- `progress.go` 0%, `writePipelineTable`/`writeRunnerTable` 0% (`internal/output/table.go:340,377`), llm sections 12–30%, `writeJSONFile` 0%. Extend `formatter_test.go` fixtures with pipeline/runner findings; temp-file test for `--raw-output`.
-- **Files:** `internal/output/formatter_test.go`
+### T6. Formatter coverage for primary features [S–M] ✅ done
+- Shipped 2026-07-15: `richTestResult` fixture gains pipeline + runner findings (both table writers were 0%); `--raw-output` temp-file test (valid JSON + briefing pointer); `Progress` tested through a stderr pipe (real constructor, non-TTY branch, no-ANSI assertion). Package 68% → 78%.
+
+**T section complete.**
 
 ---
 
