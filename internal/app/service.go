@@ -74,12 +74,18 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 		s.Prog.Log("Found %d workflows (%d targeted)", len(workflows), targetWorkflows)
 	}
 
+	// Diagnostics from fetch/hydrate/preprocess are collected here and attached
+	// to the result so every output format (JSON, LLM, ...) sees them — the CLI
+	// prints result.Diagnostics to stderr after the run.
+	var pipelineDiags []diag.Diagnostic
+
 	// Phase 1: fetch run lists (cheap — paginated listing, no hydration)
-	allWfRuns, err := s.fetchRunLists(ctx, workflows, opts)
+	allWfRuns, listDiags, err := s.fetchRunLists(ctx, workflows, opts)
 	if err != nil {
 		s.Prog.Done()
 		return analyze.AnalysisResult{}, err
 	}
+	pipelineDiags = append(pipelineDiags, listDiags...)
 
 	totalRuns, uncachedRuns := s.countRuns(allWfRuns, opts)
 
@@ -90,11 +96,12 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 	}
 
 	// Phase 2: hydrate runs (expensive — 1 API call per uncached run)
-	allDetails, err := s.hydrateAll(ctx, allWfRuns, opts)
+	allDetails, hydrateDiags, err := s.hydrateAll(ctx, allWfRuns, opts)
 	if err != nil {
 		s.Prog.Done()
 		return analyze.AnalysisResult{}, err
 	}
+	pipelineDiags = append(pipelineDiags, hydrateDiags...)
 	s.Prog.Done()
 
 	if len(allDetails) == 0 {
@@ -118,11 +125,7 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 	if opts.Verbose {
 		s.Prog.Log("Preprocess: %s", time.Since(ppStart))
 	}
-	for _, w := range ppWarnings {
-		if opts.Verbose {
-			s.Prog.Log("Preprocessing: %s", w.Message)
-		}
-	}
+	pipelineDiags = append(pipelineDiags, ppWarnings...)
 
 	if len(filtered) == 0 {
 		return analyze.AnalysisResult{}, fmt.Errorf("all %d runs were filtered out during preprocessing", len(allDetails))
@@ -139,6 +142,7 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 	}
 	result := engine.Run(ctx, filtered, allDetails, rerunStats, workflowNames)
 	result.Meta.Repo = opts.Repo
+	result.Diagnostics = append(result.Diagnostics, pipelineDiags...)
 
 	// Summarize any jobs missing runner labels (GraphQL doesn't expose them).
 	// Emit a single aggregated diagnostic instead of one per workflow/batch.
@@ -175,9 +179,10 @@ func countJobsMissingLabels(details []model.RunDetail) int {
 	return n
 }
 
-func (s *Service) fetchRunLists(ctx context.Context, workflows []model.Workflow, opts *Options) ([]workflowRuns, error) {
+func (s *Service) fetchRunLists(ctx context.Context, workflows []model.Workflow, opts *Options) ([]workflowRuns, []diag.Diagnostic, error) {
 	var (
 		result []workflowRuns
+		diags  []diag.Diagnostic
 		mu     sync.Mutex
 	)
 	g, gctx := errgroup.WithContext(ctx)
@@ -192,21 +197,20 @@ func (s *Service) fetchRunLists(ctx context.Context, workflows []model.Workflow,
 			if err != nil {
 				return fmt.Errorf("fetch runs for %q: %w", wf.Name, err)
 			}
-			for _, w := range fetchWarnings {
-				s.Prog.Log("WARNING: %s", w.Message)
-			}
 			mu.Lock()
 			result = append(result, workflowRuns{wf: wf, runs: runs})
+			diags = append(diags, fetchWarnings...)
 			mu.Unlock()
 			return nil
 		})
 	}
-	return result, g.Wait()
+	return result, diags, g.Wait()
 }
 
-func (s *Service) hydrateAll(ctx context.Context, allWfRuns []workflowRuns, opts *Options) ([]model.RunDetail, error) {
+func (s *Service) hydrateAll(ctx context.Context, allWfRuns []workflowRuns, opts *Options) ([]model.RunDetail, []diag.Diagnostic, error) {
 	var (
 		allDetails []model.RunDetail
+		diags      []diag.Diagnostic
 		mu         sync.Mutex
 	)
 	g, gctx := errgroup.WithContext(ctx)
@@ -214,14 +218,15 @@ func (s *Service) hydrateAll(ctx context.Context, allWfRuns []workflowRuns, opts
 	for i := range allWfRuns {
 		wr := allWfRuns[i]
 		g.Go(func() error {
-			details := s.hydrateWorkflow(gctx, wr.wf, wr.runs, opts)
+			details, wfDiags := s.hydrateWorkflow(gctx, wr.wf, wr.runs, opts)
 			mu.Lock()
 			allDetails = append(allDetails, details...)
+			diags = append(diags, wfDiags...)
 			mu.Unlock()
 			return nil
 		})
 	}
-	return allDetails, g.Wait()
+	return allDetails, diags, g.Wait()
 }
 
 // countRuns returns (totalRuns, uncachedRuns) across all workflows.
@@ -303,9 +308,10 @@ func (s *Service) checkRateBudget(ctx context.Context, totalRuns, uncachedRuns i
 }
 
 // hydrateWorkflow loads run details from cache or API for a single workflow.
-func (s *Service) hydrateWorkflow(ctx context.Context, wf model.Workflow, runs []model.WorkflowRun, opts *Options) []model.RunDetail {
+func (s *Service) hydrateWorkflow(ctx context.Context, wf model.Workflow, runs []model.WorkflowRun, opts *Options) ([]model.RunDetail, []diag.Diagnostic) {
 	// Partition runs: serve completed from cache, fetch only new/incomplete from API.
 	var details []model.RunDetail
+	var diags []diag.Diagnostic
 	var needsFetch []model.WorkflowRun
 
 	if s.Store != nil {
@@ -350,18 +356,18 @@ func (s *Service) hydrateWorkflow(ctx context.Context, wf model.Workflow, runs [
 		if opts.Verbose {
 			s.Prog.Log("  %q: hydrated %d runs in %s", wf.Name, len(fetched), time.Since(hydrateStart))
 		}
-		for _, w := range warnings {
-			s.Prog.Log("WARNING: %s", w.Message)
-		}
+		diags = append(diags, warnings...)
 
 		if s.Store != nil {
 			if err := s.Store.SaveRunDetails(fetched); err != nil {
-				s.Prog.Log("WARNING: failed to cache %q: %v", wf.Name, err)
+				diags = append(diags, diag.Errorf(diag.KindCache, wf.Name, err,
+					"failed to cache %d runs for %q: %v (they will be re-fetched next run)",
+					len(fetched), wf.Name, err))
 			}
 		}
 
 		details = append(details, fetched...)
 	}
 
-	return details
+	return details, diags
 }

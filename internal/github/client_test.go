@@ -127,6 +127,28 @@ func TestFetchRuns_SlidingWindows(t *testing.T) {
 	assert.Equal(t, 3, callCount, "15 days should produce 3 windows of 7 days each")
 }
 
+func TestFetchRuns_CapWarningEmittedOncePerWindow(t *testing.T) {
+	pages := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/test-owner/test-repo/actions/workflows/1/runs", func(w http.ResponseWriter, r *http.Request) {
+		pages++
+		w.Header().Set("Content-Type", "application/json")
+		// First page links to a second one; both report the same capped total.
+		if r.URL.Query().Get("page") == "" {
+			w.Header().Set("Link", `<https://api.github.com/repos/test-owner/test-repo/actions/workflows/1/runs?page=2>; rel="next"`)
+		}
+		_, _ = w.Write([]byte(`{"total_count": 1500, "workflow_runs": [{"id": 1}]}`))
+	})
+
+	c := testClient(t, mux)
+	since := time.Now().AddDate(0, 0, -3) // single 7-day window
+	_, warnings, err := c.FetchRuns(context.Background(), 1, since, "")
+	require.NoError(t, err)
+	require.Equal(t, 2, pages, "sanity: pagination must have followed the Link header")
+	assert.Len(t, warnings, 1, "cap warning must be emitted once per window, not once per page")
+	assert.Contains(t, warnings[0].Message, "1000")
+}
+
 func TestFetchRuns_BranchFilter(t *testing.T) {
 	var capturedBranch string
 	mux := http.NewServeMux()
