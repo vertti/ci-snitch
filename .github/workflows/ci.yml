@@ -39,8 +39,9 @@ jobs:
       - name: Test (race detector)
         run: mise run test-race
 
+      - name: Vulnerability scan
+        run: mise run vuln
+
       - name: Build binary
         run: mise run build
 
-      - name: Test schema migration
-        run: go test -run TestMigration ./internal/store/ -count=1 -v

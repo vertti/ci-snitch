@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -11,7 +12,9 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/vertti/ci-snitch/internal/analyze"
 	"github.com/vertti/ci-snitch/internal/github"
+	"github.com/vertti/ci-snitch/internal/output"
 	"github.com/vertti/ci-snitch/internal/store"
 )
 
@@ -74,7 +77,9 @@ func run() error {
 		return nil
 	}
 
-	details, warnings := c.FetchRunDetails(ctx, runs[:limit])
+	// The production hot path is GraphQL batching (REST is the fallback);
+	// smoke must exercise what the CLI actually runs.
+	details, warnings := c.FetchRunDetailsGraphQL(ctx, runs[:limit])
 	fmt.Printf("Hydrated %d runs, %d warnings\n", len(details), len(warnings))
 
 	for _, w := range warnings {
@@ -117,6 +122,18 @@ func run() error {
 		return fmt.Errorf("check incomplete: %w", err)
 	}
 	fmt.Printf("\nIncomplete runs in store: %d\n", len(incomplete))
+
+	// Run the full production pipeline over the loaded data: analyzers and
+	// a formatter, so a smoke run covers fetch -> store -> analyze -> render.
+	engine := analyze.NewEngine(analyze.DefaultAnalyzers()...)
+	result := engine.Run(ctx, loaded, loaded, nil, map[int64]string{wf.ID: wf.Name})
+	fmt.Printf("Analyzed %d runs: %d findings, %d diagnostics\n", len(loaded), len(result.Findings), len(result.Diagnostics))
+
+	var briefing bytes.Buffer
+	if err := (output.LLMFormatter{}).Format(&briefing, &result); err != nil {
+		return fmt.Errorf("format: %w", err)
+	}
+	fmt.Printf("LLM briefing renders (%d bytes)\n", briefing.Len())
 
 	return nil
 }
