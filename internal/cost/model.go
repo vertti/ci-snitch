@@ -40,9 +40,42 @@ func DefaultModel() Model {
 	return Model{multipliers: m}
 }
 
-// largerRunnerRe matches GitHub larger runner labels like "ubuntu-latest-16-cores".
-// Per GitHub docs, the multiplier scales linearly with core count (1x per 2 cores for Linux).
-var largerRunnerRe = regexp.MustCompile(`-(\d+)-cores?$`)
+// splitCoreRe matches GitHub's split larger-runner convention, e.g.
+// "ubuntu-latest-16-cores".
+var splitCoreRe = regexp.MustCompile(`-(\d+)-cores?$`)
+
+// ParseCoreCount extracts a core count from a runner label. It understands
+// both GitHub's split convention ("ubuntu-latest-16-cores") and the adjacent
+// conventions used by GitHub docs and third-party vendors
+// ("ubuntu-22.04-32core", "blacksmith-16vcpu-ubuntu-2404").
+// Returns 0 when the label carries no core information.
+func ParseCoreCount(label string) int {
+	lower := strings.ToLower(label)
+
+	if m := splitCoreRe.FindStringSubmatch(lower); m != nil {
+		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 {
+			return n
+		}
+	}
+
+	for part := range strings.SplitSeq(lower, "-") {
+		var numStr string
+		switch {
+		case strings.HasSuffix(part, "vcpu"):
+			numStr = strings.TrimSuffix(part, "vcpu")
+		case strings.HasSuffix(part, "cores"):
+			numStr = strings.TrimSuffix(part, "cores")
+		case strings.HasSuffix(part, "core"):
+			numStr = strings.TrimSuffix(part, "core")
+		default:
+			continue
+		}
+		if n, err := strconv.Atoi(numStr); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 0
+}
 
 // IsSelfHosted reports whether the labels indicate a self-hosted runner.
 func IsSelfHosted(labels []string) bool {
@@ -88,13 +121,12 @@ func (m Model) LookupMultiplier(labels []string) float64 {
 // largerRunnerMultiplier extracts the core count from a larger runner label
 // and returns the GitHub billing multiplier. Linux: cores/2, Windows: cores,
 // macOS: cores*5 (matching GitHub's published rates).
+// Only labels with a recognized GitHub OS prefix are billed: third-party
+// vendor labels (e.g. "blacksmith-16vcpu-...") carry core counts too, but
+// inventing a GitHub bill for them would be wrong.
 func largerRunnerMultiplier(label string) (float64, bool) {
-	matches := largerRunnerRe.FindStringSubmatch(label)
-	if matches == nil {
-		return 0, false
-	}
-	cores, err := strconv.Atoi(matches[1])
-	if err != nil || cores < 2 {
+	cores := ParseCoreCount(label)
+	if cores < 2 {
 		return 0, false
 	}
 	switch {
@@ -102,8 +134,10 @@ func largerRunnerMultiplier(label string) (float64, bool) {
 		return float64(cores), true
 	case strings.HasPrefix(label, "macos"):
 		return float64(cores) * 5, true
-	default: // linux/ubuntu
+	case strings.HasPrefix(label, "ubuntu"), strings.HasPrefix(label, "linux"):
 		return float64(cores) / 2, true
+	default:
+		return 0, false
 	}
 }
 

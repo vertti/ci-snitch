@@ -31,6 +31,13 @@ func TestLookupMultiplier(t *testing.T) {
 		{"ubuntu 64 cores", []string{"ubuntu-latest-64-cores"}, 32},
 		{"windows 8 cores", []string{"windows-latest-8-cores"}, 8},
 		{"macos 12 core", []string{"macos-latest-12-core"}, 60},
+		// Adjacent core-count conventions on GitHub OS prefixes are still
+		// GitHub-billed larger runners.
+		{"ubuntu adjacent core", []string{"ubuntu-22.04-32core"}, 16},
+		{"ubuntu adjacent cores", []string{"ubuntu-24.04-16cores"}, 8},
+		// Third-party vendor labels carry core counts but are NOT GitHub
+		// runners — don't invent a GitHub bill for them.
+		{"third-party vcpu label", []string{"blacksmith-16vcpu-ubuntu-2404"}, 1},
 	}
 
 	for _, tt := range tests {
