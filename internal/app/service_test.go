@@ -81,6 +81,9 @@ type fakeStore struct {
 	saveErr       error
 	cachedRuns    []model.WorkflowRun
 	cachedDetails map[int64]*model.RunDetail
+
+	mu    sync.Mutex
+	saved []model.RunDetail
 }
 
 func (s *fakeStore) RunsSince(int64, time.Time) ([]model.WorkflowRun, error) {
@@ -93,7 +96,13 @@ func (s *fakeStore) LoadRunDetail(id int64) (*model.RunDetail, error) {
 	}
 	return nil, errors.New("not cached")
 }
-func (s *fakeStore) SaveRunDetails([]model.RunDetail) error { return s.saveErr }
+
+func (s *fakeStore) SaveRunDetails(details []model.RunDetail) error {
+	s.mu.Lock()
+	s.saved = append(s.saved, details...)
+	s.mu.Unlock()
+	return s.saveErr
+}
 
 func fakeRunDetail(id int64, conclusion string) model.RunDetail {
 	created := testBase.Add(time.Duration(id) * time.Minute)
@@ -365,6 +374,27 @@ func TestRun_MissingRunnerLabelsAggregatedIntoOneDiagnostic(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, labelDiags, "one aggregated diagnostic, not one per job/workflow: %v", res.Diagnostics)
+}
+
+func TestRun_TruncatedRunsAreNotCached(t *testing.T) {
+	// A truncated detail (jobs/steps beyond the GraphQL per-query limit)
+	// must be analyzed but never cached — a cached row would serve the
+	// incomplete data forever.
+	f := baseFetcher()
+	f.details[1].Truncated = true
+
+	st := &fakeStore{}
+	_, err := runService(t, f, st)
+	require.NoError(t, err)
+
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	savedIDs := make([]int64, 0, len(st.saved))
+	for i := range st.saved {
+		savedIDs = append(savedIDs, st.saved[i].Run.ID)
+	}
+	require.Contains(t, savedIDs, f.details[0].Run.ID, "complete run must be cached")
+	require.NotContains(t, savedIDs, f.details[1].Run.ID, "truncated run must not be cached")
 }
 
 func TestRun_ListWorkflowsErrorNotDoubleWrapped(t *testing.T) {

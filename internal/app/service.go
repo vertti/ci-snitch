@@ -384,10 +384,19 @@ func (s *Service) hydrateWorkflow(ctx context.Context, wf model.Workflow, runs [
 		diags = append(diags, warnings...)
 
 		if s.Store != nil {
-			if err := s.Store.SaveRunDetails(fetched); err != nil {
+			// Truncated details (jobs/steps beyond the GraphQL per-query
+			// limit) are analyzed but never cached: a cached row would serve
+			// the incomplete data forever.
+			cacheable := make([]model.RunDetail, 0, len(fetched))
+			for i := range fetched {
+				if !fetched[i].Truncated {
+					cacheable = append(cacheable, fetched[i])
+				}
+			}
+			if err := s.Store.SaveRunDetails(cacheable); err != nil {
 				diags = append(diags, diag.Errorf(diag.KindCache, wf.Name, err,
 					"failed to cache %d runs for %q: %v (they will be re-fetched next run)",
-					len(fetched), wf.Name, err))
+					len(cacheable), wf.Name, err))
 			}
 		}
 

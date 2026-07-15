@@ -99,6 +99,10 @@ func (s *Step) Duration() time.Duration {
 type RunDetail struct {
 	Run  WorkflowRun
 	Jobs []Job
+	// Truncated marks a detail whose jobs or steps exceeded the GraphQL
+	// per-query limits and were only partially fetched. Truncated details
+	// must not be cached — a cached row would serve incomplete data forever.
+	Truncated bool
 }
 
 // Duration returns the wall-clock duration of the run, preferring job completion

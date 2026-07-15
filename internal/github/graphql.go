@@ -54,7 +54,26 @@ func (c *Client) FetchRunDetailsGraphQL(ctx context.Context, runs []model.Workfl
 		warnings = append(warnings, restWarnings...)
 	}
 
+	// One aggregated truncation warning per fetch, not one per run/batch.
+	if truncated := countTruncated(details); truncated > 0 {
+		warnings = append(warnings, diag.New(
+			diag.Warn, diag.KindPartialData, "graphql",
+			fmt.Sprintf("%d runs exceed %d jobs or %d steps per job; extra entries were not fetched (affected runs are analyzed but not cached)",
+				truncated, graphqlMaxJobs, graphqlMaxSteps),
+		))
+	}
+
 	return details, warnings
+}
+
+func countTruncated(details []model.RunDetail) int {
+	n := 0
+	for i := range details {
+		if details[i].Truncated {
+			n++
+		}
+	}
+	return n
 }
 
 func (c *Client) fetchBatchGraphQL(ctx context.Context, runs []model.WorkflowRun) (details []model.RunDetail, warnings []Warning) {
@@ -136,7 +155,7 @@ func buildBatchQuery(runs []model.WorkflowRun) string {
 	var b strings.Builder
 	b.WriteString("query{")
 
-	fragment := fmt.Sprintf(`...on WorkflowRun{databaseId checkSuite{checkRuns(first:%d){nodes{name databaseId startedAt completedAt status conclusion steps(first:%d){nodes{name number startedAt completedAt status conclusion}}}}}}`,
+	fragment := fmt.Sprintf(`...on WorkflowRun{databaseId checkSuite{checkRuns(first:%d){pageInfo{hasNextPage} nodes{name databaseId startedAt completedAt status conclusion steps(first:%d){pageInfo{hasNextPage} nodes{name number startedAt completedAt status conclusion}}}}}}`,
 		graphqlMaxJobs, graphqlMaxSteps)
 
 	for i := range runs {
@@ -147,14 +166,36 @@ func buildBatchQuery(runs []model.WorkflowRun) string {
 	return b.String()
 }
 
+// graphqlPageInfo reports whether a connection had more results than the
+// per-query limit fetched.
+type graphqlPageInfo struct {
+	HasNextPage bool `json:"hasNextPage"`
+}
+
 // graphqlRunResponse is the structure of each aliased node in the batch response.
 type graphqlRunResponse struct {
 	DatabaseID int64 `json:"databaseId"`
 	CheckSuite *struct {
 		CheckRuns struct {
-			Nodes []graphqlCheckRun `json:"nodes"`
+			PageInfo graphqlPageInfo   `json:"pageInfo"`
+			Nodes    []graphqlCheckRun `json:"nodes"`
 		} `json:"checkRuns"`
 	} `json:"checkSuite"`
+}
+
+func (r *graphqlRunResponse) truncated() bool {
+	if r.CheckSuite == nil {
+		return false
+	}
+	if r.CheckSuite.CheckRuns.PageInfo.HasNextPage {
+		return true
+	}
+	for i := range r.CheckSuite.CheckRuns.Nodes {
+		if r.CheckSuite.CheckRuns.Nodes[i].Steps.PageInfo.HasNextPage {
+			return true
+		}
+	}
+	return false
 }
 
 type graphqlCheckRun struct {
@@ -165,7 +206,8 @@ type graphqlCheckRun struct {
 	Status      string  `json:"status"`
 	Conclusion  *string `json:"conclusion"`
 	Steps       struct {
-		Nodes []graphqlStep `json:"nodes"`
+		PageInfo graphqlPageInfo `json:"pageInfo"`
+		Nodes    []graphqlStep   `json:"nodes"`
 	} `json:"steps"`
 }
 
@@ -203,7 +245,7 @@ func parseBatchResponse(raw json.RawMessage, runs []model.WorkflowRun) (details 
 		}
 
 		jobs := convertGraphQLJobs(node.CheckSuite.CheckRuns.Nodes, runs[i].ID)
-		details = append(details, model.RunDetail{Run: runs[i], Jobs: jobs})
+		details = append(details, model.RunDetail{Run: runs[i], Jobs: jobs, Truncated: node.truncated()})
 	}
 
 	return details, missed, warnings
