@@ -128,6 +128,55 @@ func TestChangePointAnalyzer_MultipleChangePoints(t *testing.T) {
 	assert.GreaterOrEqual(t, len(findings), 2, "should detect slowdown and speedup")
 }
 
+func TestChangePointAnalyzer_SegmentsBoundedByNeighboringChangePoints(t *testing.T) {
+	// 5min ×20 → 8min ×20 → 5min ×20.
+	// The slowdown's after-segment must be the 8-minute plateau alone, not
+	// diluted by the 5-minute revert tail; the speedup's before-segment must
+	// be the plateau alone, not the entire mixed prefix. With unbounded
+	// segments both means come out ≈390s instead of ≈480s.
+	durations := make([]time.Duration, 60)
+	for i := range 20 {
+		durations[i] = 5*time.Minute + time.Duration(i%3)*time.Second
+	}
+	for i := 20; i < 40; i++ {
+		durations[i] = 8*time.Minute + time.Duration(i%3)*time.Second
+	}
+	for i := 40; i < 60; i++ {
+		durations[i] = 5*time.Minute + time.Duration(i%3)*time.Second
+	}
+
+	analyzer := ChangePointAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{Details: makeTimedDetails(durations)})
+	require.NoError(t, err)
+
+	var slowdown, speedup *ChangePointDetail
+	for _, f := range findings {
+		d, ok := f.Detail.(ChangePointDetail)
+		if !ok {
+			continue
+		}
+		if d.Direction == DirectionSlowdown && slowdown == nil {
+			slowdown = &d
+		}
+		if d.Direction == DirectionSpeedup && speedup == nil {
+			speedup = &d
+		}
+	}
+	require.NotNil(t, slowdown, "expected a slowdown change point")
+	require.NotNil(t, speedup, "expected a speedup change point")
+
+	// Generous bounds to absorb CUSUM detection lag; the unbounded-segment
+	// bug lands both dilutedly at ~390s, well outside them.
+	assert.Greater(t, time.Duration(slowdown.AfterMean).Seconds(), 450.0,
+		"slowdown after-mean must reflect the 8m plateau, not include the revert tail")
+	assert.Greater(t, time.Duration(speedup.BeforeMean).Seconds(), 450.0,
+		"speedup before-mean must reflect the 8m plateau, not the whole prefix")
+	assert.Less(t, time.Duration(speedup.AfterMean).Seconds(), 330.0)
+	assert.Less(t, slowdown.PctChange, 70.0)
+	assert.Greater(t, slowdown.PctChange, 45.0, "slowdown magnitude must compare adjacent plateaus")
+	assert.Less(t, speedup.PctChange, -30.0, "speedup magnitude must compare adjacent plateaus")
+}
+
 func TestChangePointAnalyzer_SignificanceTest(t *testing.T) {
 	// Clear shift should have low p-value
 	durations := make([]time.Duration, 40)

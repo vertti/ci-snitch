@@ -87,9 +87,8 @@ Removed from the old "already correct" list — disproven by this review:
 
 ## A — Analysis correctness (make the numbers right)
 
-### A1. Bound change-point segments by neighboring change points [S]
-- `before := js.durations[:cp.Index]`, `after := js.durations[cp.Index:]` (`internal/analyze/changepoint.go:134-140`) span the full series even when CUSUM emits multiple CPs. For a 5m→8m→5m series the speedup CP reports −23% instead of −37%, and Mann-Whitney compares mixed-level segments — the p-value tests the wrong hypothesis. The code already bounds `postSegment` correctly; do the same for before/after.
-- **Files:** `internal/analyze/changepoint.go`, `internal/analyze/changepoint_test.go`
+### A1. Bound change-point segments by neighboring change points [S] ✅ done
+- Shipped 2026-07-15: before/after segments bounded by the previous/next change point; Mann-Whitney compares adjacent segments only. Companion decision: segment means now come from the **clamped** series (what CUSUM saw) while significance stays on raw values (rank-based, outlier-robust) — with bounded segments a raw mean would let one extreme outlier manufacture a large "% change" (caught by `TestIntegration_OutlierDoesNotCauseChangepoint` during the fix).
 
 ### A2. Key change-point post-processing by (workflow, job) [XS] ✅ done
 - Shipped 2026-07-15: `jobCounts` and `latestRegression` now key by `(WorkflowName, JobName)`, matching the analyzer and `groupOutliers`. Regression tests cover cross-workflow oscillation false positives and cross-workflow regression demotion.
