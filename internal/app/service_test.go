@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,6 +26,9 @@ type fakeFetcher struct {
 	listWarnings    []diag.Diagnostic
 	details         []model.RunDetail
 	hydrateWarnings []diag.Diagnostic
+
+	mu          sync.Mutex
+	hydratedIDs []int64 // run IDs requested via FetchRunDetails*()
 }
 
 func (f *fakeFetcher) ListWorkflows(context.Context) ([]model.Workflow, error) {
@@ -34,12 +39,28 @@ func (f *fakeFetcher) FetchRuns(_ context.Context, workflowID int64, _ time.Time
 	return f.runs[workflowID], f.listWarnings, nil
 }
 
-func (f *fakeFetcher) FetchRunDetails(context.Context, []model.WorkflowRun) ([]model.RunDetail, []diag.Diagnostic) {
-	return f.details, f.hydrateWarnings
+func (f *fakeFetcher) FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) ([]model.RunDetail, []diag.Diagnostic) {
+	return f.FetchRunDetailsGraphQL(ctx, runs)
 }
 
-func (f *fakeFetcher) FetchRunDetailsGraphQL(context.Context, []model.WorkflowRun) ([]model.RunDetail, []diag.Diagnostic) {
-	return f.details, f.hydrateWarnings
+// FetchRunDetailsGraphQL records the requested run IDs and returns the
+// configured details for exactly those runs.
+func (f *fakeFetcher) FetchRunDetailsGraphQL(_ context.Context, runs []model.WorkflowRun) ([]model.RunDetail, []diag.Diagnostic) {
+	requested := make(map[int64]bool, len(runs))
+	f.mu.Lock()
+	for i := range runs {
+		f.hydratedIDs = append(f.hydratedIDs, runs[i].ID)
+		requested[runs[i].ID] = true
+	}
+	f.mu.Unlock()
+
+	var out []model.RunDetail
+	for i := range f.details {
+		if requested[f.details[i].Run.ID] {
+			out = append(out, f.details[i])
+		}
+	}
+	return out, f.hydrateWarnings
 }
 
 func (f *fakeFetcher) RateLimit(context.Context) (github.RateLimitStatus, error) {
@@ -47,12 +68,19 @@ func (f *fakeFetcher) RateLimit(context.Context) (github.RateLimitStatus, error)
 }
 
 type fakeStore struct {
-	saveErr error
+	saveErr       error
+	cachedRuns    []model.WorkflowRun
+	cachedDetails map[int64]*model.RunDetail
 }
 
-func (s *fakeStore) RunsSince(int64, time.Time) ([]model.WorkflowRun, error) { return nil, nil }
-func (s *fakeStore) IncompleteRunIDs() ([]int64, error)                      { return nil, nil }
-func (s *fakeStore) LoadRunDetail(int64) (*model.RunDetail, error) {
+func (s *fakeStore) RunsSince(int64, time.Time) ([]model.WorkflowRun, error) {
+	return s.cachedRuns, nil
+}
+func (s *fakeStore) IncompleteRunIDs() ([]int64, error) { return nil, nil }
+func (s *fakeStore) LoadRunDetail(id int64) (*model.RunDetail, error) {
+	if d, ok := s.cachedDetails[id]; ok {
+		return d, nil
+	}
 	return nil, errors.New("not cached")
 }
 func (s *fakeStore) SaveRunDetails([]model.RunDetail) error { return s.saveErr }
@@ -192,6 +220,67 @@ func TestRun_BranchWithNoRuns_ErrorNamesTheBranch(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), `branch "nope"`,
 		"error must name the branch filter instead of a generic preprocessing message")
+}
+
+func TestRun_StaleCachedRunIsRefetched(t *testing.T) {
+	// Run 1 was cached at attempt 1; it has since been re-run (newer
+	// UpdatedAt, attempt 2). The listing's fresh metadata must win over
+	// bare ID membership in the cache.
+	f := baseFetcher()
+	stale := f.details[0]
+	stale.Run.UpdatedAt = stale.Run.UpdatedAt.Add(-time.Hour) // cached copy is older
+	stale.Run.Conclusion = "failure"
+
+	st := &fakeStore{
+		cachedRuns:    []model.WorkflowRun{stale.Run},
+		cachedDetails: map[int64]*model.RunDetail{stale.Run.ID: &stale},
+	}
+
+	_, err := runService(t, f, st)
+	require.NoError(t, err)
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	require.True(t, slices.Contains(f.hydratedIDs, stale.Run.ID),
+		"run with newer UpdatedAt in the listing must be re-fetched, got hydrated IDs %v", f.hydratedIDs)
+}
+
+func TestRun_FreshCachedRunServedFromCache(t *testing.T) {
+	// Cached copy has the same UpdatedAt as the listing: serve from cache,
+	// no hydration call for it.
+	f := baseFetcher()
+	cached := f.details[0]
+
+	st := &fakeStore{
+		cachedRuns:    []model.WorkflowRun{cached.Run},
+		cachedDetails: map[int64]*model.RunDetail{cached.Run.ID: &cached},
+	}
+
+	_, err := runService(t, f, st)
+	require.NoError(t, err)
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	require.False(t, slices.Contains(f.hydratedIDs, cached.Run.ID),
+		"up-to-date cached run must not be re-fetched, got hydrated IDs %v", f.hydratedIDs)
+}
+
+func TestCountRuns_CountsStaleRunsAsUncached(t *testing.T) {
+	fresh := fakeRunDetail(1, "success").Run
+	staleCached := fakeRunDetail(2, "failure").Run
+	staleListed := staleCached
+	staleListed.UpdatedAt = staleListed.UpdatedAt.Add(time.Hour) // re-run since caching
+	staleListed.RunAttempt = 2
+
+	st := &fakeStore{cachedRuns: []model.WorkflowRun{fresh, staleCached}}
+	svc := &Service{Store: st, Prog: output.NewProgress()}
+
+	total, uncached := svc.countRuns([]workflowRuns{
+		{wf: model.Workflow{ID: 1, Name: "CI"}, runs: []model.WorkflowRun{fresh, staleListed}},
+	}, &Options{Since: testBase.Add(-24 * time.Hour)})
+
+	require.Equal(t, 2, total)
+	require.Equal(t, 1, uncached, "the re-run run must be counted as needing a fetch")
 }
 
 func TestRun_CacheSaveFailureSurfacesInDiagnostics(t *testing.T) {
