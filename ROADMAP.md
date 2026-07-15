@@ -97,9 +97,8 @@ Removed from the old "already correct" list — disproven by this review:
 - `before := js.durations[:cp.Index]`, `after := js.durations[cp.Index:]` (`internal/analyze/changepoint.go:134-140`) span the full series even when CUSUM emits multiple CPs. For a 5m→8m→5m series the speedup CP reports −23% instead of −37%, and Mann-Whitney compares mixed-level segments — the p-value tests the wrong hypothesis. The code already bounds `postSegment` correctly; do the same for before/after.
 - **Files:** `internal/analyze/changepoint.go`, `internal/analyze/changepoint_test.go`
 
-### A2. Key change-point post-processing by (workflow, job) [XS]
-- `jobCounts` and `latestRegression` key by `d.JobName` alone (`internal/analyze/postprocess.go:49,62`). Two workflows with a "build" job at 2 CPs each → all four marked oscillating noise; a regression in workflow A's "test" demotes workflow B's "test" to minor. The analyzer deliberately keys by `(wfID, job)`; postprocess undoes it.
-- **Files:** `internal/analyze/postprocess.go`, test in `postprocess_test.go`
+### A2. Key change-point post-processing by (workflow, job) [XS] ✅ done
+- Shipped 2026-07-15: `jobCounts` and `latestRegression` now key by `(WorkflowName, JobName)`, matching the analyzer and `groupOutliers`. Regression tests cover cross-workflow oscillation false positives and cross-workflow regression demotion.
 
 ### A3. Apply `--branch` to failure/rerun analysis [S]
 - The branch filter only shapes `filtered`; `allDetails` (dedup only) goes to the engine as `AllDetails` (`internal/app/service.go:105-140`), which `FailureAnalyzer` consumes and rerun stats derive from. `--branch main` still reports PR-branch failures — the README contradicts this. Distinct from the F4 branch-category feature.
@@ -332,7 +331,7 @@ Tag a new minor version after each PR merge to main. Semver: minor for features,
 First eight — unblocked, small, highest trust-leverage:
 
 1. ~~**D1** SQLite pragmas per connection~~ ✅
-2. **A2** postprocess (workflow, job) keying — XS, user-visible wrong categorization
+2. ~~**A2** postprocess (workflow, job) keying~~ ✅
 3. **D3** diagnostics plumbing to JSON/LLM output
 4. **A3 + A4** branch filter for AllDetails + cost from all runs (one PR)
 5. **D2** re-run cache invalidation
