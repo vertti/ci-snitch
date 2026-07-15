@@ -47,11 +47,9 @@ Removed from the old "already correct" list — disproven by this review:
 
 ## D — Data integrity (highest priority: make the cache and fetch trustworthy)
 
-### D1. Apply SQLite pragmas to every pooled connection [S] (completes 3.1)
-- `Open` sets `busy_timeout=5000` and `foreign_keys=ON` via `db.Exec` (`internal/store/sqlite.go:92-101`), which binds them to **one** connection in the `database/sql` pool. `hydrateAll` runs 4 goroutines doing concurrent loads/saves, so the pool opens extra connections with `busy_timeout=0` and `foreign_keys=OFF`: concurrent `SaveRunDetails` can hit immediate `SQLITE_BUSY` → "failed to cache" → silent re-fetch next run; FK enforcement is effectively random. `TestForeignKeysEnabled` passes only because tests use a single connection.
-- Fix: DSN query params (`path?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)` for modernc), or `db.SetMaxOpenConns(1)`.
-- Test: assert pragmas on ≥2 concurrently held connections. Also finish the 3.1 remainder: `ON DELETE CASCADE` on `jobs.run_id`/`steps.job_id`, single cascading `DELETE FROM runs`.
-- **Files:** `internal/store/sqlite.go`, `internal/store/sqlite_test.go`
+### D1. Apply SQLite pragmas to every pooled connection [S] ✅ done (completes 3.1)
+- Shipped 2026-07-15: pragmas moved to DSN `_pragma` params so the driver applies `busy_timeout`/`journal_mode(WAL)`/`foreign_keys` to every pooled connection. Regression tests hold two pooled connections and assert all three pragmas, verify FK enforcement on the fresh connection, and reproduce the concurrent-writer `SQLITE_BUSY` failure (8 goroutines × 40 batched saves).
+- Decision — no `ON DELETE CASCADE` (drops the 3.1 remainder for good): with `INSERT OR REPLACE` semantics the explicit child deletes must remain for pre-CASCADE databases anyway, so adding CASCADE to the schema would only create fresh-vs-existing schema divergence without removing any code.
 
 ### D2. Invalidate cached runs that were re-run [S]
 - Cache partitioning checks only ID membership (`internal/app/service.go:328-336`), never `UpdatedAt`/`RunAttempt`. A run cached as attempt 1 (failure) then re-run to attempt 2 (success) serves the stale attempt-1 row forever — wrong conclusion, jobs, duration; rerun stats never see attempt 2. The `IncompleteRunIDs` guard defends an impossible case (only completed runs are ever saved; `internal/github/client.go:161`).
@@ -333,7 +331,7 @@ Tag a new minor version after each PR merge to main. Semver: minor for features,
 
 First eight — unblocked, small, highest trust-leverage:
 
-1. **D1** SQLite pragmas per connection (undermines everything else in the store)
+1. ~~**D1** SQLite pragmas per connection~~ ✅
 2. **A2** postprocess (workflow, job) keying — XS, user-visible wrong categorization
 3. **D3** diagnostics plumbing to JSON/LLM output
 4. **A3 + A4** branch filter for AllDetails + cost from all runs (one PR)

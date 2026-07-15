@@ -1,9 +1,11 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -232,6 +234,90 @@ func TestForeignKeysEnabled(t *testing.T) {
 	err := s.db.QueryRow(`PRAGMA foreign_keys`).Scan(&enabled)
 	require.NoError(t, err)
 	assert.Equal(t, 1, enabled, "foreign_keys pragma should be ON")
+}
+
+// holdTwoConns forces the pool to hand out two distinct live connections.
+func holdTwoConns(t *testing.T, ctx context.Context, db *sql.DB) (conn1, conn2 *sql.Conn) {
+	t.Helper()
+	conn1, err := db.Conn(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn1.Close() })
+	conn2, err = db.Conn(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn2.Close() })
+	return conn1, conn2
+}
+
+func TestOpen_PragmasApplyToAllPooledConnections(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+
+	// database/sql opens connections lazily; pragmas set via db.Exec bind to
+	// whichever single connection ran them. Holding two connections at once
+	// guarantees at least one the Exec never touched.
+	conn1, conn2 := holdTwoConns(t, ctx, s.db)
+
+	for i, conn := range []*sql.Conn{conn1, conn2} {
+		var fk int
+		require.NoError(t, conn.QueryRowContext(ctx, `PRAGMA foreign_keys`).Scan(&fk))
+		assert.Equal(t, 1, fk, "connection %d: foreign_keys must be ON", i+1)
+
+		var timeout int
+		require.NoError(t, conn.QueryRowContext(ctx, `PRAGMA busy_timeout`).Scan(&timeout))
+		assert.Equal(t, 5000, timeout, "connection %d: busy_timeout must be 5000ms", i+1)
+
+		var mode string
+		require.NoError(t, conn.QueryRowContext(ctx, `PRAGMA journal_mode`).Scan(&mode))
+		assert.Equal(t, "wal", mode, "connection %d: journal_mode must be WAL", i+1)
+	}
+}
+
+func TestForeignKeys_EnforcedOnEveryPooledConnection(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+
+	// conn1 pins the connection that ran Open's setup; conn2 is fresh.
+	_, conn2 := holdTwoConns(t, ctx, s.db)
+
+	_, err := conn2.ExecContext(ctx, `INSERT INTO jobs (id, run_id, name, status, conclusion, started_at, completed_at, runner_name, runner_group_name, labels)
+		VALUES (9999, 88888, 'orphan', 'completed', 'success', '2026-04-01T12:00:00Z', '2026-04-01T12:01:00Z', '', '', '')`)
+	require.Error(t, err, "orphan insert must fail on every pooled connection, not just the one that ran the pragma")
+}
+
+func TestSaveRunDetails_ConcurrentWritersDoNotFailBusy(t *testing.T) {
+	s := testStore(t)
+
+	// Mirrors production: hydrateAll saves each workflow's batch from its own
+	// goroutine. Without busy_timeout on every pooled connection, concurrent
+	// write transactions fail immediately with SQLITE_BUSY.
+	const writers = 8
+	const runsPerWriter = 40
+
+	var wg sync.WaitGroup
+	errs := make([]error, writers)
+	for w := range writers {
+		wg.Go(func() {
+			details := make([]model.RunDetail, runsPerWriter)
+			for i := range details {
+				d := testRunDetail()
+				d.Run.ID = int64(10_000 + w*1000 + i)
+				d.Run.WorkflowID = int64(100 + w)
+				d.Jobs[0].ID = int64(50_000 + w*1000 + i)
+				d.Jobs[0].RunID = d.Run.ID
+				details[i] = d
+			}
+			errs[w] = s.SaveRunDetails(details)
+		})
+	}
+	wg.Wait()
+
+	for w, err := range errs {
+		require.NoError(t, err, "writer %d must not fail under concurrent writes", w)
+	}
+
+	var count int
+	require.NoError(t, s.db.QueryRow(`SELECT COUNT(*) FROM runs`).Scan(&count))
+	assert.Equal(t, writers*runsPerWriter, count, "all concurrently saved runs must be present")
 }
 
 func TestForeignKey_RejectsOrphanJob(t *testing.T) {
