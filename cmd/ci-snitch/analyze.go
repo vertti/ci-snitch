@@ -213,7 +213,14 @@ func parseSinceFrom(s string, now time.Time) (time.Time, error) {
 	default:
 		return time.Time{}, fmt.Errorf("unrecognized format %q", s)
 	}
-	return t, validateSincePast(t, now)
+	if err := validateSincePast(t, now); err != nil {
+		return time.Time{}, err
+	}
+	// Truncate to UTC midnight: GitHub's created filter is date-only, so a
+	// mid-day timestamp disagrees with what the API actually returns — runs
+	// from the since-day's morning were listed but never matched the cache's
+	// timestamp comparison, so they were re-fetched on every invocation.
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC), nil
 }
 
 // validateSincePast rejects windows that cannot contain any runs ("0d",

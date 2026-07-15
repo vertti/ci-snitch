@@ -189,13 +189,11 @@ Removed from the old "already correct" list — disproven by this review:
 - Build on D5: page the affected `checkRuns`/`steps` connection with `after: $cursor` only when truncation fired. Keep the 20-run outer batch unchanged.
 - **Files:** `internal/github/graphql.go`
 
-### P3. Eliminate sliding-window overlap [S]
-- `windowStart = windowEnd` with an inclusive date-only `created: A..B` filter double-lists the seam day (`internal/github/client.go:135-158`): boundary runs are double-hydrated, double-counted by the budget, double-saved. ~4 duplicated days per default 30d scan. Advance to `windowEnd.AddDate(0,0,1)` with day-aligned windows.
-- **Files:** `internal/github/client.go`, `client_test.go`
+### P3. Eliminate sliding-window overlap [S] ✅ done
+- Shipped 2026-07-15: the next window starts the day after the previous ends (the `created` filter is date-only, inclusive both ends). Seam days no longer double-listed/hydrated/budgeted/saved. Pinned by a disjoint-and-contiguous window test.
 
-### P4. Recognize since-day boundary runs as cached [XS–S]
-- Date-only `created` filters include runs from before the `since` timestamp on the first day, but `RunsSince` compares full timestamps (`internal/github/client.go:158`, `internal/store/sqlite.go:341`) — those runs are cached yet re-hydrated on every invocation, and up to ~24h of extra data enters the analysis window.
-- **Files:** `internal/github/client.go` or `internal/store/sqlite.go`
+### P4. Recognize since-day boundary runs as cached [XS–S] ✅ done
+- Shipped 2026-07-15: relative `--since` forms truncate to UTC midnight, matching the date-only API filter, so since-day runs finally match the cache's timestamp comparison. `--since 0d` still rejected (validated pre-truncation). Live: two consecutive 7d scans went from a steady "21 to fetch" every run to **808 cached, 0 to fetch**.
 
 ---
 

@@ -179,7 +179,10 @@ func (c *Client) FetchRuns(ctx context.Context, workflowID int64, since time.Tim
 		all = append(all, runs...)
 		warnings = append(warnings, windowWarnings...)
 
-		windowStart = windowEnd
+		// The created filter is date-only and inclusive on both ends: the
+		// next window must start the day AFTER this one ends, or the seam
+		// day is listed (and hydrated, budgeted, saved) twice.
+		windowStart = windowEnd.AddDate(0, 0, 1)
 	}
 
 	return all, warnings, nil

@@ -155,12 +155,44 @@ func TestFetchRuns_SlidingWindows(t *testing.T) {
 
 	c := testClient(t, mux)
 
-	// 15 days ago → should produce 3 windows (7 + 7 + 1 days)
+	// 15 days ago → 2 disjoint windows (each spans 8 calendar days inclusive;
+	// the next window starts the day after the previous ends).
 	since := time.Now().AddDate(0, 0, -15)
 	runs, _, err := c.FetchRuns(context.Background(), 1, since, "")
 	require.NoError(t, err)
 	assert.Empty(t, runs)
-	assert.Equal(t, 3, callCount, "15 days should produce 3 windows of 7 days each")
+	assert.Equal(t, 2, callCount, "15 days should produce 2 disjoint windows")
+}
+
+func TestFetchRuns_WindowsAreDisjointAndContiguous(t *testing.T) {
+	// windowStart = windowEnd with an inclusive date-only created filter put
+	// the seam day in BOTH windows: boundary runs were double-listed,
+	// double-hydrated, double-counted by the budget, and double-saved.
+	var createdParams []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/test-owner/test-repo/actions/workflows/1/runs", func(w http.ResponseWriter, r *http.Request) {
+		createdParams = append(createdParams, r.URL.Query().Get("created"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"total_count": 0, "workflow_runs": []}`))
+	})
+
+	c := testClient(t, mux)
+	since := time.Now().UTC().AddDate(0, 0, -15)
+	_, _, err := c.FetchRuns(context.Background(), 1, since, "")
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(createdParams), 2)
+
+	for i := 1; i < len(createdParams); i++ {
+		prevEnd := strings.SplitN(createdParams[i-1], "..", 2)[1]
+		nextStart := strings.SplitN(createdParams[i], "..", 2)[0]
+		prev, err := time.Parse("2006-01-02", prevEnd)
+		require.NoError(t, err)
+		next, err := time.Parse("2006-01-02", nextStart)
+		require.NoError(t, err)
+		assert.Equal(t, prev.AddDate(0, 0, 1), next,
+			"window %d must start the day AFTER window %d ends (inclusive date filter): %v",
+			i, i-1, createdParams)
+	}
 }
 
 func TestRateLimit_ParsesBothPools(t *testing.T) {
