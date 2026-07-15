@@ -40,7 +40,7 @@ func MannWhitneyURand(sample1, sample2 []float64, rng *rand.Rand) (u, pValue flo
 	n := n1 + n2
 	switch {
 	case n <= maxExactN:
-		pValue = exactPValue(n1, n2, u)
+		pValue = exactPValue(sample1, sample2, u)
 	case min(n1, n2) <= 20:
 		pValue = permutationPValue(sample1, sample2, u, rng)
 	default:
@@ -102,35 +102,48 @@ func computeU(sample1, sample2 []float64) float64 {
 }
 
 // exactPValue computes the exact two-sided p-value by enumerating all
-// possible U statistics from permutations of group assignments.
-// Uses the combinatorial counting approach: iterate over all ways to choose
-// n1 items from n1+n2 positions and compute the proportion with U <= observed.
-func exactPValue(n1, n2 int, observedU float64) float64 {
+// C(n, n1) assignments of the observed VALUES to group 1 and recomputing U
+// (with average-rank tie handling) for each. Enumerating rank positions
+// 1..n instead — as if the data were untied — is anti-conservative with
+// tied data: second-resolution CI durations tie constantly, and the
+// rank-only enumeration reported p=0.31 where the tie-aware truth is 0.52.
+func exactPValue(sample1, sample2 []float64, observedU float64) float64 {
+	n1, n2 := len(sample1), len(sample2)
 	n := n1 + n2
-	total := binomial(n, n1)
-	if total == 0 {
-		return 1
-	}
+	combined := make([]float64, 0, n)
+	combined = append(combined, sample1...)
+	combined = append(combined, sample2...)
 
-	// Count permutations where U <= observedU.
-	// We enumerate all C(n, n1) ways to assign ranks to group 1.
+	s1 := make([]float64, n1)
+	s2 := make([]float64, n2)
+	inS1 := make([]bool, n)
+
+	total := 0.0
 	count := 0.0
-	enumerateCombs(n, n1, func(ranks []int) {
-		// Compute rank sum for this assignment
-		r1 := 0.0
-		for _, r := range ranks {
-			r1 += float64(r + 1) // convert 0-based index to 1-based rank
+	enumerateCombs(n, n1, func(idx []int) {
+		total++
+		for i := range inS1 {
+			inS1[i] = false
 		}
-		fn1 := float64(n1)
-		fn2 := float64(n2)
-		u1 := r1 - fn1*(fn1+1)/2
-		u2 := fn1*fn2 - u1
-		u := math.Min(u1, u2)
-		if u <= observedU {
+		for j, i := range idx {
+			s1[j] = combined[i]
+			inS1[i] = true
+		}
+		k := 0
+		for i := range combined {
+			if !inS1[i] {
+				s2[k] = combined[i]
+				k++
+			}
+		}
+		if computeU(s1, s2) <= observedU+1e-9 {
 			count++
 		}
 	})
 
+	if total == 0 {
+		return 1
+	}
 	return count / total
 }
 
@@ -159,21 +172,6 @@ func enumerateCombs(n, k int, fn func([]int)) {
 	}
 }
 
-// binomial returns C(n, k) as a float64.
-func binomial(n, k int) float64 {
-	if k > n || k < 0 {
-		return 0
-	}
-	if k > n-k {
-		k = n - k
-	}
-	result := 1.0
-	for i := range k {
-		result *= float64(n-i) / float64(i+1)
-	}
-	return result
-}
-
 // permutationPValue estimates the two-sided p-value by randomly shuffling
 // group assignments and computing the proportion of permutations where
 // U <= observed U.
@@ -198,7 +196,9 @@ func permutationPValue(sample1, sample2 []float64, observedU float64, rng *rand.
 		}
 	}
 
-	return float64(count) / float64(permutationReps)
+	// +1 smoothing: a Monte-Carlo p-value of exactly 0 overstates the
+	// evidence — the observed arrangement itself is always one permutation.
+	return float64(count+1) / float64(permutationReps+1)
 }
 
 func normalApproxPValue(n1, n2 int, u float64) float64 {
@@ -211,7 +211,11 @@ func normalApproxPValue(n1, n2 int, u float64) float64 {
 		return 1
 	}
 
-	z := math.Abs((u - mu) / sigma)
+	// Continuity correction: U is discrete, the normal is continuous.
+	z := (math.Abs(u-mu) - 0.5) / sigma
+	if z < 0 {
+		z = 0
+	}
 	return 2 * (1 - normalCDF(z))
 }
 
