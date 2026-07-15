@@ -177,6 +177,37 @@ func TestChangePointAnalyzer_SegmentsBoundedByNeighboringChangePoints(t *testing
 	assert.Less(t, speedup.PctChange, -30.0, "speedup magnitude must compare adjacent plateaus")
 }
 
+func TestChangePointAnalyzer_DeterministicPValues(t *testing.T) {
+	// 30 runs at ~5min then 10 at ~8min: segment sizes (30, 10) take the
+	// Monte-Carlo permutation path (min ≤ 20, total > 20), which drifts
+	// between invocations unless seeded from stable inputs.
+	durations := make([]time.Duration, 40)
+	for i := range 30 {
+		durations[i] = 5*time.Minute + time.Duration(i%7)*time.Second
+	}
+	for i := 30; i < 40; i++ {
+		durations[i] = 8*time.Minute + time.Duration(i%7)*time.Second
+	}
+
+	analyzer := ChangePointAnalyzer{}
+	pValues := func() map[int]float64 {
+		findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{Details: makeTimedDetails(durations)})
+		require.NoError(t, err)
+		require.NotEmpty(t, findings)
+		out := map[int]float64{}
+		for _, f := range findings {
+			d, ok := f.Detail.(ChangePointDetail)
+			require.True(t, ok)
+			out[d.ChangeIdx] = d.PValue
+		}
+		return out
+	}
+
+	first := pValues()
+	second := pValues()
+	require.Equal(t, first, second, "identical input must produce identical p-values across runs")
+}
+
 func TestChangePointAnalyzer_SignificanceTest(t *testing.T) {
 	// Clear shift should have low p-value
 	durations := make([]time.Duration, 40)
