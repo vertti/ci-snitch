@@ -3,6 +3,8 @@ package analyze
 import (
 	"fmt"
 	"time"
+
+	"github.com/vertti/ci-snitch/internal/stats"
 )
 
 // postProcess transforms raw findings from analyzers into curated findings
@@ -50,6 +52,8 @@ func categorizeChangePoints(findings []Finding) []Finding {
 			changepoints = append(changepoints, f)
 		}
 	}
+
+	applyMultipleComparisonCorrection(changepoints)
 
 	// Count notable change points per (workflow, job)
 	jobCounts := make(map[wfJob]int)
@@ -108,6 +112,35 @@ func categorizeChangePoints(findings []Finding) []Finding {
 	}
 
 	return result
+}
+
+// applyMultipleComparisonCorrection converts the change points' p-values into
+// Benjamini-Hochberg q-values and demotes findings whose q exceeds alpha to
+// info severity. One Mann-Whitney test per change point across dozens of jobs
+// at alpha=0.05 would otherwise surface ~1 false "significant regression"
+// per 20 stable jobs. Runs before oscillation counting and regression dedup
+// so statistically insignificant shifts feed neither.
+func applyMultipleComparisonCorrection(changepoints []Finding) {
+	var ps []float64
+	var idxs []int
+	for i := range changepoints {
+		if d, ok := changepoints[i].Detail.(ChangePointDetail); ok {
+			ps = append(ps, d.PValue)
+			idxs = append(idxs, i)
+		}
+	}
+	qs := stats.BenjaminiHochberg(ps)
+	for j, i := range idxs {
+		d, ok := changepoints[i].Detail.(ChangePointDetail)
+		if !ok {
+			continue
+		}
+		d.QValue = qs[j]
+		changepoints[i].Detail = d
+		if changepoints[i].Severity != SeverityInfo && d.QValue > significanceAlpha {
+			changepoints[i].Severity = SeverityInfo
+		}
+	}
 }
 
 // groupOutliers collapses individual outlier findings into one finding per (workflow, job).

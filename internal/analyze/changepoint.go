@@ -22,6 +22,7 @@ type ChangePointDetail struct {
 	PctChange      float64   `json:"pct_change"`
 	Direction      string    `json:"direction"`
 	PValue         float64   `json:"p_value"`
+	QValue         float64   `json:"q_value"` // BH-adjusted p across all CPs in the analysis
 	CommitSHA      string    `json:"commit_sha"`
 	Date           time.Time `json:"date"`
 	PostChangeRuns int       `json:"post_change_runs"`
