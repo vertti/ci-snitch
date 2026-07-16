@@ -5,6 +5,13 @@ on:
     tags:
       - "v*"
 
+# Duplicate event deliveries happen (v0.27.0 got two runs for one tag push,
+# two seconds apart); racing goreleaser twins fail with "tag_name
+# already_exists". One publisher per tag, newest wins.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions: {}
 
 jobs:
