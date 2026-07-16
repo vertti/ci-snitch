@@ -152,6 +152,36 @@ func (c *Client) ListWorkflows(ctx context.Context) ([]model.Workflow, error) {
 	return all, nil
 }
 
+// CommitInfo summarizes a commit for change-point attribution.
+type CommitInfo struct {
+	FilesChanged   int
+	Additions      int
+	Deletions      int
+	CIConfigChange bool // any file under .github/workflows/
+}
+
+// GetCommitInfo fetches a commit's changed files and classifies whether it
+// touched CI configuration. Used to annotate change points (one bounded call
+// per detected regression).
+func (c *Client) GetCommitInfo(ctx context.Context, sha string) (CommitInfo, error) {
+	commit, _, err := c.gh.Repositories.GetCommit(ctx, c.owner, c.repo, sha, &gh.ListOptions{PerPage: 100})
+	if err != nil {
+		return CommitInfo{}, fmt.Errorf("get commit %s: %w", sha, err)
+	}
+	info := CommitInfo{FilesChanged: len(commit.Files)}
+	if commit.Stats != nil {
+		info.Additions = commit.Stats.GetAdditions()
+		info.Deletions = commit.Stats.GetDeletions()
+	}
+	for _, f := range commit.Files {
+		if strings.HasPrefix(f.GetFilename(), ".github/workflows/") {
+			info.CIConfigChange = true
+			break
+		}
+	}
+	return info, nil
+}
+
 // dateWindowSize is the number of days per sliding window when fetching runs.
 // Kept small to avoid the GitHub API 1,000-result cap on filtered queries.
 const dateWindowSize = 7
