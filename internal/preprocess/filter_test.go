@@ -1,6 +1,7 @@
 package preprocess
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -56,6 +57,36 @@ func TestExcludeFailures(t *testing.T) {
 	assert.Len(t, result, 2)
 	assert.Equal(t, int64(1), result[0].Run.ID)
 	assert.Equal(t, int64(4), result[1].Run.ID)
+}
+
+func TestRun_ExcludesRerunAttemptsFromDurationSeries(t *testing.T) {
+	// Dedup keeps the latest attempt; for "re-run failed jobs" that
+	// attempt's wall clock covers only the re-run subset — a 40-minute
+	// workflow can contribute a 6-minute "duration" to the summary/
+	// changepoint/outlier series. Re-run attempts stay in AllDetails (for
+	// failure/rerun/cost analysis) but leave the duration series.
+	details := []model.RunDetail{
+		makeDetail(1, "main", "success", 1),
+		makeDetail(2, "main", "failure", 1),
+		makeDetail(2, "main", "success", 2), // partial re-run: wall clock not comparable
+		makeDetail(3, "main", "success", 1),
+	}
+
+	result, warnings := Run(details, Options{})
+	ids := make([]int64, 0, len(result))
+	for _, d := range result {
+		ids = append(ids, d.Run.ID)
+	}
+	assert.Equal(t, []int64{1, 3}, ids,
+		"the attempt-2 run must not contribute a wall-clock sample")
+
+	found := false
+	for _, w := range warnings {
+		if strings.Contains(w.Message, "re-run attempt") {
+			found = true
+		}
+	}
+	assert.True(t, found, "exclusion must be visible in the diagnostics: %v", warnings)
 }
 
 func TestDeduplicateRetries(t *testing.T) {
@@ -123,12 +154,11 @@ func TestRun_FullPipeline(t *testing.T) {
 
 	result, warnings := Run(details, Options{Branch: "main"})
 
-	// Should have: run 1 (attempt 2, deduped), run 4 (success on main)
-	// Run 2 excluded (failure), run 3 excluded (wrong branch)
-	assert.Len(t, result, 2)
-	assert.Equal(t, int64(1), result[0].Run.ID)
-	assert.Equal(t, 2, result[0].Run.RunAttempt)
-	assert.Equal(t, int64(4), result[1].Run.ID)
+	// Should have: run 4 only. Run 1 dedups to attempt 2, whose wall clock
+	// is not a comparable duration sample (F9); run 2 excluded (failure);
+	// run 3 excluded (wrong branch).
+	assert.Len(t, result, 1)
+	assert.Equal(t, int64(4), result[0].Run.ID)
 
 	assert.NotEmpty(t, warnings)
 }

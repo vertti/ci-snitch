@@ -51,7 +51,31 @@ func Run(details []model.RunDetail, opts Options) (result []model.RunDetail, war
 		}
 	}
 
+	// Re-run attempts survive dedup as the latest attempt, but a partial
+	// re-run's wall clock covers only the re-run subset — a 40-minute
+	// workflow can contribute a 6-minute "duration". They stay in AllDetails
+	// for failure/rerun/cost analysis; only the duration series drops them.
+	before := len(result)
+	result = ExcludeRerunAttempts(result)
+	if dropped := before - len(result); dropped > 0 {
+		warnings = append(warnings, diag.New(
+			diag.Info, diag.KindPreprocess, "global",
+			fmt.Sprintf("excluded %d re-run attempts from duration analysis (their wall clock covers only the re-run subset)", dropped),
+		))
+	}
+
 	return result, warnings
+}
+
+// ExcludeRerunAttempts keeps only first attempts.
+func ExcludeRerunAttempts(details []model.RunDetail) []model.RunDetail {
+	var out []model.RunDetail
+	for i := range details {
+		if details[i].Run.RunAttempt <= 1 {
+			out = append(out, details[i])
+		}
+	}
+	return out
 }
 
 // FilterByBranch keeps only runs from the specified branch.
