@@ -241,6 +241,64 @@ func TestRun_BranchFilterAppliesToFailureAnalysis(t *testing.T) {
 	}
 }
 
+func TestRun_BranchCategoryFiltersByEvent(t *testing.T) {
+	// PR-branch failures (expected during development) and default-branch
+	// failures (incidents) carry different signal. --branch-category pr
+	// keeps pull_request runs; main keeps everything else.
+	var details []model.RunDetail
+	for i := int64(1); i <= 4; i++ {
+		d := fakeRunDetail(i, "success")
+		details = append(details, d) // Event: "push"
+	}
+	for i := int64(5); i <= 10; i++ {
+		d := fakeRunDetail(i, "failure")
+		d.Run.Event = "pull_request"
+		d.Run.HeadBranch = "feature"
+		details = append(details, d)
+	}
+	runs := make([]model.WorkflowRun, len(details))
+	for i := range details {
+		runs[i] = details[i].Run
+	}
+	mkSvc := func() *Service {
+		f := &fakeFetcher{
+			workflows: []model.Workflow{{ID: 1, Name: "CI"}},
+			runs:      map[int64][]model.WorkflowRun{1: runs},
+			details:   details,
+		}
+		return &Service{Client: f, Store: nil, Prog: output.NewProgress()}
+	}
+
+	// main: the six PR failures must not reach failure analysis.
+	svc := mkSvc()
+	res, err := svc.Run(context.Background(), &Options{
+		Repo: "example-org/example-repo", Since: testBase.Add(-24 * time.Hour),
+		BranchCategory: "main",
+	})
+	require.NoError(t, err)
+	for _, finding := range res.Findings {
+		if finding.Type == analyze.TypeFailure {
+			t.Errorf("PR-branch failures leaked into --branch-category main: %s", finding.Description)
+		}
+	}
+	require.Equal(t, "main", res.Meta.BranchCategory, "filter context must be recorded")
+
+	// pr: only pull_request runs; the failure finding appears (6/6 failures).
+	svc = mkSvc()
+	res, err = svc.Run(context.Background(), &Options{
+		Repo: "example-org/example-repo", Since: testBase.Add(-24 * time.Hour),
+		BranchCategory: "pr", IncludeFailures: true,
+	})
+	require.NoError(t, err)
+	sawFailureFinding := false
+	for _, finding := range res.Findings {
+		if finding.Type == analyze.TypeFailure {
+			sawFailureFinding = true
+		}
+	}
+	require.True(t, sawFailureFinding, "pr category must analyze the PR runs")
+}
+
 func TestRun_BranchWithNoRuns_ErrorNamesTheBranch(t *testing.T) {
 	f := baseFetcher() // all runs on main
 

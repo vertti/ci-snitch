@@ -13,13 +13,14 @@ import (
 // filters — a consumer comparing two reports must be able to tell whether one
 // of them was branch- or workflow-scoped.
 type ResultMeta struct {
-	Repo        string       `json:"repo"`
-	TotalRuns   int          `json:"total_runs"`
-	TimeRange   [2]time.Time `json:"time_range"`
-	WorkflowIDs []int64      `json:"workflow_ids"`
-	Branch      string       `json:"branch,omitempty"`
-	Workflow    string       `json:"workflow,omitempty"`
-	Since       time.Time    `json:"since"`
+	Repo           string       `json:"repo"`
+	TotalRuns      int          `json:"total_runs"`
+	TimeRange      [2]time.Time `json:"time_range"`
+	WorkflowIDs    []int64      `json:"workflow_ids"`
+	Branch         string       `json:"branch,omitempty"`
+	BranchCategory string       `json:"branch_category,omitempty"`
+	Workflow       string       `json:"workflow,omitempty"`
+	Since          time.Time    `json:"since"`
 }
 
 // AnalysisResult is the output of the analysis engine.

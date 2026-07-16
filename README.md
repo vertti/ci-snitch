@@ -89,6 +89,7 @@ ci-snitch analyze owner/repo --format llm
 | `[owner/repo]` | auto-detect | Repository to analyze; if omitted, detected from git remote |
 | `--since` | `30d` | How far back: `7d`, `2w`, `3mo`, or `2026-01-01` |
 | `--branch` | all | Filter to a specific branch |
+| `--branch-category` | all | Filter by trigger: `pr` (pull_request runs), `main` (everything else) |
 | `--workflow` | all | Filter to a specific workflow name |
 | `--format` | `table` | `table`, `json`, `markdown`, or `llm` |
 | `--no-cache` | false | Bypass local cache, fetch fresh |

@@ -41,6 +41,7 @@ type RunStore interface {
 type Options struct {
 	Repo            string
 	Branch          string
+	BranchCategory  string // "pr", "main", or "" (all): selects runs by event
 	Since           time.Time
 	Workflow        string
 	IncludeFailures bool
@@ -120,17 +121,12 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 		return analyze.AnalysisResult{}, errors.New(msg)
 	}
 
-	// Apply --branch to the full set so every consumer respects it: failure
-	// rates, rerun stats, and cost all read allDetails, not just the filtered
-	// duration series produced by preprocess.Run below.
-	if opts.Branch != "" {
-		before := len(allDetails)
-		allDetails = preprocess.FilterByBranch(allDetails, opts.Branch)
-		if len(allDetails) == 0 {
-			return analyze.AnalysisResult{}, fmt.Errorf(
-				"no runs found for branch %q for %s since %s (%d runs on other branches)",
-				opts.Branch, opts.Repo, opts.Since.Format("2006-01-02"), before)
-		}
+	// Apply run-selection filters (--branch-category, --branch) to the full
+	// set so every consumer respects them: failure rates, rerun stats, and
+	// cost all read allDetails, not just the duration series.
+	allDetails, err = applyRunFilters(allDetails, opts)
+	if err != nil {
+		return analyze.AnalysisResult{}, err
 	}
 
 	// Compute rerun stats before deduplication (needs to see all attempts)
@@ -168,6 +164,7 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 	result := engine.Run(ctx, filtered, allDetails, rerunStats, workflowNames)
 	result.Meta.Repo = opts.Repo
 	result.Meta.Branch = opts.Branch
+	result.Meta.BranchCategory = opts.BranchCategory
 	result.Meta.Workflow = opts.Workflow
 	result.Meta.Since = opts.Since
 	result.Diagnostics = append(result.Diagnostics, pipelineDiags...)
@@ -188,6 +185,31 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 	}
 
 	return result, nil
+}
+
+// applyRunFilters narrows allDetails by --branch-category (PR failures are
+// expected during development; default-branch failures are incidents) and
+// --branch, erroring with the active filter's name when nothing remains.
+func applyRunFilters(allDetails []model.RunDetail, opts *Options) ([]model.RunDetail, error) {
+	if opts.BranchCategory != "" && opts.BranchCategory != "all" {
+		before := len(allDetails)
+		allDetails = preprocess.FilterByEventCategory(allDetails, opts.BranchCategory)
+		if len(allDetails) == 0 {
+			return nil, fmt.Errorf(
+				"no runs found for --branch-category %q for %s since %s (%d runs in other categories)",
+				opts.BranchCategory, opts.Repo, opts.Since.Format("2006-01-02"), before)
+		}
+	}
+	if opts.Branch != "" {
+		before := len(allDetails)
+		allDetails = preprocess.FilterByBranch(allDetails, opts.Branch)
+		if len(allDetails) == 0 {
+			return nil, fmt.Errorf(
+				"no runs found for branch %q for %s since %s (%d runs on other branches)",
+				opts.Branch, opts.Repo, opts.Since.Format("2006-01-02"), before)
+		}
+	}
+	return allDetails, nil
 }
 
 type workflowRuns struct {

@@ -209,8 +209,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### F3. Reusable workflow call-chain dedup [M] (was 5.3)
 - Detect `workflow_call` chains from workflow YAML `uses:`; attribute findings to the leaf, suppress caller duplicates.
 
-### F4. Branch-aware failure analysis [S] (was 5.4)
-- `--branch-category {pr,main,all}` weighting PR-branch vs main-branch failures. Distinct from bug A3.
+### F4. Branch-aware failure analysis [S] (was 5.4) ✅ done
+- Shipped 2026-07-16: `--branch-category {pr,main,all}` selects runs by trigger event (`pull_request` vs everything else) before all analysis — catches every PR branch at once, which `--branch` can't express. Recorded in `meta.branch_category`; validated before any API call.
 
 ### F5. Regression commit attribution [S] (was 5.5)
 - Augment F2 with file/line-count stats from the commits API in change-point output.

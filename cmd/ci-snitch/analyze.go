@@ -23,6 +23,7 @@ import (
 func newAnalyzeCmd() *cobra.Command {
 	var (
 		branch          string
+		branchCategory  string
 		since           string
 		workflow        string
 		format          string
@@ -44,14 +45,7 @@ If no repository is specified, detects the GitHub remote from the current direct
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Validate output options before anything that costs a network call.
-			formatter, ok := output.Get(format, output.Options{Verbose: verbose, RawOutputPath: rawOutput})
-			if !ok {
-				return fmt.Errorf("unknown format %q (supported: table, json, markdown, llm)", format)
-			}
-			if rawOutput != "" && format != "llm" {
-				return errors.New("--raw-output requires --format llm")
-			}
-			failConds, err := parseFailOn(failOn)
+			formatter, failConds, err := validateOutputOptions(format, rawOutput, failOn, branchCategory, verbose)
 			if err != nil {
 				return err
 			}
@@ -119,6 +113,7 @@ If no repository is specified, detects the GitHub remote from the current direct
 			result, err := svc.Run(cmd.Context(), &app.Options{
 				Repo:            repo,
 				Branch:          branch,
+				BranchCategory:  branchCategory,
 				Since:           sinceTime,
 				Workflow:        workflow,
 				IncludeFailures: includeFailures,
@@ -153,6 +148,7 @@ If no repository is specified, detects the GitHub remote from the current direct
 	}
 
 	cmd.Flags().StringVar(&branch, "branch", "", "filter to this branch (default: all branches)")
+	cmd.Flags().StringVar(&branchCategory, "branch-category", "", "filter by trigger: pr (pull_request runs), main (everything else), all")
 	cmd.Flags().StringVar(&since, "since", "30d", "how far back to analyze (e.g. 30d, 2w, 3mo, 2026-01-01)")
 	cmd.Flags().StringVar(&workflow, "workflow", "", "filter to this workflow name")
 	cmd.Flags().StringVar(&format, "format", "table", "output format: table, json, markdown, llm")
@@ -167,6 +163,35 @@ If no repository is specified, detects the GitHub remote from the current direct
 		[]string{"table", "json", "markdown", "llm"}, cobra.ShellCompDirectiveNoFileComp))
 
 	return cmd
+}
+
+// validateOutputOptions checks every flag that can be rejected without a
+// network call and returns the pre-built formatter and fail-on conditions.
+func validateOutputOptions(format, rawOutput, failOn, branchCategory string, verbose bool) (output.Formatter, []failOnCondition, error) {
+	formatter, ok := output.Get(format, output.Options{Verbose: verbose, RawOutputPath: rawOutput})
+	if !ok {
+		return nil, nil, fmt.Errorf("unknown format %q (supported: table, json, markdown, llm)", format)
+	}
+	if rawOutput != "" && format != "llm" {
+		return nil, nil, errors.New("--raw-output requires --format llm")
+	}
+	failConds, err := parseFailOn(failOn)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := validateBranchCategory(branchCategory); err != nil {
+		return nil, nil, err
+	}
+	return formatter, failConds, nil
+}
+
+func validateBranchCategory(c string) error {
+	switch c {
+	case "", "all", "pr", "main":
+		return nil
+	default:
+		return fmt.Errorf("invalid --branch-category %q (supported: pr, main, all)", c)
+	}
 }
 
 var gitHubRemoteRe = regexp.MustCompile(`github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$`)
