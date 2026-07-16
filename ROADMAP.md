@@ -224,8 +224,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### F8. Overlap-based stage detection [M] ✅ done
 - Shipped 2026-07-16: jobs group by temporal overlap (a job starting while the stage still runs is concurrent, whatever the start stagger); a job starting after the stage ended is a new stage even under 30s. The `Sequential` flag becomes correct by construction — a stage break can only occur after the previous stage finished. Unblocks F1.
 
-### F9. Partial re-run duration handling [M]
-- Dedup keeps the latest attempt; for "re-run failed jobs" that attempt's wall clock covers only the re-run subset, so a 40-min workflow can contribute a 6-min duration to summary/outlier/changepoint series (`internal/preprocess/filter.go:81-100`, `internal/model/model.go:106-120`). Options: keep attempt 1 for duration series, or exclude `RunAttempt > 1` from duration collection.
+### F9. Partial re-run duration handling [M] ✅ done
+- Shipped 2026-07-16: `preprocess.Run` excludes `RunAttempt > 1` from the duration series (with an aggregated diagnostic); re-run attempts remain in `AllDetails` for failure/rerun/cost analysis. A partial re-run's wall clock covers only the re-run subset and is not a comparable sample.
 
 ---
 
