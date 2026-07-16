@@ -32,6 +32,10 @@ type PipelineStage struct {
 	Duration      Duration `json:"duration"` // median wall-clock duration of this stage
 	PctOfPipeline float64  `json:"pct_of_pipeline"`
 	Sequential    bool     `json:"sequential"` // true if this stage waits for the previous to finish
+	// PotentialSavings is the wall-clock upper bound of running this stage in
+	// parallel with the previous one: min(prev duration, this duration).
+	// An estimate, not a recommendation — job dependencies must be verified.
+	PotentialSavings Duration `json:"potential_savings,omitempty"`
 }
 
 // DetailType implements FindingDetail.
@@ -208,6 +212,8 @@ func analyzePipeline(wfName string, details []model.RunDetail) *Finding {
 		}
 	}
 
+	applyPotentialSavings(stages)
+
 	if len(stages) < 2 {
 		return nil
 	}
@@ -312,6 +318,15 @@ func detectStages(jobs []model.Job) []rawStage {
 	stages = append(stages, current)
 
 	return stages
+}
+
+// applyPotentialSavings sets each sequential transition's parallelization
+// upper bound: wall clock would drop from dur(prev)+dur(cur) to the max of
+// the two if they ran in parallel.
+func applyPotentialSavings(stages []PipelineStage) {
+	for i := 1; i < len(stages); i++ {
+		stages[i].PotentialSavings = min(stages[i-1].Duration, stages[i].Duration)
+	}
 }
 
 // stageName creates a human-readable name for a stage based on its jobs.

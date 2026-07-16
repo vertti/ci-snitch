@@ -261,7 +261,7 @@ func richTestResult() *analyze.AnalysisResult {
 				CriticalPath: "deploy-stage",
 				Stages: []analyze.PipelineStage{
 					{Name: "build-stage", Jobs: []string{"build"}, Duration: dur(8 * time.Minute), PctOfPipeline: 40},
-					{Name: "deploy-stage", Jobs: []string{"deploy"}, Duration: dur(12 * time.Minute), PctOfPipeline: 60, Sequential: true},
+					{Name: "deploy-stage", Jobs: []string{"deploy"}, Duration: dur(12 * time.Minute), PctOfPipeline: 60, Sequential: true, PotentialSavings: dur(8 * time.Minute)},
 				},
 			},
 		},
@@ -308,6 +308,7 @@ func TestTableFormatter_AllSections(t *testing.T) {
 	// Pipeline table (was 0% covered)
 	assert.Contains(t, out, "deploy-stage")
 	assert.Contains(t, out, "critical path")
+	assert.Contains(t, out, "~8m/run if parallel", "sequential stages show the savings upper bound")
 	// Runner sizing table (was 0% covered; "oversized" renders as the ▼ icon)
 	assert.Contains(t, out, "16 cores")
 	assert.Contains(t, out, "consider downsizing")

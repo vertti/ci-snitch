@@ -107,6 +107,49 @@ func TestDetectStages(t *testing.T) {
 	assert.Equal(t, "deploy", stages[1].name)
 }
 
+func TestPipelineAnalyzer_PotentialSavingsOnSequentialStages(t *testing.T) {
+	// Reuse the 4-stage fixture from DetectsStages: for each sequential
+	// transition, the wall-clock upper bound of parallelizing is
+	// min(prev stage, this stage) — e.g. the 15s merge after 8m of tests
+	// could save at most 15s; the 9m deploy after 4m builds at most 4m.
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	var details []model.RunDetail
+	for i := range 10 {
+		start := base.Add(time.Duration(i) * time.Hour)
+		details = append(details, model.RunDetail{
+			Run: model.WorkflowRun{
+				ID: int64(7000 + i), WorkflowID: 700,
+				Status: "completed", Conclusion: "success",
+				CreatedAt: start, StartedAt: start,
+				UpdatedAt: start.Add(23 * time.Minute),
+			},
+			Jobs: []model.Job{
+				{Name: "tests", StartedAt: start, CompletedAt: start.Add(8 * time.Minute)},
+				{Name: "build", StartedAt: start.Add(9 * time.Minute), CompletedAt: start.Add(13 * time.Minute)},
+				{Name: "deploy", StartedAt: start.Add(14 * time.Minute), CompletedAt: start.Add(23 * time.Minute)},
+			},
+		})
+	}
+
+	analyzer := PipelineAnalyzer{}
+	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{
+		Details:       details,
+		WorkflowNames: map[int64]string{700: "Deploy"},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, findings)
+
+	d, ok := findings[0].Detail.(PipelineDetail)
+	require.True(t, ok)
+	require.Len(t, d.Stages, 3)
+
+	assert.Zero(t, d.Stages[0].PotentialSavings, "the first stage waits for nothing")
+	assert.InDelta(t, float64(4*time.Minute), float64(d.Stages[1].PotentialSavings), float64(time.Second),
+		"build (4m) after tests (8m): parallelizing saves at most min(8m, 4m)")
+	assert.InDelta(t, float64(4*time.Minute), float64(d.Stages[2].PotentialSavings), float64(time.Second),
+		"deploy (9m) after build (4m): at most min(4m, 9m)")
+}
+
 func TestDetectStages_StaggeredFanOutIsOneStage(t *testing.T) {
 	// A matrix fan-out on a constrained runner pool starts jobs more than
 	// 30s apart, but they all RUN concurrently — grouping by start-time
