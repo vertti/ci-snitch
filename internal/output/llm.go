@@ -8,6 +8,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/vertti/ci-snitch/internal/analyze"
 	"github.com/vertti/ci-snitch/internal/diag"
@@ -36,7 +37,7 @@ func (l LLMFormatter) Format(w io.Writer, result *analyze.AnalysisResult) error 
 	llmWriteRunners(w, g.Runners)
 	llmWriteSteps(w, g.Steps)
 
-	suggestions := buildSuggestions(g.Changepoints, g.Failures, g.Costs, g.Outliers, g.Steps)
+	suggestions := buildSuggestions(g.Changepoints, g.Failures, g.Costs, g.Outliers, g.Steps, g.Pipelines)
 	if len(suggestions) > 0 {
 		_, _ = fmt.Fprint(w, "\n## Suggested Investigations\n\n")
 		for _, s := range suggestions {
@@ -365,10 +366,11 @@ func categoryBreakdown(d *analyze.FailureDetail) string {
 	return fmt.Sprintf(" (%s)", strings.Join(parts, ", "))
 }
 
-func buildSuggestions(changepoints, failures, costs, outliers, steps []analyze.Finding) []string {
+func buildSuggestions(changepoints, failures, costs, outliers, steps, pipelines []analyze.Finding) []string {
 	volatileSteps := buildVolatileStepIndex(steps)
 	var suggestions []string
 	suggestions = append(suggestions, suggestFromChangepoints(changepoints)...)
+	suggestions = append(suggestions, suggestFromPipelines(pipelines)...)
 	suggestions = append(suggestions, suggestFromCosts(costs)...)
 	suggestions = append(suggestions, suggestFromOutliers(outliers, volatileSteps)...)
 	suggestions = append(suggestions, suggestFromFailures(failures)...)
@@ -401,6 +403,25 @@ func buildVolatileStepIndex(steps []analyze.Finding) map[wfJobKey]volatileStep {
 		}
 	}
 	return index
+}
+
+// suggestFromPipelines surfaces sequential stages whose parallelization
+// upper bound is worth a look. Estimate only — dependencies must be checked.
+func suggestFromPipelines(findings []analyze.Finding) []string {
+	var s []string
+	for _, f := range findings {
+		d, ok := f.Detail.(analyze.PipelineDetail)
+		if !ok {
+			continue
+		}
+		for _, st := range d.Stages {
+			if st.Sequential && st.PotentialSavings.Std() >= time.Minute {
+				s = append(s, fmt.Sprintf("In %q, stage %q waits for the previous stage — running them in parallel could save up to ~%s per run (verify job dependencies first)",
+					d.Workflow, st.Name, fmtDur(st.PotentialSavings)))
+			}
+		}
+	}
+	return s
 }
 
 func suggestFromChangepoints(findings []analyze.Finding) []string {

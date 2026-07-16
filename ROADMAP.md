@@ -200,8 +200,8 @@ Removed from the old "already correct" list — disproven by this review:
 
 ## F — Feature depth & scale (carried over; still valid)
 
-### F1. Parallelism opportunity detection [S] (was 5.1)
-- Estimate "if stage B ran in parallel with A you'd save N minutes" for sequential transitions with no job-name-overlap dependency. Severity Info. Depends on F8 fixing stage detection first.
+### F1. Parallelism opportunity detection [S] (was 5.1) ✅ done
+- Shipped 2026-07-16: `PipelineStage.PotentialSavings` = min(prev, cur) per sequential transition (thanks to F8, sequential now means genuinely-waited); table waits markers show "~Xm/run if parallel" (≥1min), LLM suggestions phrase it as an upper bound with "verify job dependencies first". No name-overlap dependency guessing — the estimate is explicitly labeled an estimate instead.
 
 ### F2. Workflow config diff at change points [S] (was 5.2)
 - One commits-API call per regression; label change points "CI config change" (`.github/workflows/*` touched) vs "application code change". Cache by SHA.

@@ -360,6 +360,9 @@ func writePipelineTable(w io.Writer, findings []analyze.Finding) {
 			arrow := ""
 			if stage.Sequential {
 				arrow = " " + yellow + "<< waits" + reset
+				if stage.PotentialSavings.Std() >= time.Minute {
+					arrow += " " + dim + "(~" + fmtDur(stage.PotentialSavings) + "/run if parallel)" + reset
+				}
 			}
 			critical := ""
 			if stage.Name == d.CriticalPath {
