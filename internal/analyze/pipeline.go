@@ -273,8 +273,13 @@ func detectStages(jobs []model.Job) []rawStage {
 		return a.start.Compare(b.start)
 	})
 
-	// Group into stages: jobs starting within 30s of the first in the group
-	const stageWindow = 30 * time.Second
+	// Group into stages by temporal overlap: a job that starts while the
+	// current stage is still running is concurrent with it, regardless of
+	// start stagger (matrix fan-outs on constrained runner pools stagger
+	// starts by minutes). Conversely, a job that starts after the stage
+	// ended waited for it — a new, genuinely sequential stage. This also
+	// makes the aggregated Sequential flag correct by construction: a stage
+	// break can only happen once the previous stage has finished.
 	var stages []rawStage
 	current := rawStage{
 		jobs:  []string{timed[0].name},
@@ -283,7 +288,7 @@ func detectStages(jobs []model.Job) []rawStage {
 	}
 
 	for _, j := range timed[1:] {
-		if j.start.Sub(current.start) <= stageWindow {
+		if j.start.Before(current.end) {
 			// Same stage
 			current.jobs = append(current.jobs, j.name)
 			if j.end.After(current.end) {

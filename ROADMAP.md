@@ -215,14 +215,14 @@ Removed from the old "already correct" list — disproven by this review:
 ### F5. Regression commit attribution [S] (was 5.5)
 - Augment F2 with file/line-count stats from the commits API in change-point output.
 
-### F6. Multi-repo config [M] (was 6.1)
+### F6. Multi-repo config [M] (was 6.1) — DEFERRED (2026-07-16: keep this a simple single-repo CLI, per user)
 - Config file with repo list + grouping; per-repo SQLite DBs under `~/.cache/ci-snitch/<owner>/<repo>.db`. Until then, a stopgap: the single shared `data.db` grows unboundedly with no pruning (`internal/store/sqlite.go:17-79`) — add `DELETE FROM runs WHERE created_at < ?` prune-on-open (needs a repo column or per-repo DBs to do properly).
 
-### F7. PR comment bot [M] (was 6.2)
+### F7. PR comment bot [M] (was 6.2) — DEFERRED (2026-07-16: keep this a simple CLI, not a bot/integration, per user)
 - `ci-snitch report --pr 123` posting a markdown base-vs-PR comparison; reusable GitHub Action wrapper. Depends on U4 (markdown parity) and U6 (exit codes).
 
-### F8. Overlap-based stage detection [M]
-- Jobs group into a stage only if starting within 30s of the stage's first job (`internal/analyze/pipeline.go:276-307`); a matrix fan-out staggered by a constrained runner pool becomes several fake "sequential" stages, corrupting critical path and any F1 estimate. `Sequential: i > 0` also mislabels overlapping stages (`:201`). Group by time-overlap; set `Sequential` only when `next.start >= prev.end − ε`.
+### F8. Overlap-based stage detection [M] ✅ done
+- Shipped 2026-07-16: jobs group by temporal overlap (a job starting while the stage still runs is concurrent, whatever the start stagger); a job starting after the stage ended is a new stage even under 30s. The `Sequential` flag becomes correct by construction — a stage break can only occur after the previous stage finished. Unblocks F1.
 
 ### F9. Partial re-run duration handling [M]
 - Dedup keeps the latest attempt; for "re-run failed jobs" that attempt's wall clock covers only the re-run subset, so a 40-min workflow can contribute a 6-min duration to summary/outlier/changepoint series (`internal/preprocess/filter.go:81-100`, `internal/model/model.go:106-120`). Options: keep attempt 1 for duration series, or exclude `RunAttempt > 1` from duration collection.
