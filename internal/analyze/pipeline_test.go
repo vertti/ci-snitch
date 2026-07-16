@@ -107,6 +107,39 @@ func TestDetectStages(t *testing.T) {
 	assert.Equal(t, "deploy", stages[1].name)
 }
 
+func TestDetectStages_StaggeredFanOutIsOneStage(t *testing.T) {
+	// A matrix fan-out on a constrained runner pool starts jobs more than
+	// 30s apart, but they all RUN concurrently — grouping by start-time
+	// proximity split them into fake "sequential" stages, corrupting the
+	// stage count, critical path, and parallelism numbers.
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	var jobs []model.Job
+	for i := range 4 {
+		jobs = append(jobs, model.Job{
+			Name:        "build",
+			StartedAt:   base.Add(time.Duration(i) * 40 * time.Second), // 40s stagger
+			CompletedAt: base.Add(time.Duration(i)*40*time.Second + 10*time.Minute),
+		})
+	}
+
+	stages := detectStages(jobs)
+	require.Len(t, stages, 1, "concurrently running jobs are one stage regardless of start stagger")
+	assert.Len(t, stages[0].jobs, 4)
+}
+
+func TestDetectStages_ShortJobThenLaterJobSplits(t *testing.T) {
+	// A job that starts after the previous work has ENDED waited for it —
+	// even if the gap is under 30 seconds.
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	jobs := []model.Job{
+		{Name: "setup", StartedAt: base, CompletedAt: base.Add(5 * time.Second)},
+		{Name: "build", StartedAt: base.Add(15 * time.Second), CompletedAt: base.Add(5 * time.Minute)},
+	}
+
+	stages := detectStages(jobs)
+	require.Len(t, stages, 2, "a job starting after the previous ended is a new (sequential) stage")
+}
+
 func TestPipelineDetail_Type(t *testing.T) {
 	d := PipelineDetail{}
 	assert.Equal(t, "pipeline", d.DetailType())
