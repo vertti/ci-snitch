@@ -206,8 +206,10 @@ Removed from the old "already correct" list — disproven by this review:
 ### F2. Workflow config diff at change points [S] (was 5.2) ✅ done
 - Shipped 2026-07-16 (with F5): confirmed regressions are enriched post-analysis via `GetCommitInfo` — labeled `ci-config` (touched `.github/workflows/`) vs `code`. Bounded at 10 lookups per scan, deduped by SHA in-memory; the SQLite SHA cache is deferred until the call volume ever matters (H11 spirit).
 
-### F3. Reusable workflow call-chain dedup [M] (was 5.3)
-- Detect `workflow_call` chains from workflow YAML `uses:`; attribute findings to the leaf, suppress caller duplicates.
+### F3. Reusable workflow call-chain dedup [M] (was 5.3) — NEEDS PREMISE VALIDATION
+- 2026-07-16: before building, validate the premise. `workflow_call` callees do not create separate workflow runs — their jobs execute inside the caller's run — so "duplicated findings across caller and callee" only occurs when a callee also runs standalone (e.g. both `workflow_call` and `push` triggers). Find a real repo exhibiting the duplication first; if it's rare, this is a not-adopted candidate.
+
+**F section complete** apart from F3 (pending premise validation). Release checkpoint: v0.27.0 (pipeline insights & commit attribution).
 
 ### F4. Branch-aware failure analysis [S] (was 5.4) ✅ done
 - Shipped 2026-07-16: `--branch-category {pr,main,all}` selects runs by trigger event (`pull_request` vs everything else) before all analysis — catches every PR branch at once, which `--branch` can't express. Recorded in `meta.branch_category`; validated before any API call.
