@@ -30,6 +30,11 @@ type ChangePointDetail struct {
 	Persistence    string    `json:"persistence"`
 	OverlapRatio   float64   `json:"overlap_ratio"` // fraction of after-points within before-segment's IQR (0-1)
 	Category       string    `json:"category,omitempty"`
+	// Commit context, enriched post-analysis for regressions (F2/F5):
+	CommitFilesChanged int    `json:"commit_files_changed,omitempty"`
+	CommitAdditions    int    `json:"commit_additions,omitempty"`
+	CommitDeletions    int    `json:"commit_deletions,omitempty"`
+	CommitKind         string `json:"commit_kind,omitempty"` // "ci-config" or "code"
 }
 
 // DetailType implements FindingDetail.

@@ -195,6 +195,37 @@ func TestFetchRuns_WindowsAreDisjointAndContiguous(t *testing.T) {
 	}
 }
 
+func TestGetCommitInfo_ClassifiesCIConfigChanges(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/test-owner/test-repo/commits/abc123", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"sha": "abc123",
+			"stats": {"additions": 10, "deletions": 3},
+			"files": [
+				{"filename": ".github/workflows/ci.yml"},
+				{"filename": "main.go"}
+			]
+		}`))
+	})
+	mux.HandleFunc("GET /repos/test-owner/test-repo/commits/def456", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"sha": "def456", "stats": {"additions": 5, "deletions": 1}, "files": [{"filename": "main.go"}]}`))
+	})
+
+	c := testClient(t, mux)
+	info, err := c.GetCommitInfo(context.Background(), "abc123")
+	require.NoError(t, err)
+	assert.True(t, info.CIConfigChange, "a workflow-file change is the first suspect for a CI regression")
+	assert.Equal(t, 2, info.FilesChanged)
+	assert.Equal(t, 10, info.Additions)
+	assert.Equal(t, 3, info.Deletions)
+
+	info, err = c.GetCommitInfo(context.Background(), "def456")
+	require.NoError(t, err)
+	assert.False(t, info.CIConfigChange)
+}
+
 func TestRateLimit_ParsesBothPools(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /rate_limit", func(w http.ResponseWriter, _ *http.Request) {

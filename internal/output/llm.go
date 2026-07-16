@@ -431,8 +431,17 @@ func suggestFromChangepoints(findings []analyze.Finding) []string {
 		if !ok || d.Category != analyze.CategoryRegression || d.Direction != analyze.DirectionSlowdown {
 			continue
 		}
-		s = append(s, fmt.Sprintf("What changed in commit `%s` (%s) that affected %q?",
-			truncSHA(d.CommitSHA), d.Date.Format("2006-01-02"), d.JobName))
+		hint := ""
+		switch d.CommitKind {
+		case "ci-config":
+			hint = fmt.Sprintf(" — it touched .github/workflows/ (%d files, +%d/-%d), so CI config is the first suspect",
+				d.CommitFilesChanged, d.CommitAdditions, d.CommitDeletions)
+		case "code":
+			hint = fmt.Sprintf(" — application code change (%d files, +%d/-%d)",
+				d.CommitFilesChanged, d.CommitAdditions, d.CommitDeletions)
+		}
+		s = append(s, fmt.Sprintf("What changed in commit `%s` (%s) that affected %q?%s",
+			truncSHA(d.CommitSHA), d.Date.Format("2006-01-02"), d.JobName, hint))
 	}
 	return s
 }

@@ -27,6 +27,7 @@ type WorkflowFetcher interface {
 	FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) ([]model.RunDetail, []diag.Diagnostic)
 	FetchRunDetailsGraphQL(ctx context.Context, runs []model.WorkflowRun) ([]model.RunDetail, []diag.Diagnostic)
 	RateLimit(ctx context.Context) (github.RateLimitStatus, error)
+	GetCommitInfo(ctx context.Context, sha string) (github.CommitInfo, error)
 }
 
 // RunStore abstracts the SQLite store.
@@ -179,12 +180,56 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 		))
 	}
 
+	s.enrichRegressions(ctx, &result)
+
 	s.Prog.Done()
 	if opts.Verbose {
 		s.Prog.Log("Analyze: %s", time.Since(analyzeStart))
 	}
 
 	return result, nil
+}
+
+// maxCommitLookups bounds the per-scan REST spend on change-point context.
+const maxCommitLookups = 10
+
+// enrichRegressions annotates confirmed regressions with their commit's
+// changed-file stats and a ci-config vs code classification — a workflow-file
+// change is the first suspect for a CI regression. Best-effort: lookup
+// failures leave the finding unannotated.
+func (s *Service) enrichRegressions(ctx context.Context, result *analyze.AnalysisResult) {
+	infoBySHA := make(map[string]github.CommitInfo)
+	lookups := 0
+	for i := range result.Findings {
+		if result.Findings[i].Type != analyze.TypeChangepoint {
+			continue
+		}
+		d, ok := result.Findings[i].Detail.(analyze.ChangePointDetail)
+		if !ok || d.Category != analyze.CategoryRegression || d.CommitSHA == "" {
+			continue
+		}
+		info, seen := infoBySHA[d.CommitSHA]
+		if !seen {
+			if lookups >= maxCommitLookups {
+				continue
+			}
+			lookups++
+			var err error
+			info, err = s.Client.GetCommitInfo(ctx, d.CommitSHA)
+			if err != nil {
+				continue
+			}
+			infoBySHA[d.CommitSHA] = info
+		}
+		d.CommitFilesChanged = info.FilesChanged
+		d.CommitAdditions = info.Additions
+		d.CommitDeletions = info.Deletions
+		d.CommitKind = "code"
+		if info.CIConfigChange {
+			d.CommitKind = "ci-config"
+		}
+		result.Findings[i].Detail = d
+	}
 }
 
 // applyRunFilters narrows allDetails by --branch-category (PR failures are

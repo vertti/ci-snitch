@@ -30,6 +30,8 @@ type fakeFetcher struct {
 	coreRemaining   int // 0 means "plenty" (5000)
 	gqlRemaining    int // 0 means "plenty" (5000)
 	rateErr         error
+	commitInfo      github.CommitInfo
+	commitInfoErr   error
 	// cancelDuringHydration simulates Ctrl+C arriving mid-hydration.
 	cancelDuringHydration context.CancelFunc
 
@@ -70,6 +72,13 @@ func (f *fakeFetcher) FetchRunDetailsGraphQL(_ context.Context, runs []model.Wor
 		}
 	}
 	return out, f.hydrateWarnings
+}
+
+func (f *fakeFetcher) GetCommitInfo(context.Context, string) (github.CommitInfo, error) {
+	if f.commitInfoErr != nil {
+		return github.CommitInfo{}, f.commitInfoErr
+	}
+	return f.commitInfo, nil
 }
 
 func (f *fakeFetcher) RateLimit(context.Context) (github.RateLimitStatus, error) {
@@ -561,6 +570,57 @@ func TestRun_NoRunsErrorMentionsWorkflowFilter(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), `workflow "CI"`,
 		"an active filter that produced zero runs must be visible in the error")
+}
+
+func TestRun_RegressionsEnrichedWithCommitContext(t *testing.T) {
+	// 20 runs at ~2min then 10 at ~5min: a confirmed regression whose
+	// commit context (files, +/-, ci-config vs code) must be attached.
+	var details []model.RunDetail
+	for i := int64(1); i <= 30; i++ {
+		d := fakeRunDetail(i, "success")
+		dur := 2 * time.Minute
+		if i > 20 {
+			dur = 5 * time.Minute
+			d.Run.HeadSHA = "regress-sha"
+		}
+		d.Run.CreatedAt = testBase.Add(time.Duration(i) * time.Hour)
+		d.Run.StartedAt = d.Run.CreatedAt
+		d.Run.UpdatedAt = d.Run.CreatedAt.Add(dur)
+		d.Jobs[0].StartedAt = d.Run.CreatedAt
+		d.Jobs[0].CompletedAt = d.Run.CreatedAt.Add(dur)
+		// deterministic jitter so stats aren't degenerate
+		d.Jobs[0].CompletedAt = d.Jobs[0].CompletedAt.Add(time.Duration(i%3) * time.Second)
+		details = append(details, d)
+	}
+	runs := make([]model.WorkflowRun, len(details))
+	for i := range details {
+		runs[i] = details[i].Run
+	}
+	f := &fakeFetcher{
+		workflows:  []model.Workflow{{ID: 1, Name: "CI"}},
+		runs:       map[int64][]model.WorkflowRun{1: runs},
+		details:    details,
+		commitInfo: github.CommitInfo{FilesChanged: 3, Additions: 42, Deletions: 7, CIConfigChange: true},
+	}
+
+	svc := &Service{Client: f, Store: nil, Prog: output.NewProgress()}
+	res, err := svc.Run(context.Background(), &Options{
+		Repo:  "example-org/example-repo",
+		Since: testBase.Add(-24 * time.Hour),
+	})
+	require.NoError(t, err)
+
+	enriched := false
+	for _, finding := range res.Findings {
+		d, ok := finding.Detail.(analyze.ChangePointDetail)
+		if ok && d.Category == analyze.CategoryRegression {
+			enriched = true
+			require.Equal(t, "ci-config", d.CommitKind)
+			require.Equal(t, 3, d.CommitFilesChanged)
+			require.Equal(t, 42, d.CommitAdditions)
+		}
+	}
+	require.True(t, enriched, "expected an enriched regression finding")
 }
 
 func TestRun_ListWorkflowsErrorNotDoubleWrapped(t *testing.T) {

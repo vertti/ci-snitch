@@ -203,8 +203,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### F1. Parallelism opportunity detection [S] (was 5.1) ✅ done
 - Shipped 2026-07-16: `PipelineStage.PotentialSavings` = min(prev, cur) per sequential transition (thanks to F8, sequential now means genuinely-waited); table waits markers show "~Xm/run if parallel" (≥1min), LLM suggestions phrase it as an upper bound with "verify job dependencies first". No name-overlap dependency guessing — the estimate is explicitly labeled an estimate instead.
 
-### F2. Workflow config diff at change points [S] (was 5.2)
-- One commits-API call per regression; label change points "CI config change" (`.github/workflows/*` touched) vs "application code change". Cache by SHA.
+### F2. Workflow config diff at change points [S] (was 5.2) ✅ done
+- Shipped 2026-07-16 (with F5): confirmed regressions are enriched post-analysis via `GetCommitInfo` — labeled `ci-config` (touched `.github/workflows/`) vs `code`. Bounded at 10 lookups per scan, deduped by SHA in-memory; the SQLite SHA cache is deferred until the call volume ever matters (H11 spirit).
 
 ### F3. Reusable workflow call-chain dedup [M] (was 5.3)
 - Detect `workflow_call` chains from workflow YAML `uses:`; attribute findings to the leaf, suppress caller duplicates.
@@ -212,8 +212,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### F4. Branch-aware failure analysis [S] (was 5.4) ✅ done
 - Shipped 2026-07-16: `--branch-category {pr,main,all}` selects runs by trigger event (`pull_request` vs everything else) before all analysis — catches every PR branch at once, which `--branch` can't express. Recorded in `meta.branch_category`; validated before any API call.
 
-### F5. Regression commit attribution [S] (was 5.5)
-- Augment F2 with file/line-count stats from the commits API in change-point output.
+### F5. Regression commit attribution [S] (was 5.5) ✅ done
+- Shipped 2026-07-16 (with F2): files changed and +/− line counts in `ChangePointDetail` JSON, the markdown changepoint lines (bold **CI config change** marker), and the LLM investigation prompts ("it touched .github/workflows/ (2 files, +10/−14), so CI config is the first suspect").
 
 ### F6. Multi-repo config [M] (was 6.1) — DEFERRED (2026-07-16: keep this a simple single-repo CLI, per user)
 - Config file with repo list + grouping; per-repo SQLite DBs under `~/.cache/ci-snitch/<owner>/<repo>.db`. Until then, a stopgap: the single shared `data.db` grows unboundedly with no pruning (`internal/store/sqlite.go:17-79`) — add `DELETE FROM runs WHERE created_at < ?` prune-on-open (needs a repo column or per-repo DBs to do properly).

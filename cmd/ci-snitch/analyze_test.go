@@ -157,6 +157,10 @@ func (f *stubFetcher) FetchRunDetailsGraphQL(_ context.Context, runs []model.Wor
 	return f.FetchRunDetails(context.Background(), runs)
 }
 
+func (f *stubFetcher) GetCommitInfo(_ context.Context, _ string) (github.CommitInfo, error) {
+	return github.CommitInfo{}, nil
+}
+
 func (f *stubFetcher) RateLimit(_ context.Context) (github.RateLimitStatus, error) {
 	pool := github.RatePool{Remaining: 5000, Limit: 5000, ResetAt: time.Now().Add(time.Hour)}
 	return github.RateLimitStatus{Core: pool, GraphQL: pool}, nil
