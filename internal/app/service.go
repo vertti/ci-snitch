@@ -236,7 +236,7 @@ func (s *Service) enrichRegressions(ctx context.Context, result *analyze.Analysi
 // expected during development; default-branch failures are incidents) and
 // --branch, erroring with the active filter's name when nothing remains.
 func applyRunFilters(allDetails []model.RunDetail, opts *Options) ([]model.RunDetail, error) {
-	if opts.BranchCategory != "" && opts.BranchCategory != "all" {
+	if opts.BranchCategory != "" && opts.BranchCategory != preprocess.CategoryAll {
 		before := len(allDetails)
 		allDetails = preprocess.FilterByEventCategory(allDetails, opts.BranchCategory)
 		if len(allDetails) == 0 {

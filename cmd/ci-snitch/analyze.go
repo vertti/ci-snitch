@@ -16,6 +16,7 @@ import (
 	"github.com/vertti/ci-snitch/internal/app"
 	"github.com/vertti/ci-snitch/internal/github"
 	"github.com/vertti/ci-snitch/internal/output"
+	"github.com/vertti/ci-snitch/internal/preprocess"
 	"github.com/vertti/ci-snitch/internal/store"
 	"github.com/vertti/ci-snitch/internal/system"
 )
@@ -187,7 +188,7 @@ func validateOutputOptions(format, rawOutput, failOn, branchCategory string, ver
 
 func validateBranchCategory(c string) error {
 	switch c {
-	case "", "all", "pr", "main":
+	case "", preprocess.CategoryAll, preprocess.CategoryPR, preprocess.CategoryMain:
 		return nil
 	default:
 		return fmt.Errorf("invalid --branch-category %q (supported: pr, main, all)", c)
