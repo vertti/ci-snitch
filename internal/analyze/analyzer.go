@@ -137,6 +137,27 @@ const (
 	PersistenceInconclusive = "inconclusive"
 )
 
+// Volatility labels (p95/median ratio buckets, see volatilityLabel).
+// Exported because formatters key coloring and filtering on them.
+const (
+	VolatilityStable   = "stable"
+	VolatilityVariable = "variable"
+	VolatilitySpiky    = "spiky"
+	VolatilityVolatile = "volatile"
+)
+
+// Runner sizing issues (RunnerDetail.Issue).
+const (
+	IssueOversized  = "oversized"
+	IssueUndersized = "undersized"
+)
+
+// Commit kinds for regression attribution (ChangePointDetail.CommitKind).
+const (
+	CommitKindCIConfig = "ci-config"
+	CommitKindCode     = "code"
+)
+
 // Change point categories (set by post-processing).
 const (
 	CategoryRegression  = "regression"  // actionable slowdown (deduplicated, latest per job)

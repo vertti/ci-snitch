@@ -275,8 +275,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### Q4. Store: dedupe single-item paths; hoist column lists [S] ✅ done
 - `SaveRunDetail`/`LoadRunDetail` are one-element wrappers over the batch paths (`loadSteps`/`scanRun` deleted, −114 lines net); missing-run contract pinned as `sql.ErrNoRows` before the rewrite. `runCols`/`jobCols`/`stepCols` consts shared by all INSERT/SELECT sites.
 
-### Q5. Export label constants; use them across analyze/output [S]
-- Labels minted in analyze are string-matched in output with no compile-time link: persistence (`table.go:708` vs existing constants), volatility (`"volatile"`/`"spiky"` at `table.go:127,283`), runner `"oversized"`/`"undersized"` (`runners.go:98`). Also use the existing Type constants at all construction sites and co-locate them with their analyzers.
+### Q5. Export label constants; use them across analyze/output [S] ✅ done
+- Exported `Volatility*`, `Issue*`, and `CommitKind*` constants; table.go's persistence/volatility/issue switches and llm.go's commit-kind switch now reference them (a label rename in analyze becomes a compile error, not dead coloring). Type constants used at all construction and `Name()` sites. Deviation: Type consts stay co-located with `AllTypes` in analyzer.go rather than scattered per-file — the registry is the more useful grouping.
 
 ### Q6. Finish the diag.Diagnostic migration [S]
 - Deprecated `Warning = diag.Diagnostic` alias is still the signature currency of `internal/github` (15 uses) and `preprocess.Run`'s return type. Delete both aliases, use `diag.Diagnostic` everywhere.

@@ -96,7 +96,7 @@ func (RunnerAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 		var issue, suggestion string
 		switch {
 		case ja.cores >= oversizedMinCores && median < oversizedThresholdSec:
-			issue = "oversized"
+			issue = IssueOversized
 			// Only claim a saving when GitHub actually bills this runner at
 			// a known rate; for self-hosted (0) or unknown vendors (default
 			// 1) a "~1x cost" claim would be invented.
@@ -108,7 +108,7 @@ func (RunnerAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 					fmtSeconds(median), ja.cores)
 			}
 		case ja.cores <= undersizedMaxCores && median > undersizedThresholdSec:
-			issue = "undersized"
+			issue = IssueUndersized
 			suggestion = fmt.Sprintf("job takes %s on %d cores — consider larger runner to reduce wait",
 				fmtSeconds(median), ja.cores)
 		default:
@@ -139,7 +139,7 @@ func (RunnerAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 		ad, _ := a.Detail.(RunnerDetail)
 		bd, _ := b.Detail.(RunnerDetail)
 		if ad.Issue != bd.Issue {
-			if ad.Issue == "oversized" {
+			if ad.Issue == IssueOversized {
 				return -1
 			}
 			return 1

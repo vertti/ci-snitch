@@ -224,9 +224,9 @@ func (s *Service) enrichRegressions(ctx context.Context, result *analyze.Analysi
 		d.CommitFilesChanged = info.FilesChanged
 		d.CommitAdditions = info.Additions
 		d.CommitDeletions = info.Deletions
-		d.CommitKind = "code"
+		d.CommitKind = analyze.CommitKindCode
 		if info.CIConfigChange {
-			d.CommitKind = "ci-config"
+			d.CommitKind = analyze.CommitKindCIConfig
 		}
 		result.Findings[i].Detail = d
 	}
