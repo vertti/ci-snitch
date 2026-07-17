@@ -261,6 +261,63 @@ Removed from the old "already correct" list — disproven by this review:
 
 ---
 
+## Q — Code quality (2026-07-17 maintainability review; no behavior bugs, debt that taxes the next change)
+
+### Q1. Extract shared formatter decision logic + exhaustiveness guard [S]
+- Business rules are hand-copied across formatters and have drifted: dominant-failing-step threshold is `> 0.6` in `llm.go:312` but `>= 0.6` in `table.go:488`; regression+slowdown predicate repeated 3×; priority-score cost gate 2×. Extract `dominantFailingStep()`, `isRegressionSlowdown()`, named threshold consts into `helpers.go`.
+- `groupByType` (`helpers.go:25`) silently drops unknown finding types from table/markdown/llm. Add `analyze.AllTypes` + a test asserting every type is bucketed.
+- Presentation stays independent per formatter (healthy); only decision logic unifies.
+
+### Q2. Shared job-series views on AnalysisContext [M]
+- Six analyzers re-declare a private `jobKey{wfID, job}` and re-implement group-by-(workflow, job) duration-series collection (`steps.go:62`, `outliers.go:113`, `changepoint.go:95`, `cost.go:44`, `runners.go:55`, `summary.go:166`; `postprocess.go` adds `wfJob`/`groupKey`). Add memoized `ac.JobSeries()` + one exported `JobKey`; analyzers keep only their own math.
+
+### Q3. Golden-file tests for output formatters [M]
+- The package whose output is the product has only substring assertions; alignment/ordering regressions pass. Add `testdata/*.golden` for table/markdown/llm with an `-update` flag (anonymized fixture data). Fold in the palette-struct change (`table.go:85`/`color.go:32` package-global mutable ANSI vars make test order significant) so colored goldens are possible.
+
+### Q4. Store: dedupe single-item paths; hoist column lists [S]
+- `SaveRunDetail`/`LoadRunDetail`/`loadSteps` single-item paths have zero production callers yet duplicate the batch SQL/scan logic (~120 lines). Reimplement as one-element wrappers over batch paths.
+- The 13-column runs list is spelled out 5×, jobs 4×: hoist `runCols`/`jobCols`/`stepCols` consts shared by insert/select; funnel run scanning through one scanner.
+
+### Q5. Export label constants; use them across analyze/output [S]
+- Labels minted in analyze are string-matched in output with no compile-time link: persistence (`table.go:708` vs existing constants), volatility (`"volatile"`/`"spiky"` at `table.go:127,283`), runner `"oversized"`/`"undersized"` (`runners.go:98`). Also use the existing Type constants at all construction sites and co-locate them with their analyzers.
+
+### Q6. Finish the diag.Diagnostic migration [S]
+- Deprecated `Warning = diag.Diagnostic` alias is still the signature currency of `internal/github` (15 uses) and `preprocess.Run`'s return type. Delete both aliases, use `diag.Diagnostic` everywhere.
+
+### Q7. Cost: OS-prefix pricing fallback; collapse speculative Model [S]
+- Pricing table exact-matches version-pinned labels (`macos-15`); the next GitHub image silently gets the 1× Linux fallback (10× under for macOS). Add OS-prefix fallback (macos*→10, windows*→2) before the 1× default; date the table comment.
+- `cost.Model` is speculative generality (unexported map, no custom constructor, all callers use package-level wrappers that copy the map per call). Collapse to package-level functions.
+
+### Q8. Fold event-category into the preprocess pipeline [S]
+- `FilterByEventCategory` is the one preprocessing step outside `Run()` (called separately from `service.go:241`) with a stringly-typed `"pr"` category. Fold into `Options`/`Run()`; shared category constants with `app.Options.BranchCategory`.
+
+### Q9. Vestigial cleanup sweep [S]
+- `MarkdownFormatter.Verbose` set but never read (markdown ignores `-v` while table honors it) — honor it, with a red test first.
+- Delete: unused `WithMaxConcurrentJobs` (`client.go:34`), unread GraphQL `DatabaseID` (`graphql.go:251`), unconstructed `diag.KindAuth`.
+- Fix stale `detectStages` doc comment (still describes removed 30s-window behavior); two doc comments attached to const blocks instead of their functions; stranded `RateLimitStatus` doc sentence.
+- Uniform table writer signatures (3 of 8 return always-nil errors); `ctx.Err()` check between analyzers in `Engine.Run`; `defer s.Prog.Done()` instead of 5 manual calls; postprocess drop-filter hardcodes 0.05 duplicating `warningFailureRate`.
+- Finish the half-done symmetric extraction: markdown's `Format` inlines 3 sections its siblings have as `mdWrite*` helpers; `llmWritePriorityFindings` inlines 3 independent loops (clears both cyclo hotspots, zero behavior change).
+
+### Q10. Test hygiene batch [M]
+- analyze: eight near-identical fixture builders → one shared builder with option funcs, migrate incrementally.
+- app: 10-line fetcher-setup clump repeated 4× in `service_test.go` → `fetcherFor()` helper.
+- Fix vacuous-pass risk: `TestChangePointAnalyzer_Persistence_Inconclusive` asserts inside `if` with no require that a finding exists; assert `PostChangeRuns` as a range, not a pinned internal value.
+- Deduplicate `TestFetchRunDetails_ConcurrencyBounded`/`_SemaphoreBoundsConcurrency` (same test, different semaphore size).
+- `applyFailOnGate`: inject `io.Writer`, test reason-printing + exit-code-2 path (the one testable uncovered cmd function).
+- Migration test: snapshot the real pre-v0.7 schema instead of a hand-written loose one; `makeDetail` in preprocess tests should set a real WorkflowID (test currently keys on zero value).
+
+### Q11. github: shared rate-reset wait; classify errors everywhere [S]
+- The "remaining < 100, sleep until reset" block is copy-pasted between `fetchRunsWindow` and `FetchJobs` → extract `waitForRateReset`.
+- `classifyAPIError`'s 401/403/404 guidance applies only in `ListWorkflows`; `fetchRunsWindow`/`FetchJobs`/`GetCommitInfo` return raw go-github errors (a mid-scan SAML 403 loses the hint). Apply at every wrap site.
+
+### Q12. app: build cache state once; slim WorkflowFetcher [M]
+- `countRuns` and `partitionCached` each rebuild the same per-workflow cache state (cachedUpdatedAt map + IncompleteRunIDs, with `servableFromCache` taking the pair as a data clump) — build a `cacheIndex` once after `fetchRunLists`, pass to both budget and hydration phases; stop threading `*Options` into helpers that use one field.
+- `WorkflowFetcher` exposes both `FetchRunDetails` and `FetchRunDetailsGraphQL` but the service only calls the GraphQL one; collapse to one hydrate method so the transport choice lives in `github.Client`.
+
+**Explicitly fine as-is (do not "fix"):** the three formatters' presentation independence; `internal/github` as one package (fallback seam is one-directional and documented); `Service.Run`'s phase decomposition; `cmd/smoke` untested (it is the test harness); `cmd/ci-snitch` 49.7% / store 75.9% coverage (wiring and error tails); tiny packages `diag`/`system`/`cost`.
+
+---
+
 ## Verification gate
 
 Every PR:
