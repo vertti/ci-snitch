@@ -59,6 +59,61 @@ func TestNewClient_InvalidRepo(t *testing.T) {
 	}
 }
 
+func TestFetchJobs_ActionableErrors(t *testing.T) {
+	// The 401/403/404 guidance must not stop at ListWorkflows: a mid-scan
+	// SAML 403 in job hydration previously surfaced as a raw go-github error.
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/test-owner/test-repo/actions/runs/42/jobs", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message": "Resource protected by organization SAML enforcement"}`))
+	})
+	c := testClient(t, mux)
+	_, err := c.FetchJobs(context.Background(), 42)
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "access denied")
+	assert.Contains(t, strings.ToLower(err.Error()), "saml")
+}
+
+func TestFetchRuns_ActionableErrors(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/test-owner/test-repo/actions/workflows/700/runs", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message": "Bad credentials"}`))
+	})
+	c := testClient(t, mux)
+	_, _, err := c.FetchRuns(context.Background(), 700, time.Now().Add(-24*time.Hour), "")
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "token")
+}
+
+func TestGetCommitInfo_ActionableErrors(t *testing.T) {
+	// 404 on a commit is NOT the repo-not-found case: the SHA itself is
+	// gone (force-push, GC). The guidance must say that, not "check the
+	// repository spelling".
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/test-owner/test-repo/commits/", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message": "No commit found"}`))
+	})
+	c := testClient(t, mux)
+	_, err := c.GetCommitInfo(context.Background(), "deadbeef")
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "commit deadbeef not found")
+	assert.NotContains(t, strings.ToLower(err.Error()), "repository test-owner/test-repo not found",
+		"repo-level guidance is misleading for a missing commit")
+
+	// 403 still gets the token guidance.
+	mux403 := http.NewServeMux()
+	mux403.HandleFunc("GET /repos/test-owner/test-repo/commits/", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message": "forbidden"}`))
+	})
+	c403 := testClient(t, mux403)
+	_, err = c403.GetCommitInfo(context.Background(), "deadbeef")
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "access denied")
+}
+
 func TestListWorkflows_ActionableErrors(t *testing.T) {
 	tests := []struct {
 		name       string
