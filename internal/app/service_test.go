@@ -145,8 +145,9 @@ func fakeRunDetail(id int64, conclusion string) model.RunDetail {
 	}
 }
 
-func baseFetcher() *fakeFetcher {
-	details := []model.RunDetail{fakeRunDetail(1, "success"), fakeRunDetail(2, "success")}
+// fetcherFor builds a single-workflow ("CI", ID 1) fetcher serving the given
+// details — the setup clump every orchestration test repeated by hand.
+func fetcherFor(details ...model.RunDetail) *fakeFetcher {
 	runs := make([]model.WorkflowRun, len(details))
 	for i := range details {
 		runs[i] = details[i].Run
@@ -156,6 +157,10 @@ func baseFetcher() *fakeFetcher {
 		runs:      map[int64][]model.WorkflowRun{1: runs},
 		details:   details,
 	}
+}
+
+func baseFetcher() *fakeFetcher {
+	return fetcherFor(fakeRunDetail(1, "success"), fakeRunDetail(2, "success"))
 }
 
 func runService(t *testing.T, f *fakeFetcher, store RunStore) (analyze.AnalysisResult, error) {
@@ -224,15 +229,7 @@ func TestRun_BranchFilterAppliesToFailureAnalysis(t *testing.T) {
 		d.Run.HeadBranch = "feature"
 		details = append(details, d)
 	}
-	runs := make([]model.WorkflowRun, len(details))
-	for i := range details {
-		runs[i] = details[i].Run
-	}
-	f := &fakeFetcher{
-		workflows: []model.Workflow{{ID: 1, Name: "CI"}},
-		runs:      map[int64][]model.WorkflowRun{1: runs},
-		details:   details,
-	}
+	f := fetcherFor(details...)
 
 	svc := &Service{Client: f, Store: nil, Prog: output.NewProgress()}
 	res, err := svc.Run(context.Background(), &Options{
@@ -265,17 +262,8 @@ func TestRun_BranchCategoryFiltersByEvent(t *testing.T) {
 		d.Run.HeadBranch = "feature"
 		details = append(details, d)
 	}
-	runs := make([]model.WorkflowRun, len(details))
-	for i := range details {
-		runs[i] = details[i].Run
-	}
 	mkSvc := func() *Service {
-		f := &fakeFetcher{
-			workflows: []model.Workflow{{ID: 1, Name: "CI"}},
-			runs:      map[int64][]model.WorkflowRun{1: runs},
-			details:   details,
-		}
-		return &Service{Client: f, Store: nil, Prog: output.NewProgress()}
+		return &Service{Client: fetcherFor(details...), Store: nil, Prog: output.NewProgress()}
 	}
 
 	// main: the six PR failures must not reach failure analysis.
@@ -440,15 +428,7 @@ func TestRun_RerunStatsReachFailureDetail(t *testing.T) {
 	attempt2.Run.UpdatedAt = attempt1.Run.UpdatedAt.Add(30 * time.Minute)
 	details = append(details, attempt1, attempt2)
 
-	runs := make([]model.WorkflowRun, len(details))
-	for i := range details {
-		runs[i] = details[i].Run
-	}
-	f := &fakeFetcher{
-		workflows: []model.Workflow{{ID: 1, Name: "CI"}},
-		runs:      map[int64][]model.WorkflowRun{1: runs},
-		details:   details,
-	}
+	f := fetcherFor(details...)
 
 	res, err := runService(t, f, nil)
 	require.NoError(t, err)
@@ -592,16 +572,8 @@ func TestRun_RegressionsEnrichedWithCommitContext(t *testing.T) {
 		d.Jobs[0].CompletedAt = d.Jobs[0].CompletedAt.Add(time.Duration(i%3) * time.Second)
 		details = append(details, d)
 	}
-	runs := make([]model.WorkflowRun, len(details))
-	for i := range details {
-		runs[i] = details[i].Run
-	}
-	f := &fakeFetcher{
-		workflows:  []model.Workflow{{ID: 1, Name: "CI"}},
-		runs:       map[int64][]model.WorkflowRun{1: runs},
-		details:    details,
-		commitInfo: github.CommitInfo{FilesChanged: 3, Additions: 42, Deletions: 7, CIConfigChange: true},
-	}
+	f := fetcherFor(details...)
+	f.commitInfo = github.CommitInfo{FilesChanged: 3, Additions: 42, Deletions: 7, CIConfigChange: true}
 
 	svc := &Service{Client: f, Store: nil, Prog: output.NewProgress()}
 	res, err := svc.Run(context.Background(), &Options{

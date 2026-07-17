@@ -14,6 +14,7 @@ func makeDetail(id int64, branch, conclusion string, attempt int) model.RunDetai
 	return model.RunDetail{
 		Run: model.WorkflowRun{
 			ID:           id,
+			WorkflowID:   100,
 			WorkflowName: "CI",
 			HeadBranch:   branch,
 			Conclusion:   conclusion,
@@ -194,9 +195,9 @@ func TestComputeRerunStats(t *testing.T) {
 	}
 
 	stats := ComputeRerunStats(details)
-	require.Contains(t, stats, int64(0))
+	require.Contains(t, stats, int64(100), "stats must key on the fixture's real workflow ID, not a zero value")
 
-	ci := stats[int64(0)]
+	ci := stats[int64(100)]
 	assert.Equal(t, 3, ci.UniqueRuns)
 	assert.Equal(t, 2, ci.RetriedRuns)   // runs 1 and 3 had retries
 	assert.Equal(t, 3, ci.ExtraAttempts) // run 1 had 2 extra, run 3 had 1 extra

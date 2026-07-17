@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"regexp"
@@ -144,7 +145,7 @@ If no repository is specified, detects the GitHub remote from the current direct
 				return err
 			}
 
-			return applyFailOnGate(failConds, &result)
+			return applyFailOnGate(os.Stderr, failConds, &result)
 		},
 	}
 
@@ -258,16 +259,16 @@ func validateSincePast(t, now time.Time) error {
 	return nil
 }
 
-// applyFailOnGate prints tripped-condition reasons to stderr (even in quiet
-// mode — the whole point of --fail-on is telling CI why the build failed) and
-// returns exit code 2 via exitCodeError.
-func applyFailOnGate(conds []failOnCondition, result *analyze.AnalysisResult) error {
+// applyFailOnGate prints tripped-condition reasons to w (stderr in
+// production, even in quiet mode — the whole point of --fail-on is telling
+// CI why the build failed) and returns exit code 2 via exitCodeError.
+func applyFailOnGate(w io.Writer, conds []failOnCondition, result *analyze.AnalysisResult) error {
 	reasons := evaluateFailOn(conds, result)
 	if len(reasons) == 0 {
 		return nil
 	}
 	for _, r := range reasons {
-		_, _ = fmt.Fprintf(os.Stderr, "fail-on: %s\n", r)
+		_, _ = fmt.Fprintf(w, "fail-on: %s\n", r)
 	}
 	return &exitCodeError{code: 2, msg: fmt.Sprintf("%d --fail-on condition(s) tripped", len(reasons))}
 }

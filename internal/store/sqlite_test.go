@@ -408,22 +408,51 @@ func TestMigration_AddsEventColumn(t *testing.T) {
 	db, err := sql.Open("sqlite", path)
 	require.NoError(t, err)
 
-	// Create old schema without event column
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS runs (
-		id INTEGER PRIMARY KEY, workflow_id INTEGER, workflow_name TEXT,
-		name TEXT, status TEXT, conclusion TEXT, head_branch TEXT,
-		head_sha TEXT, run_attempt INTEGER, created_at TEXT, started_at TEXT, updated_at TEXT
-	)`)
-	require.NoError(t, err)
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS jobs (
-		id INTEGER PRIMARY KEY, run_id INTEGER, name TEXT, status TEXT,
-		conclusion TEXT, started_at TEXT, completed_at TEXT
-	)`)
-	require.NoError(t, err)
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS steps (
-		id INTEGER PRIMARY KEY AUTOINCREMENT, job_id INTEGER, name TEXT,
-		number INTEGER, status TEXT, conclusion TEXT, started_at TEXT, completed_at TEXT
-	)`)
+	// The schema pre-v0.7 releases actually shipped: NOT NULL constraints,
+	// FK references, and indexes present; runs.event and the jobs runner
+	// columns absent. A loose approximation (all-nullable, no indexes) can
+	// pass migration paths a real old database would fail.
+	_, err = db.Exec(`
+CREATE TABLE IF NOT EXISTS runs (
+	id           INTEGER PRIMARY KEY,
+	workflow_id  INTEGER NOT NULL,
+	workflow_name TEXT NOT NULL,
+	name         TEXT NOT NULL,
+	status       TEXT NOT NULL,
+	conclusion   TEXT NOT NULL,
+	head_branch  TEXT NOT NULL,
+	head_sha     TEXT NOT NULL,
+	run_attempt  INTEGER NOT NULL,
+	created_at   TEXT NOT NULL,
+	started_at   TEXT NOT NULL,
+	updated_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_runs_workflow_created ON runs(workflow_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+
+CREATE TABLE IF NOT EXISTS jobs (
+	id           INTEGER PRIMARY KEY,
+	run_id       INTEGER NOT NULL REFERENCES runs(id),
+	name         TEXT NOT NULL,
+	status       TEXT NOT NULL,
+	conclusion   TEXT NOT NULL,
+	started_at   TEXT NOT NULL,
+	completed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_run ON jobs(run_id);
+
+CREATE TABLE IF NOT EXISTS steps (
+	id           INTEGER PRIMARY KEY AUTOINCREMENT,
+	job_id       INTEGER NOT NULL REFERENCES jobs(id),
+	name         TEXT NOT NULL,
+	number       INTEGER NOT NULL,
+	status       TEXT NOT NULL,
+	conclusion   TEXT NOT NULL,
+	started_at   TEXT NOT NULL,
+	completed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_steps_job ON steps(job_id);
+`)
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
