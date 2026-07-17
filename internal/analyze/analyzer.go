@@ -4,6 +4,8 @@ package analyze
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sync"
 
 	"github.com/vertti/ci-snitch/internal/model"
 	"github.com/vertti/ci-snitch/internal/preprocess"
@@ -21,6 +23,9 @@ type AnalysisContext struct {
 	AllDetails    []model.RunDetail               // unfiltered — includes failures, for reliability analysis
 	RerunStats    map[int64]preprocess.RerunStats // per-workflow retry stats (computed before dedup)
 	WorkflowNames map[int64]string                // WorkflowID → canonical name from ListWorkflows
+
+	jobSeriesOnce sync.Once
+	jobSeries     map[JobKey]*JobSeries
 }
 
 // WorkflowName resolves the canonical workflow name for a given ID.
@@ -29,6 +34,69 @@ func (ac *AnalysisContext) WorkflowName(id int64) string {
 		return name
 	}
 	return fmt.Sprintf("workflow-%d", id)
+}
+
+// JobKey identifies a job's data within a workflow. Keying by job name alone
+// would mix distributions from different workflows that happen to share a
+// job name (every repo has a "build").
+type JobKey struct {
+	WorkflowID int64
+	Job        string
+}
+
+// wfJobName keys post-processing state by display names — the identity that
+// findings (and formatters) carry. Distinct from JobKey, which keys raw run
+// data by workflow ID.
+type wfJobName struct{ wf, job string }
+
+// RunJobRef points one series sample back at its source run and job.
+type RunJobRef struct {
+	DetailIdx int // index into AnalysisContext.Details
+	JobIdx    int // index into that detail's Jobs
+}
+
+// JobSeries holds one (workflow, job)'s positive job durations in run
+// chronological order, with a back-reference per sample.
+type JobSeries struct {
+	Durations []float64 // seconds
+	Refs      []RunJobRef
+}
+
+// JobSeries returns the per-(workflow, job) duration series over Details,
+// ordered by run CreatedAt, computed once and shared — the changepoint and
+// outlier analyzers previously each re-collected it. Zero and negative
+// durations are excluded; Refs align 1:1 with Durations.
+func (ac *AnalysisContext) JobSeries() map[JobKey]*JobSeries {
+	ac.jobSeriesOnce.Do(func() {
+		order := make([]int, len(ac.Details))
+		for i := range order {
+			order[i] = i
+		}
+		slices.SortStableFunc(order, func(a, b int) int {
+			return ac.Details[a].Run.CreatedAt.Compare(ac.Details[b].Run.CreatedAt)
+		})
+
+		series := make(map[JobKey]*JobSeries)
+		for _, di := range order {
+			d := &ac.Details[di]
+			for j := range d.Jobs {
+				dur := d.Jobs[j].Duration().Seconds()
+				if dur <= 0 {
+					continue
+				}
+				k := JobKey{WorkflowID: d.Run.WorkflowID, Job: d.Jobs[j].Name}
+				s := series[k]
+				if s == nil {
+					s = &JobSeries{}
+					series[k] = s
+				}
+				s.Durations = append(s.Durations, dur)
+				s.Refs = append(s.Refs, RunJobRef{DetailIdx: di, JobIdx: j})
+			}
+		}
+		ac.jobSeries = series
+	})
+	return ac.jobSeries
 }
 
 // Severity levels for findings.

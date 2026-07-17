@@ -44,8 +44,6 @@ func postProcess(findings []Finding) []Finding {
 // the oscillation count and the regression dedup key on (workflow, job) —
 // the same identity the analyzer itself uses.
 func categorizeChangePoints(findings []Finding) []Finding {
-	type wfJob struct{ wf, job string }
-
 	var changepoints []Finding
 	for _, f := range findings {
 		if f.Type == TypeChangepoint {
@@ -56,7 +54,7 @@ func categorizeChangePoints(findings []Finding) []Finding {
 	applyMultipleComparisonCorrection(changepoints)
 
 	// Count notable change points per (workflow, job)
-	jobCounts := make(map[wfJob]int)
+	jobCounts := make(map[wfJobName]int)
 	for _, f := range changepoints {
 		if f.Severity == SeverityInfo {
 			continue
@@ -65,11 +63,11 @@ func categorizeChangePoints(findings []Finding) []Finding {
 		if !ok {
 			continue
 		}
-		jobCounts[wfJob{d.WorkflowName, d.JobName}]++
+		jobCounts[wfJobName{d.WorkflowName, d.JobName}]++
 	}
 
 	// Track latest regression per (workflow, job) for dedup
-	latestRegression := make(map[wfJob]int) // (workflow, job) -> index in result
+	latestRegression := make(map[wfJobName]int) // (workflow, job) -> index in result
 
 	var result []Finding
 	for _, f := range changepoints {
@@ -78,7 +76,7 @@ func categorizeChangePoints(findings []Finding) []Finding {
 			result = append(result, f)
 			continue
 		}
-		key := wfJob{d.WorkflowName, d.JobName}
+		key := wfJobName{d.WorkflowName, d.JobName}
 
 		switch {
 		case f.Severity == SeverityInfo:
@@ -145,9 +143,8 @@ func applyMultipleComparisonCorrection(changepoints []Finding) {
 
 // groupOutliers collapses individual outlier findings into one finding per (workflow, job).
 func groupOutliers(findings []Finding) []Finding {
-	type groupKey struct{ wf, job string }
 	type group struct {
-		key         groupKey
+		key         wfJobName
 		count       int
 		worstDur    Duration
 		worstPct    float64
@@ -155,8 +152,8 @@ func groupOutliers(findings []Finding) []Finding {
 		maxSeverity string
 	}
 
-	groups := make(map[groupKey]*group)
-	var order []groupKey
+	groups := make(map[wfJobName]*group)
+	var order []wfJobName
 	for _, f := range findings {
 		if f.Type != TypeOutlier {
 			continue
@@ -165,7 +162,7 @@ func groupOutliers(findings []Finding) []Finding {
 		if !ok {
 			continue
 		}
-		k := groupKey{d.WorkflowName, d.JobName}
+		k := wfJobName{d.WorkflowName, d.JobName}
 		g, ok := groups[k]
 		if !ok {
 			g = &group{key: k, maxSeverity: SeverityInfo}
@@ -192,7 +189,7 @@ func groupOutliers(findings []Finding) []Finding {
 			wfGroups[k.wf] = groups[k]
 		}
 	}
-	isDuplicate := func(k groupKey) bool {
+	isDuplicate := func(k wfJobName) bool {
 		if k.job == "" {
 			return false
 		}

@@ -109,41 +109,18 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 		}
 	}
 
-	// Job-level outliers
-	type jobKey struct {
-		wfID int64
-		job  string
-	}
-	jobDurations := make(map[jobKey][]float64)
-	type jobRef struct {
-		detailIdx int
-		jobIdx    int
-	}
-	jobRefs := make(map[jobKey][]jobRef)
-
-	for i := range ac.Details {
-		for j := range ac.Details[i].Jobs {
-			dur := ac.Details[i].Jobs[j].Duration().Seconds()
-			if dur > 0 {
-				k := jobKey{ac.Details[i].Run.WorkflowID, ac.Details[i].Jobs[j].Name}
-				jobDurations[k] = append(jobDurations[k], dur)
-				jobRefs[k] = append(jobRefs[k], jobRef{i, j})
-			}
-		}
-	}
-
-	for k, durations := range jobDurations {
-		wfName := ac.WorkflowName(k.wfID)
-		refs := jobRefs[k]
-		outliers := o.detect(durations)
-		minGate := effectiveMinPercentile(minPct, len(durations))
+	// Job-level outliers over the shared per-(workflow, job) series
+	for k, js := range ac.JobSeries() {
+		wfName := ac.WorkflowName(k.WorkflowID)
+		outliers := o.detect(js.Durations)
+		minGate := effectiveMinPercentile(minPct, len(js.Durations))
 		for _, out := range outliers {
 			if out.Percentile < minGate {
 				continue
 			}
-			ref := refs[out.Index]
-			d := ac.Details[ref.detailIdx]
-			job := d.Jobs[ref.jobIdx]
+			ref := js.Refs[out.Index]
+			d := ac.Details[ref.DetailIdx]
+			job := d.Jobs[ref.JobIdx]
 			findings = append(findings, Finding{
 				Type:     TypeOutlier,
 				Severity: severityFromPercentile(out.Percentile),
