@@ -39,7 +39,7 @@ func (CostDetail) DetailType() string { return TypeCost }
 type CostAnalyzer struct{}
 
 // Name implements Analyzer.
-func (CostAnalyzer) Name() string { return "cost" }
+func (CostAnalyzer) Name() string { return TypeCost }
 
 type costJobKey struct {
 	wfID int64
@@ -186,7 +186,7 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 		}
 
 		findings = append(findings, Finding{
-			Type:     "cost",
+			Type:     TypeCost,
 			Severity: SeverityInfo,
 			Title:    fmt.Sprintf("Workflow %q cost estimate", wfName),
 			Description: fmt.Sprintf("%.0f billable minutes (%.0f/day) across %d runs",

@@ -430,10 +430,10 @@ func suggestFromChangepoints(findings []analyze.Finding) []string {
 		}
 		hint := ""
 		switch d.CommitKind {
-		case "ci-config":
+		case analyze.CommitKindCIConfig:
 			hint = fmt.Sprintf(" — it touched .github/workflows/ (%d files, +%d/-%d), so CI config is the first suspect",
 				d.CommitFilesChanged, d.CommitAdditions, d.CommitDeletions)
-		case "code":
+		case analyze.CommitKindCode:
 			hint = fmt.Sprintf(" — application code change (%d files, +%d/-%d)",
 				d.CommitFilesChanged, d.CommitAdditions, d.CommitDeletions)
 		}

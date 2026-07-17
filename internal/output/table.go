@@ -124,7 +124,7 @@ func writeTriageVolatile(w io.Writer, summaries []analyze.Finding) {
 		if !ok {
 			continue
 		}
-		if d.Stats.VolatilityLabel == "volatile" || d.Stats.VolatilityLabel == "spiky" {
+		if d.Stats.VolatilityLabel == analyze.VolatilityVolatile || d.Stats.VolatilityLabel == analyze.VolatilitySpiky {
 			volatile = append(volatile, d.Workflow)
 		}
 	}
@@ -282,11 +282,11 @@ func mostCITimeMarker(idx, firstIdx, total int) string {
 
 func fmtVolatility(label string) string {
 	switch label {
-	case "volatile":
+	case analyze.VolatilityVolatile:
 		return " " + red + "[volatile]" + reset
-	case "spiky":
+	case analyze.VolatilitySpiky:
 		return " " + yellow + "[spiky]" + reset
-	case "variable":
+	case analyze.VolatilityVariable:
 		return " " + dim + "[variable]" + reset
 	default:
 		return ""
@@ -387,7 +387,7 @@ func writeRunnerTable(w io.Writer, findings []analyze.Finding) {
 			continue
 		}
 		icon := yellow + "▼" + reset // oversized: downsize
-		if d.Issue == "undersized" {
+		if d.Issue == analyze.IssueUndersized {
 			icon = cyan + "▲" + reset // undersized: upsize
 		}
 		_, _ = fmt.Fprintf(tw, "  %s %s / %s\t%s%d cores%s\tmedian %s\t%s\n",
@@ -700,11 +700,11 @@ func fmtPValueStr(p float64) string {
 
 func formatPersistence(d *analyze.ChangePointDetail) string {
 	switch d.Persistence {
-	case "persistent":
+	case analyze.PersistencePersistent:
 		return fmt.Sprintf("%s✓ %d runs%s", esc(green), d.PostChangeRuns, esc(reset))
-	case "transient":
+	case analyze.PersistenceTransient:
 		return fmt.Sprintf("%stransient (%d runs)%s", esc(yellow), d.PostChangeRuns, esc(reset))
-	case "inconclusive":
+	case analyze.PersistenceInconclusive:
 		return fmt.Sprintf("%s? %d runs%s", esc(dim), d.PostChangeRuns, esc(reset))
 	default:
 		return ""

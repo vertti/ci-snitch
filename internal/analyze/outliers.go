@@ -32,7 +32,7 @@ type OutlierAnalyzer struct {
 }
 
 // Name implements Analyzer.
-func (OutlierAnalyzer) Name() string { return "outlier" }
+func (OutlierAnalyzer) Name() string { return TypeOutlier }
 
 // Analyze implements Analyzer.
 const (

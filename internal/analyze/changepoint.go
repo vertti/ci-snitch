@@ -48,7 +48,7 @@ type ChangePointAnalyzer struct {
 }
 
 // Name implements Analyzer.
-func (ChangePointAnalyzer) Name() string { return "changepoint" }
+func (ChangePointAnalyzer) Name() string { return TypeChangepoint }
 
 // Analyze implements Analyzer.
 const (

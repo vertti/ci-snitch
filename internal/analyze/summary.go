@@ -55,7 +55,7 @@ type SummaryAnalyzer struct {
 }
 
 // Name implements Analyzer.
-func (SummaryAnalyzer) Name() string { return "summary" }
+func (SummaryAnalyzer) Name() string { return TypeSummary }
 
 // Analyze implements Analyzer.
 func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, error) {
@@ -138,7 +138,7 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 		}
 
 		findings = append(findings, Finding{
-			Type:     "summary",
+			Type:     TypeSummary,
 			Severity: SeverityInfo,
 			Title:    fmt.Sprintf("Workflow %q", wfName),
 			Description: fmt.Sprintf("%d runs, median %s, p95 %s, total CI time %s",
@@ -252,13 +252,13 @@ func volatilityLabel(v float64, n int) string {
 	}
 	switch {
 	case v >= volatileThreshold:
-		return "volatile"
+		return VolatilityVolatile
 	case v >= spikyThreshold:
-		return "spiky"
+		return VolatilitySpiky
 	case v >= variableThreshold:
-		return "variable"
+		return VolatilityVariable
 	default:
-		return "stable"
+		return VolatilityStable
 	}
 }
 

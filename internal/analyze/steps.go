@@ -36,7 +36,7 @@ type StepAnalyzer struct {
 }
 
 // Name implements Analyzer.
-func (StepAnalyzer) Name() string { return "steps" }
+func (StepAnalyzer) Name() string { return TypeSteps }
 
 const (
 	minRunsForSteps   = 3
