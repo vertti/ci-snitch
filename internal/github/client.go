@@ -166,7 +166,13 @@ type CommitInfo struct {
 func (c *Client) GetCommitInfo(ctx context.Context, sha string) (CommitInfo, error) {
 	commit, _, err := c.gh.Repositories.GetCommit(ctx, c.owner, c.repo, sha, &gh.ListOptions{PerPage: 100})
 	if err != nil {
-		return CommitInfo{}, fmt.Errorf("get commit %s: %w", sha, err)
+		// A 404 here is not the repo-not-found case classifyAPIError
+		// describes: the SHA itself is unreachable (force-push, GC).
+		var ghErr *gh.ErrorResponse
+		if errors.As(err, &ghErr) && ghErr.Response != nil && ghErr.Response.StatusCode == http.StatusNotFound {
+			return CommitInfo{}, fmt.Errorf("commit %s not found — the ref may have been rewritten or garbage-collected (%w)", sha, err)
+		}
+		return CommitInfo{}, fmt.Errorf("get commit %s: %w", sha, c.classifyAPIError(err))
 	}
 	info := CommitInfo{FilesChanged: len(commit.Files)}
 	if commit.Stats != nil {
@@ -237,7 +243,7 @@ func (c *Client) fetchRunsWindow(ctx context.Context, workflowID int64, start, e
 	for {
 		result, resp, err := c.gh.Actions.ListWorkflowRunsByID(ctx, c.owner, c.repo, workflowID, opts)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, c.classifyAPIError(err)
 		}
 
 		// Warn once per window (opts.Page is 0 only on the first page).
@@ -257,25 +263,40 @@ func (c *Client) fetchRunsWindow(ctx context.Context, workflowID int64, start, e
 			break
 		}
 
-		remaining := resp.Rate.Remaining
-		if remaining < 100 {
-			sleepUntil := resp.Rate.Reset.Time
-			wait := time.Until(sleepUntil)
-			if wait > 0 {
-				c.log("Rate limit low, sleeping until reset",
-					"remaining", remaining, "wait", wait.Round(time.Second))
-				select {
-				case <-ctx.Done():
-					return all, warnings, ctx.Err()
-				case <-time.After(wait):
-				}
-			}
+		if err := c.waitForRateReset(ctx, resp); err != nil {
+			return all, warnings, err
 		}
 
 		opts.Page = resp.NextPage
 	}
 
 	return all, warnings, nil
+}
+
+// restRateFloor is the remaining-call low-water mark below which paginated
+// REST loops sleep until the pool resets, leaving headroom for other
+// consumers of the same token.
+const restRateFloor = 100
+
+// waitForRateReset sleeps until the REST rate limit resets when the pool is
+// nearly exhausted. Returns early with ctx.Err() on cancellation.
+func (c *Client) waitForRateReset(ctx context.Context, resp *gh.Response) error {
+	remaining := resp.Rate.Remaining
+	if remaining >= restRateFloor {
+		return nil
+	}
+	wait := time.Until(resp.Rate.Reset.Time)
+	if wait <= 0 {
+		return nil
+	}
+	c.log("Rate limit low, sleeping until reset",
+		"remaining", remaining, "wait", wait.Round(time.Second))
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(wait):
+		return nil
+	}
 }
 
 // Warning is a deprecated alias for diag.Diagnostic. Use diag.Diagnostic directly.
@@ -304,7 +325,7 @@ func (c *Client) FetchJobs(ctx context.Context, runID int64) ([]model.Job, error
 			ListOptions: *opts,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("list jobs for run %d: %w", runID, err)
+			return nil, fmt.Errorf("list jobs for run %d: %w", runID, c.classifyAPIError(err))
 		}
 
 		for _, j := range result.Jobs {
@@ -315,19 +336,8 @@ func (c *Client) FetchJobs(ctx context.Context, runID int64) ([]model.Job, error
 			break
 		}
 
-		remaining := resp.Rate.Remaining
-		if remaining < 100 {
-			sleepUntil := resp.Rate.Reset.Time
-			wait := time.Until(sleepUntil)
-			if wait > 0 {
-				c.log("Rate limit low during job fetch, sleeping until reset",
-					"remaining", remaining, "wait", wait.Round(time.Second))
-				select {
-				case <-ctx.Done():
-					return all, ctx.Err()
-				case <-time.After(wait):
-				}
-			}
+		if err := c.waitForRateReset(ctx, resp); err != nil {
+			return all, err
 		}
 
 		opts.Page = resp.NextPage

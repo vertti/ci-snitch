@@ -304,9 +304,8 @@ Removed from the old "already correct" list — disproven by this review:
 - `applyFailOnGate`: inject `io.Writer`, test reason-printing + exit-code-2 path (the one testable uncovered cmd function).
 - Migration test: snapshot the real pre-v0.7 schema instead of a hand-written loose one; `makeDetail` in preprocess tests should set a real WorkflowID (test currently keys on zero value).
 
-### Q11. github: shared rate-reset wait; classify errors everywhere [S]
-- The "remaining < 100, sleep until reset" block is copy-pasted between `fetchRunsWindow` and `FetchJobs` → extract `waitForRateReset`.
-- `classifyAPIError`'s 401/403/404 guidance applies only in `ListWorkflows`; `fetchRunsWindow`/`FetchJobs`/`GetCommitInfo` return raw go-github errors (a mid-scan SAML 403 loses the hint). Apply at every wrap site.
+### Q11. github: shared rate-reset wait; classify errors everywhere [S] ✅ done
+- `waitForRateReset(ctx, resp)` + `restRateFloor` const replace the two copy-pasted sleep blocks. `classifyAPIError` applied in `fetchRunsWindow`/`FetchJobs`/`GetCommitInfo` (red tests: SAML 403 in job fetch, 401 in run listing). `GetCommitInfo` 404 gets its own message — the SHA is gone, not the repo.
 
 ### Q12. app: build cache state once; slim WorkflowFetcher [M]
 - `countRuns` and `partitionCached` each rebuild the same per-workflow cache state (cachedUpdatedAt map + IncompleteRunIDs, with `servableFromCache` taking the pair as a data clump) — build a `cacheIndex` once after `fetchRunLists`, pass to both budget and hydration phases; stop threading `*Options` into helpers that use one field.
