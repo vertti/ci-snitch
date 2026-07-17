@@ -65,6 +65,15 @@ func (e *Engine) Run(ctx context.Context, details, allDetails []model.RunDetail,
 	result.Meta = computeMeta(details)
 
 	for _, a := range e.analyzers {
+		// Analyzers are pure CPU work and ignore ctx themselves; checking
+		// between them keeps Ctrl+C responsive on large result sets and
+		// makes the interface's ctx parameter honest.
+		if ctx.Err() != nil {
+			result.Diagnostics = append(result.Diagnostics, diag.Errorf(
+				diag.KindAnalyzer, "global", ctx.Err(), "analysis aborted: %v", ctx.Err(),
+			))
+			break
+		}
 		findings, err := a.Analyze(ctx, ac)
 		if err != nil {
 			result.Diagnostics = append(result.Diagnostics, diag.Errorf(

@@ -229,7 +229,7 @@ func buildBatchQuery(runs []model.WorkflowRun) string {
 	// filterBy:{checkType:LATEST} matches REST's filter=latest: only the
 	// latest attempt's check runs, so re-run runs don't carry duplicate
 	// old-attempt jobs.
-	fragment := fmt.Sprintf(`...on WorkflowRun{databaseId checkSuite{checkRuns(first:%d,filterBy:{checkType:LATEST}){pageInfo{hasNextPage} nodes{name databaseId startedAt completedAt status conclusion steps(first:%d){pageInfo{hasNextPage} nodes{name number startedAt completedAt status conclusion}}}}}}`,
+	fragment := fmt.Sprintf(`...on WorkflowRun{checkSuite{checkRuns(first:%d,filterBy:{checkType:LATEST}){pageInfo{hasNextPage} nodes{name databaseId startedAt completedAt status conclusion steps(first:%d){pageInfo{hasNextPage} nodes{name number startedAt completedAt status conclusion}}}}}}`,
 		graphqlMaxJobs, graphqlMaxSteps)
 
 	for i := range runs {
@@ -248,7 +248,6 @@ type graphqlPageInfo struct {
 
 // graphqlRunResponse is the structure of each aliased node in the batch response.
 type graphqlRunResponse struct {
-	DatabaseID int64 `json:"databaseId"`
 	CheckSuite *struct {
 		CheckRuns struct {
 			PageInfo graphqlPageInfo   `json:"pageInfo"`

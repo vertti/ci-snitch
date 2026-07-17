@@ -31,9 +31,7 @@ func (t TableFormatter) Format(w io.Writer, result *analyze.AnalysisResult) erro
 
 	if len(g.Summaries) > 0 {
 		writeTriageHeader(w, g.Summaries, g.Changepoints, g.Failures)
-		if err := writeSummaryTable(w, g.Summaries); err != nil {
-			return err
-		}
+		writeSummaryTable(w, g.Summaries)
 	}
 
 	if len(g.Steps) > 0 {
@@ -57,15 +55,11 @@ func (t TableFormatter) Format(w io.Writer, result *analyze.AnalysisResult) erro
 	}
 
 	if len(g.Outliers) > 0 {
-		if err := writeOutlierTable(w, g.Outliers); err != nil {
-			return err
-		}
+		writeOutlierTable(w, g.Outliers)
 	}
 
 	if len(g.Changepoints) > 0 {
-		if err := writeChangePointTable(w, g.Changepoints, t.Verbose); err != nil {
-			return err
-		}
+		writeChangePointTable(w, g.Changepoints, t.Verbose)
 	}
 
 	// Meta
@@ -185,7 +179,7 @@ func writeTriageFlaky(w io.Writer, failures []analyze.Finding) {
 	_, _ = fmt.Fprintln(w)
 }
 
-func writeSummaryTable(w io.Writer, findings []analyze.Finding) error {
+func writeSummaryTable(w io.Writer, findings []analyze.Finding) {
 	// Findings are already sorted by total CI time descending from the analyzer.
 	// Split into multi-job and single-job workflows so each group gets its own
 	// tabwriter context -- prevents a long name in one group from blowing up
@@ -265,7 +259,6 @@ func writeSummaryTable(w io.Writer, findings []analyze.Finding) error {
 		_, _ = fmt.Fprintln(w)
 	}
 
-	return nil
 }
 
 type indexedFinding struct {
@@ -504,7 +497,7 @@ func writeFailureTable(w io.Writer, findings []analyze.Finding) {
 	_, _ = fmt.Fprintln(w)
 }
 
-func writeOutlierTable(w io.Writer, findings []analyze.Finding) error {
+func writeOutlierTable(w io.Writer, findings []analyze.Finding) {
 	// Findings are already grouped by postprocessor into OutlierGroupDetail.
 	// Sort by worst duration descending.
 	sorted := make([]analyze.Finding, len(findings))
@@ -557,10 +550,9 @@ func writeOutlierTable(w io.Writer, findings []analyze.Finding) error {
 			dim, truncSHA(d.WorstCommitSHA), reset)
 	}
 	_, _ = fmt.Fprintln(w)
-	return nil
 }
 
-func writeChangePointTable(w io.Writer, findings []analyze.Finding, verbose bool) error {
+func writeChangePointTable(w io.Writer, findings []analyze.Finding, verbose bool) {
 	// Split by category (set by postprocessor)
 	var actionable, oscillating, minor []analyze.Finding
 	for _, f := range findings {
@@ -597,7 +589,6 @@ func writeChangePointTable(w io.Writer, findings []analyze.Finding, verbose bool
 		_, _ = fmt.Fprintf(w, "  %s(%d minor change points hidden, use -v to show)%s\n\n", dim, len(minor), reset)
 	}
 
-	return nil
 }
 
 // writeOscillatingJobs summarizes jobs with 3+ change points — these are volatile, not changing.

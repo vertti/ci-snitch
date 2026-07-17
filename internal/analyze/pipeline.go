@@ -56,29 +56,22 @@ func (PipelineAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findi
 	}
 
 	// Group runs by workflow
-	type wfRuns struct {
-		details []model.RunDetail
-	}
-	byWorkflow := make(map[int64]*wfRuns)
+	byWorkflow := make(map[int64][]model.RunDetail)
 	for i := range ac.Details {
 		wfID := ac.Details[i].Run.WorkflowID
-		if byWorkflow[wfID] == nil {
-			byWorkflow[wfID] = &wfRuns{}
-		}
-		byWorkflow[wfID].details = append(byWorkflow[wfID].details, ac.Details[i])
+		byWorkflow[wfID] = append(byWorkflow[wfID], ac.Details[i])
 	}
 
 	var findings []Finding
-	for wfID, wr := range byWorkflow {
-		// Only analyze workflows with multiple jobs
-		if len(wr.details) < minRunsForPipeline {
+	for wfID, details := range byWorkflow {
+		if len(details) < minRunsForPipeline {
 			continue
 		}
 		// Check if this workflow has enough jobs to have pipeline structure
 		maxJobs := 0
-		for i := range wr.details {
-			if len(wr.details[i].Jobs) > maxJobs {
-				maxJobs = len(wr.details[i].Jobs)
+		for i := range details {
+			if len(details[i].Jobs) > maxJobs {
+				maxJobs = len(details[i].Jobs)
 			}
 		}
 		if maxJobs < 2 {
@@ -86,7 +79,7 @@ func (PipelineAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findi
 		}
 
 		wfName := ac.WorkflowName(wfID)
-		finding := analyzePipeline(wfName, wr.details)
+		finding := analyzePipeline(wfName, details)
 		if finding != nil {
 			findings = append(findings, *finding)
 		}
@@ -110,7 +103,6 @@ func analyzePipeline(wfName string, details []model.RunDetail) *Finding {
 	type stageKey string
 	stageTimings := make(map[stageKey][]time.Duration)
 	stageJobs := make(map[stageKey]map[string]bool)
-	var stageOrder []stageKey
 
 	for i := range details {
 		wc := details[i].Duration()
@@ -168,8 +160,7 @@ func analyzePipeline(wfName string, details []model.RunDetail) *Finding {
 	}
 	repStages := detectStages(bestRun.Jobs)
 
-	// Rebuild stageOrder from representative
-	stageOrder = nil
+	stageOrder := make([]stageKey, 0, len(repStages))
 	for _, s := range repStages {
 		stageOrder = append(stageOrder, stageKey(s.name))
 	}
@@ -250,8 +241,10 @@ type rawStage struct {
 	duration time.Duration
 }
 
-// detectStages groups jobs into concurrent stages based on temporal overlap.
-// Jobs starting within a 30-second window of each other are considered the same stage.
+// detectStages groups jobs into concurrent stages based on temporal overlap:
+// a job that starts while the current stage is still running belongs to it,
+// however staggered its start; a job that starts after the stage ended opens
+// a new sequential stage.
 func detectStages(jobs []model.Job) []rawStage {
 	type timedJob struct {
 		name  string

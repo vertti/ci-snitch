@@ -30,13 +30,6 @@ type Client struct {
 // ClientOption configures optional Client behaviour.
 type ClientOption func(*Client)
 
-// WithMaxConcurrentJobs sets the maximum number of concurrent job-fetch API calls.
-func WithMaxConcurrentJobs(n int) ClientOption {
-	return func(c *Client) {
-		c.jobSem = make(chan struct{}, n)
-	}
-}
-
 // WithLogger sets a structured logger for the client.
 func WithLogger(l *slog.Logger) ClientOption {
 	return func(c *Client) {
@@ -93,7 +86,6 @@ func (c *Client) classifyAPIError(err error) error {
 	}
 }
 
-// RateLimitStatus contains the current rate limit state.
 // RatePool describes one rate-limit pool (core REST or GraphQL — GitHub
 // meters them separately).
 type RatePool struct {
@@ -102,6 +94,7 @@ type RatePool struct {
 	ResetAt   time.Time
 }
 
+// RateLimitStatus carries the current state of both rate-limit pools.
 type RateLimitStatus struct {
 	Core    RatePool
 	GraphQL RatePool

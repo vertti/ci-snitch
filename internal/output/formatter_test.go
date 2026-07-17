@@ -147,6 +147,32 @@ func TestTableFormatter_Empty(t *testing.T) {
 	assert.Contains(t, buf.String(), "No findings")
 }
 
+func TestMarkdown_VerboseShowsMinorChangepoints(t *testing.T) {
+	// MarkdownFormatter.Verbose was set by Get() but never read — markdown
+	// silently ignored -v while the table formatter used it to reveal minor
+	// change points.
+	minorCP := analyze.Finding{
+		Type:     analyze.TypeChangepoint,
+		Severity: analyze.SeverityInfo,
+		Detail: analyze.ChangePointDetail{
+			WorkflowName: "CI", JobName: "tiny-job",
+			PctChange: 15, Direction: analyze.DirectionSlowdown,
+			Category:  analyze.CategoryMinor,
+			CommitSHA: "abcd1234efgh",
+		},
+	}
+	result := &analyze.AnalysisResult{Findings: []analyze.Finding{minorCP}}
+
+	var verbose bytes.Buffer
+	require.NoError(t, MarkdownFormatter{Verbose: true}.Format(&verbose, result))
+	assert.Contains(t, verbose.String(), "tiny-job", "-v must reveal minor change points, as in the table format")
+
+	var quiet bytes.Buffer
+	require.NoError(t, MarkdownFormatter{}.Format(&quiet, result))
+	assert.NotContains(t, quiet.String(), "tiny-job")
+	assert.Contains(t, quiet.String(), "1 minor change point", "hidden findings should be counted, not invisible")
+}
+
 func TestMarkdownFormatter(t *testing.T) {
 	var buf bytes.Buffer
 	err := MarkdownFormatter{}.Format(&buf, richTestResult())

@@ -50,7 +50,6 @@ type ChangePointAnalyzer struct {
 // Name implements Analyzer.
 func (ChangePointAnalyzer) Name() string { return TypeChangepoint }
 
-// Analyze implements Analyzer.
 const (
 	minRunsForChangePoint = 10
 	significanceAlpha     = 0.05
@@ -63,6 +62,7 @@ const (
 	minAbsDeltaSeconds = 10.0
 )
 
+// Analyze implements Analyzer.
 func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, error) {
 	if len(ac.Details) < minRunsForChangePoint {
 		return nil, nil
