@@ -22,7 +22,6 @@ const (
 	KindRateLimit   Kind = "rate_limit"
 	KindPartialData Kind = "partial_data"
 	KindCache       Kind = "cache"
-	KindAuth        Kind = "auth"
 	KindPreprocess  Kind = "preprocess"
 	KindNetwork     Kind = "network"
 	KindAnalyzer    Kind = "analyzer"

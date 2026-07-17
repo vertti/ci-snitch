@@ -76,14 +76,21 @@ func llmWriteGlossary(w io.Writer) {
 
 func llmWritePriorityFindings(w io.Writer, g *groupedFindings) {
 	_, _ = fmt.Fprint(w, "## Priority Findings\n\n")
-	hasPriority := false
+	hasPriority := llmWritePriorityRegressions(w, g.Changepoints)
+	hasPriority = llmWritePriorityFailures(w, g.Failures) || hasPriority
+	hasPriority = llmWritePriorityCosts(w, g.Costs) || hasPriority
+	if !hasPriority {
+		_, _ = fmt.Fprint(w, "No critical findings.\n")
+	}
+}
 
-	for _, f := range g.Changepoints {
+func llmWritePriorityRegressions(w io.Writer, changepoints []analyze.Finding) (wrote bool) {
+	for _, f := range changepoints {
 		d, ok := f.Detail.(analyze.ChangePointDetail)
 		if !ok || !isRegressionSlowdown(&d) {
 			continue
 		}
-		hasPriority = true
+		wrote = true
 		_, _ = fmt.Fprintf(w, "- **[REGRESSION]** %s: %+.0f%% (%s -> %s) at commit `%s` on %s",
 			d.JobName, d.PctChange,
 			fmtDur(d.BeforeMean), fmtDur(d.AfterMean),
@@ -93,13 +100,16 @@ func llmWritePriorityFindings(w io.Writer, g *groupedFindings) {
 		}
 		_, _ = fmt.Fprintf(w, " (p=%.4f)\n", d.PValue)
 	}
+	return wrote
+}
 
-	for _, f := range g.Failures {
+func llmWritePriorityFailures(w io.Writer, failures []analyze.Finding) (wrote bool) {
+	for _, f := range failures {
 		d, ok := f.Detail.(analyze.FailureDetail)
 		if !ok {
 			continue
 		}
-		hasPriority = true
+		wrote = true
 		tag := "FLAKY"
 		if d.FailureKind == analyze.FailureKindSystematic {
 			tag = "SYSTEMATIC"
@@ -122,25 +132,25 @@ func llmWritePriorityFindings(w io.Writer, g *groupedFindings) {
 		}
 		_, _ = fmt.Fprint(w, "\n")
 	}
+	return wrote
+}
 
+func llmWritePriorityCosts(w io.Writer, costs []analyze.Finding) (wrote bool) {
 	costShown := 0
-	for i := range g.Costs {
+	for i := range costs {
 		if costShown == 3 {
 			break
 		}
-		d, ok := g.Costs[i].Detail.(analyze.CostDetail)
+		d, ok := costs[i].Detail.(analyze.CostDetail)
 		if !ok || d.PriorityScore < minCostPriorityScore {
 			continue
 		}
 		costShown++
-		hasPriority = true
+		wrote = true
 		_, _ = fmt.Fprintf(w, "- **[COST]** %s: %.0f billable mins/day (%.0f total)\n",
 			d.Workflow, d.DailyRate, d.BillableMinutes)
 	}
-
-	if !hasPriority {
-		_, _ = fmt.Fprint(w, "No critical findings.\n")
-	}
+	return wrote
 }
 
 func llmWriteSummaryTable(w io.Writer, summaries []analyze.Finding) {

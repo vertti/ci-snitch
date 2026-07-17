@@ -34,13 +34,13 @@ type OutlierAnalyzer struct {
 // Name implements Analyzer.
 func (OutlierAnalyzer) Name() string { return TypeOutlier }
 
-// Analyze implements Analyzer.
 const (
 	minRunsForOutliers = 5
 	criticalPercentile = 99.0
 	warningPercentile  = 95.0
 )
 
+// Analyze implements Analyzer.
 func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, error) {
 	if len(ac.Details) < minRunsForOutliers {
 		return nil, nil

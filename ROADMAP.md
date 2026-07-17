@@ -287,12 +287,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### Q8. Event-category constants [S] ✅ done (folding into Run() rejected)
 - `preprocess.Category{PR,Main,All}` constants shared by `FilterByEventCategory`, `applyRunFilters`, and the CLI's `validateBranchCategory`; the `(category == "pr") == isPR` trick unpacked into a named `wantPR`. **Folding into `Run()` rejected on inspection:** `applyRunFilters` deliberately narrows `allDetails` before `ComputeRerunStats` so the category filter reaches failure/rerun/cost consumers — moving it into `preprocess.Run` would scope it to the duration series only, reintroducing the A3 bug class, and would lose the flag-named early errors.
 
-### Q9. Vestigial cleanup sweep [S]
-- `MarkdownFormatter.Verbose` set but never read (markdown ignores `-v` while table honors it) — honor it, with a red test first.
-- Delete: unused `WithMaxConcurrentJobs` (`client.go:34`), unread GraphQL `DatabaseID` (`graphql.go:251`), unconstructed `diag.KindAuth`.
-- Fix stale `detectStages` doc comment (still describes removed 30s-window behavior); two doc comments attached to const blocks instead of their functions; stranded `RateLimitStatus` doc sentence.
-- Uniform table writer signatures (3 of 8 return always-nil errors); `ctx.Err()` check between analyzers in `Engine.Run`; `defer s.Prog.Done()` instead of 5 manual calls; postprocess drop-filter hardcodes 0.05 duplicating `warningFailureRate`.
-- Finish the half-done symmetric extraction: markdown's `Format` inlines 3 sections its siblings have as `mdWrite*` helpers; `llmWritePriorityFindings` inlines 3 independent loops (clears both cyclo hotspots, zero behavior change).
+### Q9. Vestigial cleanup sweep [S] ✅ done
+- Markdown honors `-v` (red test first): minor change points hidden behind a counted note, shown verbose — table parity. Deleted `WithMaxConcurrentJobs`, run-level GraphQL `DatabaseID` (+ its query selection), `diag.KindAuth`. Fixed the stale `detectStages` comment, two const-block doc comments, the stranded `RateLimitStatus` doc. Table writers uniform (void); `Engine.Run` checks `ctx.Err()` between analyzers; `defer s.Prog.Done()` replaces the five early-return calls; postprocess drop filter references `warningFailureRate`. Symmetric extraction done: `mdWriteSummaries/Changepoints/Outliers`, `llmWritePriorityRegressions/Failures/Costs` (both cyclo hotspots cleared).
 
 ### Q10. Test hygiene batch [M]
 - analyze: eight near-identical fixture builders → one shared builder with option funcs, migrate incrementally.

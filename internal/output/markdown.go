@@ -13,7 +13,7 @@ type MarkdownFormatter struct {
 }
 
 // Format implements Formatter.
-func (MarkdownFormatter) Format(w io.Writer, result *analyze.AnalysisResult) error {
+func (m MarkdownFormatter) Format(w io.Writer, result *analyze.AnalysisResult) error {
 	_, _ = fmt.Fprintf(w, "# CI Performance Report\n\n")
 	_, _ = fmt.Fprintf(w, "**%d runs** analyzed (%s to %s)\n\n",
 		result.Meta.TotalRuns,
@@ -22,7 +22,20 @@ func (MarkdownFormatter) Format(w io.Writer, result *analyze.AnalysisResult) err
 
 	g := groupByType(result.Findings)
 
-	for _, f := range g.Summaries {
+	mdWriteSummaries(w, g.Summaries)
+	mdWriteChangepoints(w, g.Changepoints, m.Verbose)
+	mdWriteOutliers(w, g.Outliers)
+	mdWriteFailures(w, g.Failures)
+	mdWriteCost(w, g.Costs)
+	mdWritePipelines(w, g.Pipelines)
+	mdWriteRunners(w, g.Runners)
+	mdWriteSteps(w, g.Steps)
+
+	return nil
+}
+
+func mdWriteSummaries(w io.Writer, findings []analyze.Finding) {
+	for _, f := range findings {
 		d, ok := f.Detail.(analyze.SummaryDetail)
 		if !ok {
 			continue
@@ -43,61 +56,72 @@ func (MarkdownFormatter) Format(w io.Writer, result *analyze.AnalysisResult) err
 			_, _ = fmt.Fprintln(w)
 		}
 	}
+}
 
-	if len(g.Changepoints) > 0 {
-		var notable []analyze.Finding
-		for _, f := range g.Changepoints {
-			if f.Severity != analyze.SeverityInfo {
-				notable = append(notable, f)
-			}
-		}
-
-		if len(notable) > 0 {
-			_, _ = fmt.Fprintf(w, "## Performance Changes (%d)\n", len(notable))
-			for _, f := range notable {
-				d, ok := f.Detail.(analyze.ChangePointDetail)
-				if !ok {
-					continue
-				}
-				icon := "▲"
-				if d.Direction == analyze.DirectionSpeedup {
-					icon = "▼"
-				}
-				_, _ = fmt.Fprintf(w, "- **%s %+.0f%%** in `%s` at `%s` — %s -> %s (p=%.4f, %s, %d runs after)\n",
-					icon, d.PctChange, d.JobName, truncSHA(d.CommitSHA),
-					fmtDur(d.BeforeMean), fmtDur(d.AfterMean), d.PValue,
-					d.Persistence, d.PostChangeRuns)
-			}
-			_, _ = fmt.Fprintln(w)
+// mdWriteChangepoints mirrors the table format's verbosity contract: minor
+// (info-severity) change points are hidden behind -v but counted, so a quiet
+// report still says what it is not showing.
+func mdWriteChangepoints(w io.Writer, findings []analyze.Finding, verbose bool) {
+	var notable, minor []analyze.Finding
+	for _, f := range findings {
+		if f.Severity != analyze.SeverityInfo {
+			notable = append(notable, f)
+		} else {
+			minor = append(minor, f)
 		}
 	}
+	if verbose {
+		notable = append(notable, minor...)
+		minor = nil
+	}
 
-	if len(g.Outliers) > 0 {
-		_, _ = fmt.Fprintf(w, "## Outliers (%d groups)\n", len(g.Outliers))
-		_, _ = fmt.Fprintln(w, "| Severity | Subject | Count | Worst Duration | Percentile | Commit |")
-		_, _ = fmt.Fprintln(w, "|----------|---------|-------|----------------|------------|--------|")
-		for _, f := range g.Outliers {
-			d, ok := f.Detail.(analyze.OutlierGroupDetail)
+	if len(notable) > 0 {
+		_, _ = fmt.Fprintf(w, "## Performance Changes (%d)\n", len(notable))
+		for _, f := range notable {
+			d, ok := f.Detail.(analyze.ChangePointDetail)
 			if !ok {
 				continue
 			}
-			subject := escMD(d.WorkflowName)
-			if d.JobName != "" {
-				subject += " / " + escMD(d.JobName)
+			icon := "▲"
+			if d.Direction == analyze.DirectionSpeedup {
+				icon = "▼"
 			}
-			_, _ = fmt.Fprintf(w, "| %s | %s | %d | %s | %s | `%s` |\n",
-				d.MaxSeverity, subject, d.Count, fmtDur(d.WorstDuration), fmtPercentile(d.WorstPercentile), truncSHA(d.WorstCommitSHA))
+			_, _ = fmt.Fprintf(w, "- **%s %+.0f%%** in `%s` at `%s` — %s -> %s (p=%.4f, %s, %d runs after)\n",
+				icon, d.PctChange, d.JobName, truncSHA(d.CommitSHA),
+				fmtDur(d.BeforeMean), fmtDur(d.AfterMean), d.PValue,
+				d.Persistence, d.PostChangeRuns)
 		}
 		_, _ = fmt.Fprintln(w)
 	}
+	if len(minor) > 0 {
+		plural := "s"
+		if len(minor) == 1 {
+			plural = ""
+		}
+		_, _ = fmt.Fprintf(w, "_%d minor change point%s hidden — use -v to include them._\n\n", len(minor), plural)
+	}
+}
 
-	mdWriteFailures(w, g.Failures)
-	mdWriteCost(w, g.Costs)
-	mdWritePipelines(w, g.Pipelines)
-	mdWriteRunners(w, g.Runners)
-	mdWriteSteps(w, g.Steps)
-
-	return nil
+func mdWriteOutliers(w io.Writer, findings []analyze.Finding) {
+	if len(findings) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "## Outliers (%d groups)\n", len(findings))
+	_, _ = fmt.Fprintln(w, "| Severity | Subject | Count | Worst Duration | Percentile | Commit |")
+	_, _ = fmt.Fprintln(w, "|----------|---------|-------|----------------|------------|--------|")
+	for _, f := range findings {
+		d, ok := f.Detail.(analyze.OutlierGroupDetail)
+		if !ok {
+			continue
+		}
+		subject := escMD(d.WorkflowName)
+		if d.JobName != "" {
+			subject += " / " + escMD(d.JobName)
+		}
+		_, _ = fmt.Fprintf(w, "| %s | %s | %d | %s | %s | `%s` |\n",
+			d.MaxSeverity, subject, d.Count, fmtDur(d.WorstDuration), fmtPercentile(d.WorstPercentile), truncSHA(d.WorstCommitSHA))
+	}
+	_, _ = fmt.Fprintln(w)
 }
 
 func mdWriteFailures(w io.Writer, findings []analyze.Finding) {

@@ -61,12 +61,14 @@ const rateLimitSafetyMargin = 0.80
 
 // Run executes the full analysis pipeline and returns the result.
 func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResult, error) {
+	// No return path may leave a dangling status line; Done is idempotent,
+	// so the mid-run Done calls that end the fetch phase stay.
+	defer s.Prog.Done()
 	// Fetch workflows
 	s.Prog.Status("Discovering workflows...")
 	// The client wraps its own errors with context ("list workflows: ...").
 	workflows, err := s.Client.ListWorkflows(ctx)
 	if err != nil {
-		s.Prog.Done()
 		return analyze.AnalysisResult{}, err
 	}
 
@@ -77,7 +79,6 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 		}
 	}
 	if opts.Workflow != "" && targetWorkflows == 0 {
-		s.Prog.Done()
 		return analyze.AnalysisResult{}, unknownWorkflowError(workflows, opts.Workflow)
 	}
 	if opts.Verbose {
@@ -92,7 +93,6 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 	// Phase 1: fetch run lists (cheap — paginated listing, no hydration)
 	allWfRuns, listDiags, err := s.fetchRunLists(ctx, workflows, opts)
 	if err != nil {
-		s.Prog.Done()
 		return analyze.AnalysisResult{}, err
 	}
 	pipelineDiags = append(pipelineDiags, listDiags...)
@@ -101,14 +101,12 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 
 	// Estimate API cost and check rate limit budget
 	if err := s.checkRateBudget(ctx, totalRuns, uncachedRuns, opts); err != nil {
-		s.Prog.Done()
 		return analyze.AnalysisResult{}, err
 	}
 
 	// Phase 2: hydrate runs (expensive — 1 API call per uncached run)
 	allDetails, hydrateDiags, err := s.hydrateAll(ctx, allWfRuns, opts)
 	if err != nil {
-		s.Prog.Done()
 		return analyze.AnalysisResult{}, err
 	}
 	pipelineDiags = append(pipelineDiags, hydrateDiags...)
