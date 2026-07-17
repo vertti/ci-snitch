@@ -290,13 +290,9 @@ Removed from the old "already correct" list — disproven by this review:
 ### Q9. Vestigial cleanup sweep [S] ✅ done
 - Markdown honors `-v` (red test first): minor change points hidden behind a counted note, shown verbose — table parity. Deleted `WithMaxConcurrentJobs`, run-level GraphQL `DatabaseID` (+ its query selection), `diag.KindAuth`. Fixed the stale `detectStages` comment, two const-block doc comments, the stranded `RateLimitStatus` doc. Table writers uniform (void); `Engine.Run` checks `ctx.Err()` between analyzers; `defer s.Prog.Done()` replaces the five early-return calls; postprocess drop filter references `warningFailureRate`. Symmetric extraction done: `mdWriteSummaries/Changepoints/Outliers`, `llmWritePriorityRegressions/Failures/Costs` (both cyclo hotspots cleared).
 
-### Q10. Test hygiene batch [M]
-- analyze: eight near-identical fixture builders → one shared builder with option funcs, migrate incrementally.
-- app: 10-line fetcher-setup clump repeated 4× in `service_test.go` → `fetcherFor()` helper.
-- Fix vacuous-pass risk: `TestChangePointAnalyzer_Persistence_Inconclusive` asserts inside `if` with no require that a finding exists; assert `PostChangeRuns` as a range, not a pinned internal value.
-- Deduplicate `TestFetchRunDetails_ConcurrencyBounded`/`_SemaphoreBoundsConcurrency` (same test, different semaphore size).
-- `applyFailOnGate`: inject `io.Writer`, test reason-printing + exit-code-2 path (the one testable uncovered cmd function).
-- Migration test: snapshot the real pre-v0.7 schema instead of a hand-written loose one; `makeDetail` in preprocess tests should set a real WorkflowID (test currently keys on zero value).
+### Q10. Test hygiene batch [M] ✅ done
+- `fetcherFor(details...)` replaces the 5 hand-rolled fetcher clumps in `service_test.go` (incl. `baseFetcher`); persistence test now requires the slowdown to exist and asserts `PostChangeRuns` as a range (no vacuous pass, no pinned internal); duplicate default-semaphore concurrency test deleted (the tight-semaphore twin subsumes it, noted in a comment); `applyFailOnGate` takes `io.Writer` with reason-printing + exit-code-2 + clean-pass tests; migration test uses the realistic pre-v0.7 schema (NOT NULLs, FK refs, indexes incl. the later-dropped `idx_runs_status`); preprocess `makeDetail` sets WorkflowID 100 so `TestComputeRerunStats` no longer keys on a zero value.
+- Deviation: the eight analyze fixture builders stay — on inspection they encode per-analyzer shapes (steps, costs, conclusion mixes, matrix variants); a parameterized mega-builder would trade visible fixture intent for option-func indirection. Revisit only if a new analyzer needs a ninth.
 
 ### Q11. github: shared rate-reset wait; classify errors everywhere [S] ✅ done
 - `waitForRateReset(ctx, resp)` + `restRateFloor` const replace the two copy-pasted sleep blocks. `classifyAPIError` applied in `fetchRunsWindow`/`FetchJobs`/`GetCommitInfo` (red tests: SAML 403 in job fetch, 401 in run listing). `GetCommitInfo` 404 gets its own message — the SHA is gone, not the repo.

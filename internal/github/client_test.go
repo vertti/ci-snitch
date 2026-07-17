@@ -401,47 +401,10 @@ func TestFetchRunDetails_Empty(t *testing.T) {
 	assert.Empty(t, warnings)
 }
 
-func TestFetchRunDetails_ConcurrencyBounded(t *testing.T) {
-	var mu sync.Mutex
-	maxConcurrent := 0
-	current := 0
-
-	data, err := os.ReadFile("testdata/list_jobs.json")
-	require.NoError(t, err)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /repos/test-owner/test-repo/actions/runs/", func(w http.ResponseWriter, _ *http.Request) {
-		mu.Lock()
-		current++
-		if current > maxConcurrent {
-			maxConcurrent = current
-		}
-		mu.Unlock()
-
-		time.Sleep(10 * time.Millisecond) // simulate latency
-
-		mu.Lock()
-		current--
-		mu.Unlock()
-
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(data)
-	})
-
-	c := testClient(t, mux)
-
-	// Create 20 runs to exercise concurrency
-	runs := make([]model.WorkflowRun, 20)
-	for i := range runs {
-		runs[i] = model.WorkflowRun{ID: int64(200000 + i), Status: "completed"}
-	}
-
-	details, warnings := c.FetchRunDetails(context.Background(), runs)
-	assert.Len(t, details, 20)
-	assert.Empty(t, warnings)
-	assert.LessOrEqual(t, maxConcurrent, defaultMaxConcurrentJobs, "should not exceed semaphore capacity")
-}
-
+// TestFetchRunDetails_SemaphoreBoundsConcurrency proves the semaphore binds
+// by tightening it to 3 against 20 runs. (A twin test with the default-sized
+// semaphore was deleted: 20 runs never reached the default bound, so it
+// asserted nothing this one doesn't.)
 func TestFetchRunDetails_SemaphoreBoundsConcurrency(t *testing.T) {
 	var mu sync.Mutex
 	maxConcurrent := 0

@@ -376,19 +376,25 @@ func TestChangePointAnalyzer_Persistence_Inconclusive(t *testing.T) {
 	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{Details: makeTimedDetails(durations)})
 	require.NoError(t, err)
 
-	// With so few post-change runs, should be inconclusive.
+	// With so few post-change runs, should be inconclusive. Require the
+	// slowdown to exist — asserting inside a conditional would let this
+	// test pass vacuously if detection regressed to zero findings.
+	var slowdown *ChangePointDetail
 	for _, f := range findings {
 		detail, ok := f.Detail.(ChangePointDetail)
 		require.True(t, ok)
-		if detail.Direction == "slowdown" {
-			assert.Equal(t, "inconclusive", detail.Persistence)
-			// Onset backtracking includes the 302s jitter point directly
-			// before the shift (it sits above mu+k with this fixture's tiny
-			// variance, locally indistinguishable from the shift's first
-			// point), so the post-change segment is 6, not 5.
-			assert.Equal(t, 6, detail.PostChangeRuns)
+		if detail.Direction == DirectionSlowdown {
+			slowdown = &detail
+			break
 		}
 	}
+	require.NotNil(t, slowdown, "the 5m->8m shift must be detected")
+	assert.Equal(t, PersistenceInconclusive, slowdown.Persistence)
+	// Onset backtracking may include the jitter point directly before the
+	// shift (it sits above mu+k with this fixture's tiny variance), so the
+	// post-change segment is 5 or 6 — a range, not a pinned internal value.
+	assert.InDelta(t, 5.5, float64(slowdown.PostChangeRuns), 0.6,
+		"post-change segment should cover roughly the 5 shifted runs")
 }
 
 func TestChangePointDetail_Type(t *testing.T) {

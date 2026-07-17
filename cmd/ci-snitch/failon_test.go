@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -73,4 +74,33 @@ func TestExitCodeError(t *testing.T) {
 	err := &exitCodeError{code: 2, msg: "gate tripped"}
 	assert.Equal(t, 2, err.Code())
 	assert.Equal(t, "gate tripped", err.Error())
+}
+
+func TestApplyFailOnGate_PrintsReasonsAndExits2(t *testing.T) {
+	result := &analyze.AnalysisResult{Findings: []analyze.Finding{{
+		Type: analyze.TypeChangepoint,
+		Detail: analyze.ChangePointDetail{
+			JobName:   "build",
+			Category:  analyze.CategoryRegression,
+			Direction: analyze.DirectionSlowdown,
+			PctChange: 25,
+		},
+	}}}
+
+	var buf bytes.Buffer
+	err := applyFailOnGate(&buf, []failOnCondition{{kind: failOnRegression}}, result)
+	require.Error(t, err)
+
+	var ec *exitCodeError
+	require.ErrorAs(t, err, &ec)
+	assert.Equal(t, 2, ec.code)
+	assert.Contains(t, buf.String(), "fail-on:", "the reason must reach the writer so CI logs explain the failure")
+	assert.Contains(t, buf.String(), "build")
+}
+
+func TestApplyFailOnGate_CleanResultPasses(t *testing.T) {
+	var buf bytes.Buffer
+	err := applyFailOnGate(&buf, []failOnCondition{{kind: failOnRegression}}, &analyze.AnalysisResult{})
+	require.NoError(t, err)
+	assert.Empty(t, buf.String())
 }
