@@ -1,0 +1,44 @@
+[2m── Triage ──[0m
+  [2mTop CI time:[0m  [1mCI[0m [2m(4h10m)[0m
+  [2mFlaky:[0m  [31mCI[0m [2m(15%)[0m
+
+[1mCI[0m  50 runs, median [36m5m[0m, p95 [36m7m[0m, total [1m4h10m[0m
+[2m  |-[0m build  50 runs  median 3m  p95 4m  min 2m  max 6m
+[2m  `-[0m test   50 runs  median 2m  p95 3m  min 1m  max 4m
+
+[2m── Step Breakdown (top 1 jobs) ──[0m
+  [1mCI[0m [2m/ build[0m
+    docker build  median 2m   p95 4m   [2m66% of job[0m [33m[3.8x][0m
+    checkout      median 10s  p95 15s  [2m5% of job[0m
+
+[2m── Pipeline Structure ──[0m
+  [1mCI[0m  [36m60% parallel[0m, wall-clock [36m20m[0m, total job time [2m35m[0m
+  [2m  |-[0m build-stage  8m  40%
+  [2m  `-[0m deploy-stage  12m  60% [33m<< waits[0m [2m(~8m/run if parallel)[0m [31m<< critical path[0m
+
+[2m── Runner Sizing ──[0m
+  [33m▼[0m CI / quick  [1m16 cores[0m  median 45s  job takes 45s on 16 cores — consider downsizing to save ~8x cost
+
+[2m── CI Cost (1 workflows) ──[0m
+  [1mCI[0m       [36m500 mins[0m  [2m(50/day)[0m  [2m50 runs[0m
+  [2m  build[0m  [2m300 mins[0m
+  [2m  test[0m   [2m200 mins[0m
+
+[2m── Failure Rates (1) ──[0m
+  [1mCI[0m  [33m15%[0m  [2m(15/100 runs)[0m  [2mcancelled: 5, failure: 10, retried: 3 (+4 attempts)[0m
+
+[2m── Outliers (2 groups) ──[0m
+  [31m●[0m CI / build  [1m5x [0m [31m15m     [0m [2mp99[0m  [2maabbccdd[0m
+  [2m●[0m             [1m0x [0m [33m0s      [0m [2mp0[0m  [2m[0m
+
+[2m── Change Points (1) ──[0m
+  [2mDIR     JOB    CHANGE         BEFORE  AFTER  DATE        COMMIT            P-VALUE          STATUS[0m
+  [31m▲[0m  build  [31m+25%[0m  5m      6m15s  2026-04-01  [2maabbccdd[0m  [33m0.0300[0m  
+
+
+[2m50 runs analyzed[0m (2026-03-01 to 2026-04-01)
+
+[2mVolatility (p95/median): [variable] 1.3-2x  [spiky] 2-3x  [volatile] >3x
+Outliers: [31m●[2m critical (p99+)  [33m●[2m warning (p95+)  [2m●[2m info
+Change points: ▲ slowdown  ▼ speedup | Status: N runs = persistent, transient = reverted, ? = too few runs
+[0m

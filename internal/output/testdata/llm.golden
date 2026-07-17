@@ -1,0 +1,309 @@
+# CI Performance Report: 
+Analyzed 50 runs, 2026-03-01 to 2026-04-01.
+
+## Priority Findings
+
+- **[FLAKY]** CI: 15% failure rate (15/100 runs), 3 retried (+4 extra attempts)
+- **[COST]** CI: 50 billable mins/day (500 total)
+
+## Workflow Summaries
+
+| Workflow | Runs | Median | P95 | Queue | Total | Volatility |
+|----------|------|--------|-----|-------|-------|------------|
+| CI | 50 | 5m | 7m | - | 4h10m |  |
+
+## Pipeline Structure
+
+**CI** — 60% parallel efficiency, wall-clock 20m, total job time 35m
+- build-stage: 8m (40%, 1 jobs)
+- deploy-stage: 12m (60%, 1 jobs) [critical] [seq]
+
+
+## Runner Sizing
+
+- [oversized] CI / quick (ubuntu-latest-16-cores, 16 cores): job takes 45s on 16 cores — consider downsizing to save ~8x cost
+
+## Step-Level Timing
+
+**CI / build** (50 runs):
+- docker build: median 2m, p95 4m (66% of job) [3.8x volatile]
+- checkout: median 10s, p95 15s (5% of job)
+
+
+## Suggested Investigations
+
+- In "CI", stage "deploy-stage" waits for the previous stage — running them in parallel could save up to ~8m per run (verify job dependencies first)
+- "CI" is a high-cost workflow (50 mins/day) -- check for flaky tests, cache misses, or resource contention
+- "build" has 5 outliers (worst 15m) -- step "docker build" is 3.8x volatile and likely the cause
+- "CI" has 15% failure rate
+
+## Glossary
+
+- volatility: p95/median duration ratio per series — stable <1.3, variable 1.3-2x, spiky 2-3x, volatile >=3x
+- persistence: persistent = the shift held for the rest of the window; transient = it reverted; inconclusive = too few runs after the change to judge
+- q_value: false-discovery-rate adjusted p-value across all change points in this report; treat q > 0.05 as noise
+- billable minutes: per-job wall clock rounded up to whole minutes times the runner multiplier; self-hosted runners bill 0
+
+## Raw Data (9 findings)
+
+```json
+{
+  "findings": [
+    {
+      "type": "summary",
+      "severity": "info",
+      "title": "Workflow \"CI\" summary",
+      "description": "",
+      "detail": {
+        "workflow": "CI",
+        "stats": {
+          "total_runs": 50,
+          "mean": "5m0s",
+          "median": "5m0s",
+          "p95": "7m0s",
+          "p99": "8m0s",
+          "min": "3m0s",
+          "max": "10m0s",
+          "total_time": "4h10m0s",
+          "volatility": 0,
+          "volatility_label": ""
+        },
+        "queue": {
+          "median": "0s",
+          "p95": "0s"
+        },
+        "jobs": [
+          {
+            "name": "build",
+            "stats": {
+              "total_runs": 50,
+              "mean": "0s",
+              "median": "3m0s",
+              "p95": "4m0s",
+              "p99": "0s",
+              "min": "2m0s",
+              "max": "6m0s",
+              "total_time": "0s",
+              "volatility": 0,
+              "volatility_label": ""
+            }
+          },
+          {
+            "name": "test",
+            "stats": {
+              "total_runs": 50,
+              "mean": "0s",
+              "median": "2m0s",
+              "p95": "3m0s",
+              "p99": "0s",
+              "min": "1m0s",
+              "max": "4m0s",
+              "total_time": "0s",
+              "volatility": 0,
+              "volatility_label": ""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "outlier",
+      "severity": "warning",
+      "title": "Slow run in \"CI\"",
+      "description": "Run took 10m (p97)",
+      "detail": {
+        "run_id": 123,
+        "commit_sha": "aabbccdd11223344",
+        "duration": "10m0s",
+        "percentile": 97,
+        "workflow_name": "CI"
+      }
+    },
+    {
+      "type": "changepoint",
+      "severity": "warning",
+      "title": "Performance slowdown in job \"build\"",
+      "description": "+25% change at 2026-04-01 (commit aabbccdd), before: 5m, after: 6m15s (p=0.0300)",
+      "detail": {
+        "workflow_name": "",
+        "job_name": "build",
+        "change_idx": 20,
+        "before_mean": "5m0s",
+        "after_mean": "6m15s",
+        "pct_change": 25,
+        "direction": "slowdown",
+        "p_value": 0.03,
+        "q_value": 0,
+        "commit_sha": "aabbccdd11223344",
+        "date": "2026-04-01T00:00:00Z",
+        "post_change_runs": 0,
+        "post_change_cv": 0,
+        "persistence": "",
+        "overlap_ratio": 0
+      }
+    },
+    {
+      "type": "cost",
+      "severity": "info",
+      "title": "Workflow \"CI\" cost",
+      "description": "",
+      "detail": {
+        "workflow": "CI",
+        "total_runs": 50,
+        "billable_minutes": 500,
+        "self_hosted_minutes": 0,
+        "daily_rate": 50,
+        "priority_score": 100,
+        "daily_savings_estimate": 5,
+        "jobs": [
+          {
+            "name": "build",
+            "billable_minutes": 300,
+            "multiplier": 1,
+            "runs": 50
+          },
+          {
+            "name": "test",
+            "billable_minutes": 200,
+            "multiplier": 1,
+            "runs": 50
+          }
+        ]
+      }
+    },
+    {
+      "type": "failure",
+      "severity": "warning",
+      "title": "Workflow \"CI\" failure rate",
+      "description": "",
+      "detail": {
+        "workflow": "CI",
+        "total_runs": 100,
+        "failure_count": 15,
+        "failure_rate": 0.15,
+        "failure_kind": "",
+        "trend": "",
+        "recent_failure_rate": 0,
+        "cancellation_count": 0,
+        "cancellation_rate": 0,
+        "by_conclusion": {
+          "cancelled": 5,
+          "failure": 10
+        },
+        "retried_runs": 3,
+        "extra_attempts": 4,
+        "rerun_rate": 0
+      }
+    },
+    {
+      "type": "outlier",
+      "severity": "critical",
+      "title": "Outliers in CI / build",
+      "description": "",
+      "detail": {
+        "workflow_name": "CI",
+        "job_name": "build",
+        "count": 5,
+        "worst_duration": "15m0s",
+        "worst_percentile": 99,
+        "worst_commit_sha": "aabbccdd11223344",
+        "max_severity": "critical"
+      }
+    },
+    {
+      "type": "pipeline",
+      "severity": "info",
+      "title": "Pipeline structure for \"CI\"",
+      "description": "",
+      "detail": {
+        "workflow": "CI",
+        "total_runs": 50,
+        "median_wall_clock": "20m0s",
+        "median_job_sum": "35m0s",
+        "parallelism": 0.6,
+        "stages": [
+          {
+            "name": "build-stage",
+            "jobs": [
+              "build"
+            ],
+            "duration": "8m0s",
+            "pct_of_pipeline": 40,
+            "sequential": false
+          },
+          {
+            "name": "deploy-stage",
+            "jobs": [
+              "deploy"
+            ],
+            "duration": "12m0s",
+            "pct_of_pipeline": 60,
+            "sequential": true,
+            "potential_savings": "8m0s"
+          }
+        ],
+        "critical_path": "deploy-stage"
+      }
+    },
+    {
+      "type": "runner",
+      "severity": "info",
+      "title": "Runner sizing: CI / quick",
+      "description": "",
+      "detail": {
+        "workflow_name": "CI",
+        "job_name": "quick",
+        "runner_label": "ubuntu-latest-16-cores",
+        "cores": 16,
+        "median_duration": "45s",
+        "runs": 30,
+        "multiplier": 8,
+        "issue": "oversized",
+        "suggestion": "job takes 45s on 16 cores — consider downsizing to save ~8x cost"
+      }
+    },
+    {
+      "type": "steps",
+      "severity": "info",
+      "title": "Step timing for CI / build",
+      "description": "",
+      "detail": {
+        "workflow_name": "CI",
+        "job_name": "build",
+        "total_runs": 50,
+        "steps": [
+          {
+            "name": "docker build",
+            "runs": 50,
+            "median": "2m0s",
+            "p95": "4m0s",
+            "pct_of_job": 66,
+            "volatility": 3.8
+          },
+          {
+            "name": "checkout",
+            "runs": 50,
+            "median": "10s",
+            "p95": "15s",
+            "pct_of_job": 5,
+            "volatility": 1.1
+          }
+        ]
+      }
+    }
+  ],
+  "diagnostics": null,
+  "meta": {
+    "repo": "",
+    "total_runs": 50,
+    "time_range": [
+      "2026-03-01T00:00:00Z",
+      "2026-04-01T00:00:00Z"
+    ],
+    "workflow_ids": [
+      100
+    ],
+    "since": "0001-01-01T00:00:00Z"
+  }
+}
+```

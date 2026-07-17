@@ -1,0 +1,43 @@
+── Triage ──
+  Top CI time:  CI (4h10m)
+  Flaky:  CI (15%)
+
+CI  50 runs, median 5m, p95 7m, total 4h10m
+  |- build  50 runs  median 3m  p95 4m  min 2m  max 6m
+  `- test   50 runs  median 2m  p95 3m  min 1m  max 4m
+
+── Step Breakdown (top 1 jobs) ──
+  CI / build
+    docker build  median 2m   p95 4m   66% of job [3.8x]
+    checkout      median 10s  p95 15s  5% of job
+
+── Pipeline Structure ──
+  CI  60% parallel, wall-clock 20m, total job time 35m
+    |- build-stage  8m  40%
+    `- deploy-stage  12m  60% << waits (~8m/run if parallel) << critical path
+
+── Runner Sizing ──
+  ▼ CI / quick  16 cores  median 45s  job takes 45s on 16 cores — consider downsizing to save ~8x cost
+
+── CI Cost (1 workflows) ──
+  CI       500 mins  (50/day)  50 runs
+    build  300 mins
+    test   200 mins
+
+── Failure Rates (1) ──
+  CI  15%  (15/100 runs)  cancelled: 5, failure: 10, retried: 3 (+4 attempts)
+
+── Outliers (2 groups) ──
+  ● CI / build  5x  15m      p99  aabbccdd
+  ●             0x  0s       p0  
+
+── Change Points (1) ──
+  DIR  JOB    CHANGE  BEFORE  AFTER  DATE        COMMIT    P-VALUE  STATUS
+  ▲    build  +25%    5m      6m15s  2026-04-01  aabbccdd  0.0300   
+
+
+50 runs analyzed (2026-03-01 to 2026-04-01)
+
+Volatility (p95/median): [variable] 1.3-2x  [spiky] 2-3x  [volatile] >3x
+Outliers: ● critical (p99+)  ● warning (p95+)  ● info
+Change points: ▲ slowdown  ▼ speedup | Status: N runs = persistent, transient = reverted, ? = too few runs

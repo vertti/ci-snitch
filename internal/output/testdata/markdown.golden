@@ -1,0 +1,46 @@
+# CI Performance Report
+
+**50 runs** analyzed (2026-03-01 to 2026-04-01)
+
+### CI
+50 runs, median 5m, p95 7m, total CI time 4h10m
+
+| Job | Runs | Median | P95 | Min | Max |
+|-----|------|--------|-----|-----|-----|
+| build | 50 | 3m | 4m | 2m | 6m |
+| test | 50 | 2m | 3m | 1m | 4m |
+
+## Performance Changes (1)
+- **▲ +25%** in `build` at `aabbccdd` — 5m -> 6m15s (p=0.0300, , 0 runs after)
+
+## Outliers (2 groups)
+| Severity | Subject | Count | Worst Duration | Percentile | Commit |
+|----------|---------|-------|----------------|------------|--------|
+| critical | CI / build | 5 | 15m | p99 | `aabbccdd` |
+
+## Failure Rates (1)
+| Workflow | Rate | Failures | Kind | Trend |
+|----------|------|----------|------|-------|
+| CI | 15% | 15/100 |  |  |
+
+## Cost (1 workflows)
+| Workflow | Billable mins | Mins/day | Runs |
+|----------|---------------|----------|------|
+| CI | 500 | 50 | 50 |
+
+## Pipeline Structure
+**CI** — 60% parallel, wall-clock 20m, total job time 35m
+
+- build-stage: 8m (40%)
+- deploy-stage: 12m (60%) ← critical path
+
+## Runner Sizing
+- **CI / quick** (16 cores): job takes 45s on 16 cores — consider downsizing to save ~8x cost
+
+## Step-Level Timing
+### CI / build
+| Step | Median | % of job | Volatility |
+|------|--------|----------|------------|
+| docker build | 2m | 66% | 3.8x |
+| checkout | 10s | 5% | 1.1x |
+
