@@ -27,7 +27,7 @@ const graphqlMaxSteps = 50
 
 // FetchRunDetailsGraphQL hydrates runs with jobs+steps using batched GraphQL queries.
 // Falls back to REST for runs whose node_id is empty.
-func (c *Client) FetchRunDetailsGraphQL(ctx context.Context, runs []model.WorkflowRun) (details []model.RunDetail, warnings []Warning) {
+func (c *Client) FetchRunDetailsGraphQL(ctx context.Context, runs []model.WorkflowRun) (details []model.RunDetail, warnings []diag.Diagnostic) {
 	// Separate runs with and without node IDs
 	var graphqlRuns, restRuns []model.WorkflowRun
 	for i := range runs {
@@ -80,7 +80,7 @@ func (c *Client) FetchRunDetailsGraphQL(ctx context.Context, runs []model.Workfl
 // steps. Rare (>50 jobs or >50 steps per job) and bounded to one REST fetch
 // per affected run — and the completed result is cacheable, so it beats
 // re-fetching the truncated run on every future scan.
-func (c *Client) completeTruncated(ctx context.Context, details []model.RunDetail, warnings []Warning) (outDetails []model.RunDetail, outWarnings []Warning) {
+func (c *Client) completeTruncated(ctx context.Context, details []model.RunDetail, warnings []diag.Diagnostic) (outDetails []model.RunDetail, outWarnings []diag.Diagnostic) {
 	var truncatedRuns []model.WorkflowRun
 	for i := range details {
 		if details[i].Truncated {
@@ -130,7 +130,7 @@ func (c *Client) completeTruncated(ctx context.Context, details []model.RunDetai
 // fetchBatchGraphQL hydrates one batch. A non-nil error is returned only for
 // rate limiting, which the caller must handle by stopping — other failures
 // fall back to REST internally.
-func (c *Client) fetchBatchGraphQL(ctx context.Context, runs []model.WorkflowRun) (details []model.RunDetail, warnings []Warning, fatal error) {
+func (c *Client) fetchBatchGraphQL(ctx context.Context, runs []model.WorkflowRun) (details []model.RunDetail, warnings []diag.Diagnostic, fatal error) {
 	query := buildBatchQuery(runs)
 
 	raw, err := c.doGraphQL(ctx, query)
@@ -298,7 +298,7 @@ type graphqlStep struct {
 // Runs the response does not account for — a malformed top-level payload or a
 // missing alias key — are returned in missed so the caller can fetch them via
 // REST; dropping them silently would lose data with no diagnostic.
-func parseBatchResponse(raw json.RawMessage, runs []model.WorkflowRun) (details []model.RunDetail, missed []model.WorkflowRun, warnings []Warning) {
+func parseBatchResponse(raw json.RawMessage, runs []model.WorkflowRun) (details []model.RunDetail, missed []model.WorkflowRun, warnings []diag.Diagnostic) {
 	var response map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &response); err != nil {
 		return nil, runs, nil
@@ -375,7 +375,7 @@ func parseGraphQLTime(s *string) time.Time {
 	return t
 }
 
-func newGraphQLWarning(runID int64, msg string) Warning {
+func newGraphQLWarning(runID int64, msg string) diag.Diagnostic {
 	return diag.New(diag.Warn, diag.KindNetwork, fmt.Sprintf("run-%d", runID),
 		fmt.Sprintf("run %d: %s", runID, msg))
 }

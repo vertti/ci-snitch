@@ -10,9 +10,6 @@ import (
 	"github.com/vertti/ci-snitch/internal/model"
 )
 
-// Warning is a deprecated alias for diag.Diagnostic. Use diag.Diagnostic directly.
-type Warning = diag.Diagnostic
-
 // Options controls which preprocessing steps are applied.
 type Options struct {
 	Branch          string // filter to this branch (empty = no filter)
@@ -20,7 +17,7 @@ type Options struct {
 }
 
 // Run applies all preprocessing steps in order and returns the filtered results.
-func Run(details []model.RunDetail, opts Options) (result []model.RunDetail, warnings []Warning) {
+func Run(details []model.RunDetail, opts Options) (result []model.RunDetail, warnings []diag.Diagnostic) {
 	result = DeduplicateRetries(details)
 	if len(result) < len(details) {
 		warnings = append(warnings, diag.New(

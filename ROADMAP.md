@@ -278,8 +278,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### Q5. Export label constants; use them across analyze/output [S]
 - Labels minted in analyze are string-matched in output with no compile-time link: persistence (`table.go:708` vs existing constants), volatility (`"volatile"`/`"spiky"` at `table.go:127,283`), runner `"oversized"`/`"undersized"` (`runners.go:98`). Also use the existing Type constants at all construction sites and co-locate them with their analyzers.
 
-### Q6. Finish the diag.Diagnostic migration [S]
-- Deprecated `Warning = diag.Diagnostic` alias is still the signature currency of `internal/github` (15 uses) and `preprocess.Run`'s return type. Delete both aliases, use `diag.Diagnostic` everywhere.
+### Q6. Finish the diag.Diagnostic migration [S] ✅ done
+- Both deprecated `Warning = diag.Diagnostic` aliases deleted (github, preprocess); all 15 signature uses now say `diag.Diagnostic`. No external callers existed.
 
 ### Q7. Cost: OS-prefix pricing fallback; collapse speculative Model [S] ✅ done
 - `osPrefixMultiplier` prices unknown GitHub images by OS prefix (macos*→10, windows*→2, ubuntu*/linux*→1) before the 1× default; red tests pinned `macos-16`→10 and `windows-2028`→2. Vendor labels still fall through. Table comment dated. `Model`/`DefaultModel` collapsed to package-level functions (no callers used the type).

@@ -195,9 +195,9 @@ const dateWindowSize = 7
 // FetchRuns fetches completed workflow runs for a specific workflow since the given time.
 // Uses sliding date windows to avoid the GitHub API 1,000-result cap.
 // If branch is empty, runs from all branches are returned.
-func (c *Client) FetchRuns(ctx context.Context, workflowID int64, since time.Time, branch string) ([]model.WorkflowRun, []Warning, error) {
+func (c *Client) FetchRuns(ctx context.Context, workflowID int64, since time.Time, branch string) ([]model.WorkflowRun, []diag.Diagnostic, error) {
 	var all []model.WorkflowRun
-	var warnings []Warning
+	var warnings []diag.Diagnostic
 	now := time.Now().UTC()
 	windowStart := since
 
@@ -224,9 +224,9 @@ func (c *Client) FetchRuns(ctx context.Context, workflowID int64, since time.Tim
 	return all, warnings, nil
 }
 
-func (c *Client) fetchRunsWindow(ctx context.Context, workflowID int64, start, end time.Time, branch string) ([]model.WorkflowRun, []Warning, error) {
+func (c *Client) fetchRunsWindow(ctx context.Context, workflowID int64, start, end time.Time, branch string) ([]model.WorkflowRun, []diag.Diagnostic, error) {
 	var all []model.WorkflowRun
-	var warnings []Warning
+	var warnings []diag.Diagnostic
 	created := fmt.Sprintf("%s..%s", start.Format("2006-01-02"), end.Format("2006-01-02"))
 
 	opts := &gh.ListWorkflowRunsOptions{
@@ -299,9 +299,6 @@ func (c *Client) waitForRateReset(ctx context.Context, resp *gh.Response) error 
 	}
 }
 
-// Warning is a deprecated alias for diag.Diagnostic. Use diag.Diagnostic directly.
-type Warning = diag.Diagnostic
-
 // defaultWorkers is the number of goroutines dispatching job-fetch work.
 // Effective concurrency is bounded by the Client's jobSem semaphore.
 const defaultWorkers = 20
@@ -349,10 +346,10 @@ func (c *Client) FetchJobs(ctx context.Context, runID int64) ([]model.Job, error
 // FetchRunDetails hydrates a slice of workflow runs with their jobs and steps.
 // Uses a worker pool for bounded concurrency. Returns partial results and
 // warnings for runs that failed to fetch.
-func (c *Client) FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) (details []model.RunDetail, warnings []Warning) {
+func (c *Client) FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) (details []model.RunDetail, warnings []diag.Diagnostic) {
 	type result struct {
 		detail model.RunDetail
-		warn   *Warning
+		warn   *diag.Diagnostic
 	}
 
 	work := make(chan model.WorkflowRun, len(runs))
@@ -372,7 +369,7 @@ func (c *Client) FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) 
 						continue
 					}
 					results <- result{
-						warn: &Warning{
+						warn: &diag.Diagnostic{
 							Severity: diag.Warn,
 							Kind:     diag.KindNetwork,
 							Scope:    fmt.Sprintf("run-%d", run.ID),
