@@ -80,7 +80,7 @@ func llmWritePriorityFindings(w io.Writer, g *groupedFindings) {
 
 	for _, f := range g.Changepoints {
 		d, ok := f.Detail.(analyze.ChangePointDetail)
-		if !ok || d.Category != analyze.CategoryRegression || d.Direction != analyze.DirectionSlowdown {
+		if !ok || !isRegressionSlowdown(&d) {
 			continue
 		}
 		hasPriority = true
@@ -129,9 +129,7 @@ func llmWritePriorityFindings(w io.Writer, g *groupedFindings) {
 			break
 		}
 		d, ok := g.Costs[i].Detail.(analyze.CostDetail)
-		// Same bar as the suggestions section: a negligible-score workflow
-		// is not a priority finding.
-		if !ok || d.PriorityScore < 50 {
+		if !ok || d.PriorityScore < minCostPriorityScore {
 			continue
 		}
 		costShown++
@@ -307,9 +305,8 @@ func failingStepHeadline(d *analyze.FailureDetail) string {
 	if len(d.FailingSteps) == 0 {
 		return ""
 	}
-	top := d.FailingSteps[0]
-	// Single dominant step: top step accounts for >60% of failures
-	if len(d.FailingSteps) == 1 || float64(top.Count) > float64(d.FailureCount)*0.6 {
+	top, dominant := dominantFailingStep(d)
+	if dominant {
 		s := fmt.Sprintf(" -- fails at step %q", top.StepName)
 		if top.JobName != "" {
 			s += fmt.Sprintf(" in job %q", top.JobName)
@@ -428,7 +425,7 @@ func suggestFromChangepoints(findings []analyze.Finding) []string {
 	var s []string
 	for _, f := range findings {
 		d, ok := f.Detail.(analyze.ChangePointDetail)
-		if !ok || d.Category != analyze.CategoryRegression || d.Direction != analyze.DirectionSlowdown {
+		if !ok || !isRegressionSlowdown(&d) {
 			continue
 		}
 		hint := ""
@@ -450,7 +447,7 @@ func suggestFromCosts(findings []analyze.Finding) []string {
 	var s []string
 	for _, f := range findings {
 		d, ok := f.Detail.(analyze.CostDetail)
-		if !ok || d.PriorityScore < 50 {
+		if !ok || d.PriorityScore < minCostPriorityScore {
 			continue
 		}
 		s = append(s, fmt.Sprintf("%q is a high-cost workflow (%.0f mins/day) -- check for flaky tests, cache misses, or resource contention",

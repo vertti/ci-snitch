@@ -263,10 +263,8 @@ Removed from the old "already correct" list — disproven by this review:
 
 ## Q — Code quality (2026-07-17 maintainability review; no behavior bugs, debt that taxes the next change)
 
-### Q1. Extract shared formatter decision logic + exhaustiveness guard [S]
-- Business rules are hand-copied across formatters and have drifted: dominant-failing-step threshold is `> 0.6` in `llm.go:312` but `>= 0.6` in `table.go:488`; regression+slowdown predicate repeated 3×; priority-score cost gate 2×. Extract `dominantFailingStep()`, `isRegressionSlowdown()`, named threshold consts into `helpers.go`.
-- `groupByType` (`helpers.go:25`) silently drops unknown finding types from table/markdown/llm. Add `analyze.AllTypes` + a test asserting every type is bucketed.
-- Presentation stays independent per formatter (healthy); only decision logic unifies.
+### Q1. Extract shared formatter decision logic + exhaustiveness guard [S] ✅ done
+- `dominantFailingStep()`/`isRegressionSlowdown()` + `dominantStepShare`/`minCostPriorityScore` consts in `helpers.go`; the `> 0.6` vs `>= 0.6` drift resolved to `>=` (red test pinned the 3-of-5 disagreement). `analyze.AllTypes` + bucketing exhaustiveness test guard `groupByType`.
 
 ### Q2. Shared job-series views on AnalysisContext [M]
 - Six analyzers re-declare a private `jobKey{wfID, job}` and re-implement group-by-(workflow, job) duration-series collection (`steps.go:62`, `outliers.go:113`, `changepoint.go:95`, `cost.go:44`, `runners.go:55`, `summary.go:166`; `postprocess.go` adds `wfJob`/`groupKey`). Add memoized `ac.JobSeries()` + one exported `JobKey`; analyzers keep only their own math.

@@ -9,6 +9,41 @@ import (
 	"github.com/vertti/ci-snitch/internal/analyze"
 )
 
+// Decision thresholds shared by all formatters. Presentation may differ per
+// medium; the rules deciding WHAT to say must not.
+const (
+	// dominantStepShare: a step accounting for at least this share of
+	// failures is reported as the dominant cause rather than "spread across
+	// N steps".
+	dominantStepShare = 0.6
+	// minCostPriorityScore: a workflow below this priority score is not
+	// worth a cost callout (priority findings and suggestions use the same
+	// bar).
+	minCostPriorityScore = 50
+)
+
+// isRegressionSlowdown reports whether a change point is the kind formatters
+// prioritize: a deduplicated actionable regression that got slower.
+func isRegressionSlowdown(d *analyze.ChangePointDetail) bool {
+	return d.Category == analyze.CategoryRegression && d.Direction == analyze.DirectionSlowdown
+}
+
+// dominantFailingStep returns the top failing step and whether it alone
+// explains the failure pattern: it is the only failing step, or it accounts
+// for at least dominantStepShare of failures.
+func dominantFailingStep(d *analyze.FailureDetail) (analyze.FailingStep, bool) {
+	if len(d.FailingSteps) == 0 {
+		return analyze.FailingStep{}, false
+	}
+	top := d.FailingSteps[0]
+	if len(d.FailingSteps) == 1 {
+		return top, true
+	}
+	dominant := d.FailureCount > 0 &&
+		float64(top.Count) >= float64(d.FailureCount)*dominantStepShare
+	return top, dominant
+}
+
 // groupedFindings holds findings split by type for rendering.
 type groupedFindings struct {
 	Summaries    []analyze.Finding

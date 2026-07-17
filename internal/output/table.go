@@ -145,7 +145,7 @@ func writeTriageRegressions(w io.Writer, changepoints []analyze.Finding) {
 	var regressions []analyze.ChangePointDetail
 	for _, f := range changepoints {
 		d, ok := f.Detail.(analyze.ChangePointDetail)
-		if ok && d.Category == analyze.CategoryRegression && d.Direction == analyze.DirectionSlowdown {
+		if ok && isRegressionSlowdown(&d) {
 			regressions = append(regressions, d)
 		}
 	}
@@ -482,16 +482,9 @@ func writeFailureTable(w io.Writer, findings []analyze.Finding) {
 
 		failsAt := ""
 		if len(d.FailingSteps) > 0 {
-			top := d.FailingSteps[0]
-			// If the top step accounts for >60% of failures, it's the dominant cause.
-			// Otherwise failures are distributed — say so explicitly.
-			dominant := d.FailureCount > 0 && float64(top.Count)/float64(d.FailureCount) >= 0.6
-			switch {
-			case dominant:
+			if top, dominant := dominantFailingStep(&d); dominant {
 				failsAt = fmt.Sprintf("\tfails at: %s%s%s", yellow, top.StepName, reset)
-			case len(d.FailingSteps) == 1:
-				failsAt = fmt.Sprintf("\tfails at: %s%s%s", yellow, top.StepName, reset)
-			default:
+			} else {
 				failsAt = fmt.Sprintf("\tfailures across %d steps %s(top: %s)%s",
 					len(d.FailingSteps), dim, top.StepName, reset)
 			}
