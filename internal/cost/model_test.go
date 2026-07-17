@@ -38,6 +38,13 @@ func TestLookupMultiplier(t *testing.T) {
 		// Third-party vendor labels carry core counts but are NOT GitHub
 		// runners — don't invent a GitHub bill for them.
 		{"third-party vcpu label", []string{"blacksmith-16vcpu-ubuntu-2404"}, 1},
+		// GitHub images newer than the pinned table must price by OS prefix,
+		// not fall through to the 1x Linux default — that silently billed
+		// the next macOS image at a 10x underestimate.
+		{"future macos image", []string{"macos-16"}, 10},
+		{"future windows image", []string{"windows-2028"}, 2},
+		{"future ubuntu image", []string{"ubuntu-26.04"}, 1},
+		{"future macos arm variant", []string{"macos-16-xlarge"}, 10},
 	}
 
 	for _, tt := range tests {

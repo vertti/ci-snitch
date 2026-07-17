@@ -281,9 +281,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### Q6. Finish the diag.Diagnostic migration [S]
 - Deprecated `Warning = diag.Diagnostic` alias is still the signature currency of `internal/github` (15 uses) and `preprocess.Run`'s return type. Delete both aliases, use `diag.Diagnostic` everywhere.
 
-### Q7. Cost: OS-prefix pricing fallback; collapse speculative Model [S]
-- Pricing table exact-matches version-pinned labels (`macos-15`); the next GitHub image silently gets the 1× Linux fallback (10× under for macOS). Add OS-prefix fallback (macos*→10, windows*→2) before the 1× default; date the table comment.
-- `cost.Model` is speculative generality (unexported map, no custom constructor, all callers use package-level wrappers that copy the map per call). Collapse to package-level functions.
+### Q7. Cost: OS-prefix pricing fallback; collapse speculative Model [S] ✅ done
+- `osPrefixMultiplier` prices unknown GitHub images by OS prefix (macos*→10, windows*→2, ubuntu*/linux*→1) before the 1× default; red tests pinned `macos-16`→10 and `windows-2028`→2. Vendor labels still fall through. Table comment dated. `Model`/`DefaultModel` collapsed to package-level functions (no callers used the type).
 
 ### Q8. Fold event-category into the preprocess pipeline [S]
 - `FilterByEventCategory` is the one preprocessing step outside `Run()` (called separately from `service.go:241`) with a stringly-typed `"pr"` category. Fold into `Options`/`Run()`; shared category constants with `app.Options.BranchCategory`.
