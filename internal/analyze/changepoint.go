@@ -6,7 +6,6 @@ import (
 	"hash/fnv"
 	"math"
 	"math/rand/v2"
-	"sort"
 	"time"
 
 	"github.com/vertti/ci-snitch/internal/stats"
@@ -78,63 +77,24 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 		minSeg = 5
 	}
 
-	// Sort details by time
-	sorted := make([]detailRef, len(ac.Details))
-	for i := range ac.Details {
-		sorted[i] = detailRef{idx: i, created: ac.Details[i].Run.CreatedAt}
-	}
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].created.Before(sorted[j].created)
-	})
-
 	var findings []Finding
 
-	// Per-(workflow, job) change-point detection.
-	// Keying by job name alone would mix distributions from different workflows
-	// that happen to share a job name (e.g. "Unit tests").
-	type jobKey struct {
-		wfID int64
-		job  string
-	}
-	type jobSeries struct {
-		durations []float64
-		refs      []int // indices into sorted
-	}
-	jobs := make(map[jobKey]*jobSeries)
-
-	for i, ref := range sorted {
-		d := ac.Details[ref.idx]
-		for j := range d.Jobs {
-			dur := d.Jobs[j].Duration().Seconds()
-			if dur <= 0 {
-				continue
-			}
-			k := jobKey{d.Run.WorkflowID, d.Jobs[j].Name}
-			if jobs[k] == nil {
-				jobs[k] = &jobSeries{}
-			}
-			js := jobs[k]
-			js.durations = append(js.durations, dur)
-			js.refs = append(js.refs, i)
-		}
-	}
-
-	for jk, js := range jobs {
-		wfName := ac.WorkflowName(jk.wfID)
-		if len(js.durations) < 2*minSeg {
+	// Per-(workflow, job) change-point detection over the shared
+	// chronological series (see AnalysisContext.JobSeries).
+	for jk, js := range ac.JobSeries() {
+		wfName := ac.WorkflowName(jk.WorkflowID)
+		if len(js.Durations) < 2*minSeg {
 			continue
 		}
 
 		// Clamp extreme outliers before changepoint detection.
 		// A single 38-min run in a 10-min job can fool CUSUM into reporting
 		// a persistent regression when the job actually got faster.
-		clamped := stats.ClampOutliers(js.durations, 4.0)
+		clamped := stats.ClampOutliers(js.Durations, 4.0)
 		cps := stats.CUSUMDetect(clamped, threshold, minSeg)
 		for cpIdx, cp := range cps {
-			// Find the corresponding run for context
-			sortedIdx := js.refs[cp.Index]
-			detailIdx := sorted[sortedIdx].idx
-			d := ac.Details[detailIdx]
+			// The run where the change surfaced, for commit/date context
+			d := ac.Details[js.Refs[cp.Index].DetailIdx]
 
 			// Both segments are bounded by the neighboring change points:
 			// comparing the full prefix/suffix would mix levels from other
@@ -145,19 +105,19 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 			if cpIdx > 0 {
 				segStart = cps[cpIdx-1].Index
 			}
-			postChangeEnd := len(js.durations)
+			postChangeEnd := len(js.Durations)
 			if cpIdx+1 < len(cps) {
 				postChangeEnd = cps[cpIdx+1].Index
 			}
-			before := js.durations[segStart:cp.Index]
-			after := js.durations[cp.Index:postChangeEnd]
+			before := js.Durations[segStart:cp.Index]
+			after := js.Durations[cp.Index:postChangeEnd]
 
 			// Significance on raw values: Mann-Whitney is rank-based, so a
 			// single outlier has bounded influence. The RNG is seeded from
 			// stable inputs so the Monte-Carlo permutation path yields the
 			// same p-value on every invocation — unseeded, p-values near the
 			// 0.05 boundary drifted ~5% between runs on identical data.
-			_, pValue := stats.MannWhitneyURand(before, after, seededRNG(jk.wfID, jk.job, cp.Index))
+			_, pValue := stats.MannWhitneyURand(before, after, seededRNG(jk.WorkflowID, jk.Job, cp.Index))
 
 			// Segment levels from the clamped series (what CUSUM saw): with
 			// bounded segments a raw mean would let one extreme outlier
@@ -190,7 +150,7 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 			findings = append(findings, Finding{
 				Type:     TypeChangepoint,
 				Severity: severity,
-				Title:    fmt.Sprintf("Performance %s in job %q", direction, jk.job),
+				Title:    fmt.Sprintf("Performance %s in job %q", direction, jk.Job),
 				Description: fmt.Sprintf("%.0f%% change at %s (commit %s), before: %s, after: %s (p=%.4f)",
 					pctChange,
 					d.Run.CreatedAt.Format("2006-01-02"),
@@ -200,7 +160,7 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 					pValue),
 				Detail: ChangePointDetail{
 					WorkflowName:   wfName,
-					JobName:        jk.job,
+					JobName:        jk.Job,
 					ChangeIdx:      cp.Index,
 					BeforeMean:     Duration(beforeMean * float64(time.Second)),
 					AfterMean:      Duration(afterMean * float64(time.Second)),
@@ -219,11 +179,6 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 	}
 
 	return findings, nil
-}
-
-type detailRef struct {
-	idx     int
-	created time.Time
 }
 
 // seededRNG returns an RNG deterministically derived from the change point's

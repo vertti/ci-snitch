@@ -266,8 +266,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### Q1. Extract shared formatter decision logic + exhaustiveness guard [S] ✅ done
 - `dominantFailingStep()`/`isRegressionSlowdown()` + `dominantStepShare`/`minCostPriorityScore` consts in `helpers.go`; the `> 0.6` vs `>= 0.6` drift resolved to `>=` (red test pinned the 3-of-5 disagreement). `analyze.AllTypes` + bucketing exhaustiveness test guard `groupByType`.
 
-### Q2. Shared job-series views on AnalysisContext [M]
-- Six analyzers re-declare a private `jobKey{wfID, job}` and re-implement group-by-(workflow, job) duration-series collection (`steps.go:62`, `outliers.go:113`, `changepoint.go:95`, `cost.go:44`, `runners.go:55`, `summary.go:166`; `postprocess.go` adds `wfJob`/`groupKey`). Add memoized `ac.JobSeries()` + one exported `JobKey`; analyzers keep only their own math.
+### Q2. Shared job-series views on AnalysisContext [M] ✅ done
+- Memoized `ac.JobSeries()` (chronological per-(workflow, job) durations + `RunJobRef` back-refs) replaces the hand-rolled collection loops in changepoint and outliers; exported `JobKey` replaces the private redeclarations in summary/steps; postprocess's `wfJob`/`groupKey` and steps' local `wfJobName` unify into one package-level `wfJobName`. Deliberate deviations: summary keeps its collection loop (same pass also builds workflow/queue series, and it needs `time.Duration`), runners keeps its 3-field key (label axis), cost operates on `AllDetails` — forcing those in would be over-abstraction.
 
 ### Q3. Golden-file tests for output formatters [M]
 - The package whose output is the product has only substring assertions; alignment/ordering regressions pass. Add `testdata/*.golden` for table/markdown/llm with an `-update` flag (anonymized fixture data). Fold in the palette-struct change (`table.go:85`/`color.go:32` package-global mutable ANSI vars make test order significant) so colored goldens are possible.

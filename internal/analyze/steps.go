@@ -59,20 +59,15 @@ func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 		topN = defaultTopNSteps
 	}
 
-	type jobKey struct {
-		wfID int64
-		job  string
-	}
-
 	// Collect step durations per (workflow, job, step)
-	jobSteps := make(map[jobKey]map[string]*stepAccum)
-	jobMedians := make(map[jobKey]time.Duration) // for pct-of-job calculation
-	jobRuns := make(map[jobKey]int)
+	jobSteps := make(map[JobKey]map[string]*stepAccum)
+	jobMedians := make(map[JobKey]time.Duration) // for pct-of-job calculation
+	jobRuns := make(map[JobKey]int)
 
 	for i := range ac.Details {
 		wfID := ac.Details[i].Run.WorkflowID
 		for j := range ac.Details[i].Jobs {
-			jk := jobKey{wfID, ac.Details[i].Jobs[j].Name}
+			jk := JobKey{wfID, ac.Details[i].Jobs[j].Name}
 			jobRuns[jk]++
 
 			if jobSteps[jk] == nil {
@@ -94,12 +89,12 @@ func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 	}
 
 	// Collect job-level durations and compute medians
-	jobDurs := make(map[jobKey][]time.Duration)
+	jobDurs := make(map[JobKey][]time.Duration)
 	for i := range ac.Details {
 		for j := range ac.Details[i].Jobs {
 			dur := ac.Details[i].Jobs[j].Duration()
 			if dur > 0 {
-				jk := jobKey{ac.Details[i].Run.WorkflowID, ac.Details[i].Jobs[j].Name}
+				jk := JobKey{ac.Details[i].Run.WorkflowID, ac.Details[i].Jobs[j].Name}
 				jobDurs[jk] = append(jobDurs[jk], dur)
 			}
 		}
@@ -113,7 +108,7 @@ func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 		if jobRuns[jk] < minRunsForSteps {
 			continue
 		}
-		wfName := ac.WorkflowName(jk.wfID)
+		wfName := ac.WorkflowName(jk.WorkflowID)
 		jobMed := jobMedians[jk]
 
 		summaries := summarizeSteps(steps, jobMed)
@@ -135,12 +130,12 @@ func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 		findings = append(findings, Finding{
 			Type:     TypeSteps,
 			Severity: SeverityInfo,
-			Title:    fmt.Sprintf("Slowest steps in %s / %s", wfName, jk.job),
+			Title:    fmt.Sprintf("Slowest steps in %s / %s", wfName, jk.Job),
 			Description: fmt.Sprintf("Top %d steps by duration (of %d runs)",
 				len(summaries), jobRuns[jk]),
 			Detail: StepTimingDetail{
 				WorkflowName: wfName,
-				JobName:      jk.job,
+				JobName:      jk.Job,
 				TotalRuns:    jobRuns[jk],
 				Steps:        summaries,
 			},
@@ -149,10 +144,9 @@ func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 
 	// Precompute median per (workflow, job) for O(1) sort comparisons —
 	// same-named jobs in different workflows must not share an entry.
-	type wfJobName struct{ wf, job string }
 	medianByJob := make(map[wfJobName]time.Duration)
 	for jk, med := range jobMedians {
-		medianByJob[wfJobName{ac.WorkflowName(jk.wfID), jk.job}] = med
+		medianByJob[wfJobName{ac.WorkflowName(jk.WorkflowID), jk.Job}] = med
 	}
 
 	// Sort findings by job median descending (slowest jobs first)

@@ -66,7 +66,7 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 	// Collect durations per workflow and per (workflow, job)
 	wfDurations := make(map[int64][]time.Duration)
 	wfQueueTimes := make(map[int64][]time.Duration)
-	jobDurations := make(map[jobKey][]time.Duration)
+	jobDurations := make(map[JobKey][]time.Duration)
 
 	for i := range ac.Details {
 		wfID := ac.Details[i].Run.WorkflowID
@@ -88,7 +88,7 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 		for j := range ac.Details[i].Jobs {
 			dur := ac.Details[i].Jobs[j].Duration()
 			if dur > 0 {
-				k := jobKey{wfID, ac.Details[i].Jobs[j].Name}
+				k := JobKey{wfID, ac.Details[i].Jobs[j].Name}
 				jobDurations[k] = append(jobDurations[k], dur)
 			}
 		}
@@ -103,9 +103,9 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 		// Collect jobs for this workflow
 		var jobs []JobSummary
 		for key, jDurations := range jobDurations {
-			if key.wfID == wfID {
+			if key.WorkflowID == wfID {
 				jobs = append(jobs, JobSummary{
-					Name:  key.job,
+					Name:  key.Job,
 					Stats: computeStats(jDurations),
 				})
 			}
@@ -163,14 +163,9 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 	return findings, nil
 }
 
-type jobKey struct {
-	wfID int64
-	job  string
-}
-
 // groupMatrixJobs merges matrix variants (e.g. "test (ubuntu, 20)", "test (macos, 20)")
 // into a single "test" entry with combined durations when there are multiple variants.
-func groupMatrixJobs(jobs []JobSummary, jobDurations map[jobKey][]time.Duration, wfID int64) []JobSummary {
+func groupMatrixJobs(jobs []JobSummary, jobDurations map[JobKey][]time.Duration, wfID int64) []JobSummary {
 	// Group by base name
 	type group struct {
 		variants  []string
@@ -188,7 +183,7 @@ func groupMatrixJobs(jobs []JobSummary, jobDurations map[jobKey][]time.Duration,
 			order = append(order, base)
 		}
 		g.variants = append(g.variants, j.Name)
-		g.durations = append(g.durations, jobDurations[jobKey{wfID, j.Name}]...)
+		g.durations = append(g.durations, jobDurations[JobKey{wfID, j.Name}]...)
 	}
 
 	// Only group if a base name has multiple variants
