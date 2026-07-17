@@ -297,9 +297,9 @@ Removed from the old "already correct" list — disproven by this review:
 ### Q11. github: shared rate-reset wait; classify errors everywhere [S] ✅ done
 - `waitForRateReset(ctx, resp)` + `restRateFloor` const replace the two copy-pasted sleep blocks. `classifyAPIError` applied in `fetchRunsWindow`/`FetchJobs`/`GetCommitInfo` (red tests: SAML 403 in job fetch, 401 in run listing). `GetCommitInfo` 404 gets its own message — the SHA is gone, not the repo.
 
-### Q12. app: build cache state once; slim WorkflowFetcher [M]
-- `countRuns` and `partitionCached` each rebuild the same per-workflow cache state (cachedUpdatedAt map + IncompleteRunIDs, with `servableFromCache` taking the pair as a data clump) — build a `cacheIndex` once after `fetchRunLists`, pass to both budget and hydration phases; stop threading `*Options` into helpers that use one field.
-- `WorkflowFetcher` exposes both `FetchRunDetails` and `FetchRunDetailsGraphQL` but the service only calls the GraphQL one; collapse to one hydrate method so the transport choice lives in `github.Client`.
+### Q12. app: build cache state once; slim WorkflowFetcher [M] ✅ done
+- `cacheIndex` (per-workflow cached UpdatedAt + incomplete set) built once after `fetchRunLists` and shared by `countRuns` and `partitionCached` — each previously rebuilt it with repeated store queries; `idx.servable(wfID, run)` replaces the `servableFromCache` data clump at call sites. Helpers no longer thread `*Options` for one field (`hydrateAll`/`hydrateWorkflow` take `verbose bool`).
+- `FetchRunDetails` dropped from `WorkflowFetcher` — the service only ever calls the GraphQL method (REST fallback lives inside `github.Client`); the fake's delegation stub went with it.
 
 **Explicitly fine as-is (do not "fix"):** the three formatters' presentation independence; `internal/github` as one package (fallback seam is one-directional and documented); `Service.Run`'s phase decomposition; `cmd/smoke` untested (it is the test harness); `cmd/ci-snitch` 49.7% / store 75.9% coverage (wiring and error tails); tiny packages `diag`/`system`/`cost`.
 

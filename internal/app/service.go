@@ -24,7 +24,6 @@ import (
 type WorkflowFetcher interface {
 	ListWorkflows(ctx context.Context) ([]model.Workflow, error)
 	FetchRuns(ctx context.Context, workflowID int64, since time.Time, branch string) ([]model.WorkflowRun, []diag.Diagnostic, error)
-	FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) ([]model.RunDetail, []diag.Diagnostic)
 	FetchRunDetailsGraphQL(ctx context.Context, runs []model.WorkflowRun) ([]model.RunDetail, []diag.Diagnostic)
 	RateLimit(ctx context.Context) (github.RateLimitStatus, error)
 	GetCommitInfo(ctx context.Context, sha string) (github.CommitInfo, error)
@@ -97,7 +96,10 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 	}
 	pipelineDiags = append(pipelineDiags, listDiags...)
 
-	totalRuns, uncachedRuns := s.countRuns(allWfRuns, opts)
+	// Cache state is read once and shared by the budget and hydration
+	// phases — they previously each rebuilt it with repeated store queries.
+	cache := s.buildCacheIndex(allWfRuns, opts.Since)
+	totalRuns, uncachedRuns := countRuns(allWfRuns, cache)
 
 	// Estimate API cost and check rate limit budget
 	if err := s.checkRateBudget(ctx, totalRuns, uncachedRuns, opts); err != nil {
@@ -105,7 +107,7 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 	}
 
 	// Phase 2: hydrate runs (expensive — 1 API call per uncached run)
-	allDetails, hydrateDiags, err := s.hydrateAll(ctx, allWfRuns, opts)
+	allDetails, hydrateDiags, err := s.hydrateAll(ctx, allWfRuns, cache, opts.Verbose)
 	if err != nil {
 		return analyze.AnalysisResult{}, err
 	}
@@ -314,7 +316,7 @@ func (s *Service) fetchRunLists(ctx context.Context, workflows []model.Workflow,
 	return result, diags, g.Wait()
 }
 
-func (s *Service) hydrateAll(ctx context.Context, allWfRuns []workflowRuns, opts *Options) ([]model.RunDetail, []diag.Diagnostic, error) {
+func (s *Service) hydrateAll(ctx context.Context, allWfRuns []workflowRuns, cache *cacheIndex, verbose bool) ([]model.RunDetail, []diag.Diagnostic, error) {
 	var (
 		allDetails []model.RunDetail
 		diags      []diag.Diagnostic
@@ -325,7 +327,7 @@ func (s *Service) hydrateAll(ctx context.Context, allWfRuns []workflowRuns, opts
 	for i := range allWfRuns {
 		wr := allWfRuns[i]
 		g.Go(func() error {
-			details, wfDiags := s.hydrateWorkflow(gctx, wr.wf, wr.runs, opts)
+			details, wfDiags := s.hydrateWorkflow(gctx, wr.wf, wr.runs, cache, verbose)
 			// A cancelled hydration returns whatever subset it had fetched;
 			// analyzing that silently would look like a normal result.
 			if err := gctx.Err(); err != nil {
@@ -341,33 +343,53 @@ func (s *Service) hydrateAll(ctx context.Context, allWfRuns []workflowRuns, opts
 	return allDetails, diags, g.Wait()
 }
 
+// cacheIndex is the cache state consulted when deciding whether a listed run
+// needs an API fetch: per-workflow cached UpdatedAt plus the runs cached
+// while still incomplete. Nil means caching is disabled.
+type cacheIndex struct {
+	updatedAt  map[int64]map[int64]time.Time // workflowID -> runID -> cached UpdatedAt
+	incomplete map[int64]bool
+}
+
+// buildCacheIndex reads the cache state for every listed workflow once.
+func (s *Service) buildCacheIndex(allWfRuns []workflowRuns, since time.Time) *cacheIndex {
+	if s.Store == nil {
+		return nil
+	}
+	idx := &cacheIndex{
+		updatedAt:  make(map[int64]map[int64]time.Time, len(allWfRuns)),
+		incomplete: make(map[int64]bool),
+	}
+	if incomplete, err := s.Store.IncompleteRunIDs(); err == nil {
+		for _, id := range incomplete {
+			idx.incomplete[id] = true
+		}
+	}
+	for i := range allWfRuns {
+		wfID := allWfRuns[i].wf.ID
+		idx.updatedAt[wfID] = s.cachedUpdatedAt(wfID, since)
+	}
+	return idx
+}
+
+// servable reports whether a listed run can be served from the cache.
+func (idx *cacheIndex) servable(wfID int64, run *model.WorkflowRun) bool {
+	if idx == nil {
+		return false
+	}
+	return servableFromCache(idx.updatedAt[wfID], idx.incomplete, run)
+}
+
 // countRuns returns (totalRuns, uncachedRuns) across all workflows.
 // Uncached runs are those that will require an API fetch; cached completed
 // runs are served from the local SQLite store.
-func (s *Service) countRuns(allWfRuns []workflowRuns, opts *Options) (total, uncached int) {
-	// When cache is disabled, everything needs fetching.
-	if s.Store == nil {
-		for i := range allWfRuns {
-			total += len(allWfRuns[i].runs)
-		}
-		return total, total
-	}
-
-	incompleteSet := make(map[int64]bool)
-	if incomplete, err := s.Store.IncompleteRunIDs(); err == nil {
-		for _, id := range incomplete {
-			incompleteSet[id] = true
-		}
-	}
-
+func countRuns(allWfRuns []workflowRuns, cache *cacheIndex) (total, uncached int) {
 	for i := range allWfRuns {
-		wf := allWfRuns[i].wf
+		wfID := allWfRuns[i].wf.ID
 		runs := allWfRuns[i].runs
 		total += len(runs)
-
-		cachedAt := s.cachedUpdatedAt(wf.ID, opts.Since)
 		for j := range runs {
-			if !servableFromCache(cachedAt, incompleteSet, &runs[j]) {
+			if !cache.servable(wfID, &runs[j]) {
 				uncached++
 			}
 		}
@@ -452,20 +474,11 @@ func (s *Service) checkRateBudget(ctx context.Context, totalRuns, uncachedRuns i
 // fetch. Servable runs hydrate in one batch call (3 queries) instead of
 // 1 + jobs queries per run; anything the batch cannot produce is re-fetched
 // (caching is best-effort).
-func (s *Service) partitionCached(wf model.Workflow, runs []model.WorkflowRun, opts *Options) (details []model.RunDetail, needsFetch []model.WorkflowRun) {
-	cachedAt := s.cachedUpdatedAt(wf.ID, opts.Since)
-
-	incompleteSet := make(map[int64]bool)
-	if incomplete, err := s.Store.IncompleteRunIDs(); err == nil {
-		for _, id := range incomplete {
-			incompleteSet[id] = true
-		}
-	}
-
+func (s *Service) partitionCached(wf model.Workflow, runs []model.WorkflowRun, cache *cacheIndex) (details []model.RunDetail, needsFetch []model.WorkflowRun) {
 	var servable []model.WorkflowRun
 	var servableIDs []int64
 	for i := range runs {
-		if servableFromCache(cachedAt, incompleteSet, &runs[i]) {
+		if cache.servable(wf.ID, &runs[i]) {
 			servable = append(servable, runs[i])
 			servableIDs = append(servableIDs, runs[i].ID)
 		} else {
@@ -494,16 +507,16 @@ func (s *Service) partitionCached(wf model.Workflow, runs []model.WorkflowRun, o
 }
 
 // hydrateWorkflow loads run details from cache or API for a single workflow.
-func (s *Service) hydrateWorkflow(ctx context.Context, wf model.Workflow, runs []model.WorkflowRun, opts *Options) ([]model.RunDetail, []diag.Diagnostic) {
+func (s *Service) hydrateWorkflow(ctx context.Context, wf model.Workflow, runs []model.WorkflowRun, cache *cacheIndex, verbose bool) ([]model.RunDetail, []diag.Diagnostic) {
 	// Partition runs: serve completed from cache, fetch only new/incomplete from API.
 	var details []model.RunDetail
 	var diags []diag.Diagnostic
 	var needsFetch []model.WorkflowRun
 
 	if s.Store != nil {
-		details, needsFetch = s.partitionCached(wf, runs, opts)
+		details, needsFetch = s.partitionCached(wf, runs, cache)
 
-		if opts.Verbose {
+		if verbose {
 			s.Prog.Log("  %q: %d cached, %d to fetch", wf.Name, len(details), len(needsFetch))
 		}
 	} else {
@@ -514,7 +527,7 @@ func (s *Service) hydrateWorkflow(ctx context.Context, wf model.Workflow, runs [
 		s.Prog.Status("Fetching %q — hydrating %d runs (%d cached)...", wf.Name, len(needsFetch), len(details))
 		hydrateStart := time.Now()
 		fetched, warnings := s.Client.FetchRunDetailsGraphQL(ctx, needsFetch)
-		if opts.Verbose {
+		if verbose {
 			s.Prog.Log("  %q: hydrated %d runs in %s", wf.Name, len(fetched), time.Since(hydrateStart))
 		}
 		diags = append(diags, warnings...)

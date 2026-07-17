@@ -36,7 +36,7 @@ type fakeFetcher struct {
 	cancelDuringHydration context.CancelFunc
 
 	mu          sync.Mutex
-	hydratedIDs []int64 // run IDs requested via FetchRunDetails*()
+	hydratedIDs []int64 // run IDs requested via FetchRunDetailsGraphQL
 }
 
 func (f *fakeFetcher) ListWorkflows(context.Context) ([]model.Workflow, error) {
@@ -45,10 +45,6 @@ func (f *fakeFetcher) ListWorkflows(context.Context) ([]model.Workflow, error) {
 
 func (f *fakeFetcher) FetchRuns(_ context.Context, workflowID int64, _ time.Time, _ string) ([]model.WorkflowRun, []diag.Diagnostic, error) {
 	return f.runs[workflowID], f.listWarnings, nil
-}
-
-func (f *fakeFetcher) FetchRunDetails(ctx context.Context, runs []model.WorkflowRun) ([]model.RunDetail, []diag.Diagnostic) {
-	return f.FetchRunDetailsGraphQL(ctx, runs)
 }
 
 // FetchRunDetailsGraphQL records the requested run IDs and returns the
@@ -660,9 +656,10 @@ func TestCountRuns_CountsStaleRunsAsUncached(t *testing.T) {
 	st := &fakeStore{cachedRuns: []model.WorkflowRun{fresh, staleCached}}
 	svc := &Service{Store: st, Prog: output.NewProgress()}
 
-	total, uncached := svc.countRuns([]workflowRuns{
+	wfRuns := []workflowRuns{
 		{wf: model.Workflow{ID: 1, Name: "CI"}, runs: []model.WorkflowRun{fresh, staleListed}},
-	}, &Options{Since: testBase.Add(-24 * time.Hour)})
+	}
+	total, uncached := countRuns(wfRuns, svc.buildCacheIndex(wfRuns, testBase.Add(-24*time.Hour)))
 
 	require.Equal(t, 2, total)
 	require.Equal(t, 1, uncached, "the re-run run must be counted as needing a fetch")
