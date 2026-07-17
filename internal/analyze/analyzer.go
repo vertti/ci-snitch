@@ -54,6 +54,14 @@ const (
 	TypeCost        = "cost"
 )
 
+// AllTypes lists every finding type. New types must be added here — the
+// output package's exhaustiveness test fails any type this list contains
+// that the formatters would silently drop.
+var AllTypes = []string{
+	TypeSummary, TypeSteps, TypePipeline, TypeRunner,
+	TypeOutlier, TypeChangepoint, TypeFailure, TypeCost,
+}
+
 // Change point persistence classifications.
 const (
 	PersistencePersistent   = "persistent"
