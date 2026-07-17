@@ -75,14 +75,24 @@ func ExcludeRerunAttempts(details []model.RunDetail) []model.RunDetail {
 	return out
 }
 
-// FilterByEventCategory selects runs by trigger category: "pr" keeps
-// pull_request-event runs, "main" keeps everything else (pushes, schedules,
-// manual dispatches — the default-branch style of traffic).
+// Run trigger categories for FilterByEventCategory — the shared vocabulary
+// of the app layer's BranchCategory option and the CLI's --branch-category
+// flag.
+const (
+	CategoryPR   = "pr"
+	CategoryMain = "main"
+	CategoryAll  = "all"
+)
+
+// FilterByEventCategory selects runs by trigger category: CategoryPR keeps
+// pull_request-event runs, CategoryMain keeps everything else (pushes,
+// schedules, manual dispatches — the default-branch style of traffic).
 func FilterByEventCategory(details []model.RunDetail, category string) []model.RunDetail {
+	wantPR := category == CategoryPR
 	var out []model.RunDetail
 	for i := range details {
 		isPR := details[i].Run.Event == "pull_request"
-		if (category == "pr") == isPR {
+		if wantPR == isPR {
 			out = append(out, details[i])
 		}
 	}

@@ -284,8 +284,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### Q7. Cost: OS-prefix pricing fallback; collapse speculative Model [S] ✅ done
 - `osPrefixMultiplier` prices unknown GitHub images by OS prefix (macos*→10, windows*→2, ubuntu*/linux*→1) before the 1× default; red tests pinned `macos-16`→10 and `windows-2028`→2. Vendor labels still fall through. Table comment dated. `Model`/`DefaultModel` collapsed to package-level functions (no callers used the type).
 
-### Q8. Fold event-category into the preprocess pipeline [S]
-- `FilterByEventCategory` is the one preprocessing step outside `Run()` (called separately from `service.go:241`) with a stringly-typed `"pr"` category. Fold into `Options`/`Run()`; shared category constants with `app.Options.BranchCategory`.
+### Q8. Event-category constants [S] ✅ done (folding into Run() rejected)
+- `preprocess.Category{PR,Main,All}` constants shared by `FilterByEventCategory`, `applyRunFilters`, and the CLI's `validateBranchCategory`; the `(category == "pr") == isPR` trick unpacked into a named `wantPR`. **Folding into `Run()` rejected on inspection:** `applyRunFilters` deliberately narrows `allDetails` before `ComputeRerunStats` so the category filter reaches failure/rerun/cost consumers — moving it into `preprocess.Run` would scope it to the duration series only, reintroducing the A3 bug class, and would lose the flag-named early errors.
 
 ### Q9. Vestigial cleanup sweep [S]
 - `MarkdownFormatter.Verbose` set but never read (markdown ignores `-v` while table honors it) — honor it, with a red test first.
