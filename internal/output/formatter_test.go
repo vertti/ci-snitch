@@ -704,10 +704,11 @@ func TestTableFormatter_ChangePointPersistence(t *testing.T) {
 }
 
 func TestFmtVolatility(t *testing.T) {
-	assert.Empty(t, fmtVolatility("stable"))
-	assert.Contains(t, fmtVolatility("variable"), "variable")
-	assert.Contains(t, fmtVolatility("spiky"), "spiky")
-	assert.Contains(t, fmtVolatility("volatile"), "volatile")
+	p := plainPalette()
+	assert.Empty(t, p.fmtVolatility("stable"))
+	assert.Contains(t, p.fmtVolatility("variable"), "variable")
+	assert.Contains(t, p.fmtVolatility("spiky"), "spiky")
+	assert.Contains(t, p.fmtVolatility("volatile"), "volatile")
 }
 
 func TestFmtDur(t *testing.T) {

@@ -269,8 +269,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### Q2. Shared job-series views on AnalysisContext [M] ✅ done
 - Memoized `ac.JobSeries()` (chronological per-(workflow, job) durations + `RunJobRef` back-refs) replaces the hand-rolled collection loops in changepoint and outliers; exported `JobKey` replaces the private redeclarations in summary/steps; postprocess's `wfJob`/`groupKey` and steps' local `wfJobName` unify into one package-level `wfJobName`. Deliberate deviations: summary keeps its collection loop (same pass also builds workflow/queue series, and it needs `time.Duration`), runners keeps its 3-field key (label axis), cost operates on `AllDetails` — forcing those in would be over-abstraction.
 
-### Q3. Golden-file tests for output formatters [M]
-- The package whose output is the product has only substring assertions; alignment/ordering regressions pass. Add `testdata/*.golden` for table/markdown/llm with an `-update` flag (anonymized fixture data). Fold in the palette-struct change (`table.go:85`/`color.go:32` package-global mutable ANSI vars make test order significant) so colored goldens are possible.
+### Q3. Golden-file tests for output formatters [M] ✅ done
+- Four goldens pin exact rendering of the anonymized `richTestResult()` fixture — `table_plain`/`table_colored`/`markdown`/`llm`, standard `-update` flag with first-diff-line failure messages. The package-global mutable ANSI vars became a `palette` struct (colored/plain constructors, derived per `Format` call; `TableFormatter` accepts an explicit override), so test order no longer matters and the colored table is testable at all.
 
 ### Q4. Store: dedupe single-item paths; hoist column lists [S] ✅ done
 - `SaveRunDetail`/`LoadRunDetail` are one-element wrappers over the batch paths (`loadSteps`/`scanRun` deleted, −114 lines net); missing-run contract pinned as `sql.ErrNoRows` before the rewrite. `runCols`/`jobCols`/`stepCols` consts shared by all INSERT/SELECT sites.

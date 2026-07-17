@@ -14,12 +14,16 @@ import (
 // TableFormatter outputs results as a human-readable table.
 type TableFormatter struct {
 	Verbose bool
+	// pal overrides palette derivation from the writer. Nil (the common
+	// case) means derive per Format call: colored on a TTY, plain otherwise.
+	pal *palette
 }
 
 // Format implements Formatter.
 func (t TableFormatter) Format(w io.Writer, result *analyze.AnalysisResult) error {
-	if !useColor(w) {
-		disableColors()
+	p := paletteFor(w)
+	if t.pal != nil {
+		p = *t.pal
 	}
 
 	if len(result.Findings) == 0 {
@@ -30,73 +34,60 @@ func (t TableFormatter) Format(w io.Writer, result *analyze.AnalysisResult) erro
 	g := groupByType(result.Findings)
 
 	if len(g.Summaries) > 0 {
-		writeTriageHeader(w, g.Summaries, g.Changepoints, g.Failures)
-		writeSummaryTable(w, g.Summaries)
+		p.writeTriageHeader(w, g.Summaries, g.Changepoints, g.Failures)
+		p.writeSummaryTable(w, g.Summaries)
 	}
 
 	if len(g.Steps) > 0 {
-		writeStepTable(w, g.Steps, t.Verbose)
+		p.writeStepTable(w, g.Steps, t.Verbose)
 	}
 
 	if len(g.Pipelines) > 0 {
-		writePipelineTable(w, g.Pipelines)
+		p.writePipelineTable(w, g.Pipelines)
 	}
 
 	if len(g.Runners) > 0 {
-		writeRunnerTable(w, g.Runners)
+		p.writeRunnerTable(w, g.Runners)
 	}
 
 	if len(g.Costs) > 0 {
-		writeCostTable(w, g.Costs)
+		p.writeCostTable(w, g.Costs)
 	}
 
 	if len(g.Failures) > 0 {
-		writeFailureTable(w, g.Failures)
+		p.writeFailureTable(w, g.Failures)
 	}
 
 	if len(g.Outliers) > 0 {
-		writeOutlierTable(w, g.Outliers)
+		p.writeOutlierTable(w, g.Outliers)
 	}
 
 	if len(g.Changepoints) > 0 {
-		writeChangePointTable(w, g.Changepoints, t.Verbose)
+		p.writeChangePointTable(w, g.Changepoints, t.Verbose)
 	}
 
 	// Meta
 	_, _ = fmt.Fprintf(w, "\n%s%d runs analyzed%s (%s to %s)\n",
-		dim, result.Meta.TotalRuns, reset,
+		p.dim, result.Meta.TotalRuns, p.reset,
 		result.Meta.TimeRange[0].Format("2006-01-02"),
 		result.Meta.TimeRange[1].Format("2006-01-02"))
 
 	// Legend
-	writeLegend(w)
+	p.writeLegend(w)
 	return nil
 }
 
-// ANSI color codes. Package-level vars so disableColors() can blank them for
-// non-TTY / NO_COLOR output. Single-formatter-per-invocation assumption — not
-// safe for concurrent formatters.
-var (
-	bold   = "\033[1m"
-	dim    = "\033[2m"
-	red    = "\033[31m"
-	green  = "\033[32m"
-	yellow = "\033[33m"
-	cyan   = "\033[36m"
-	reset  = "\033[0m"
-)
-
-func writeTriageHeader(w io.Writer, summaries, changepoints, failures []analyze.Finding) {
-	_, _ = fmt.Fprintf(w, "%s── Triage ──%s\n", dim, reset)
-	writeTriageTopCITime(w, summaries)
-	writeTriageVolatile(w, summaries)
-	writeTriageRegressions(w, changepoints)
-	writeTriageFlaky(w, failures)
+func (p *palette) writeTriageHeader(w io.Writer, summaries, changepoints, failures []analyze.Finding) {
+	_, _ = fmt.Fprintf(w, "%s── Triage ──%s\n", p.dim, p.reset)
+	p.writeTriageTopCITime(w, summaries)
+	p.writeTriageVolatile(w, summaries)
+	p.writeTriageRegressions(w, changepoints)
+	p.writeTriageFlaky(w, failures)
 	_, _ = fmt.Fprintln(w)
 }
 
-func writeTriageTopCITime(w io.Writer, summaries []analyze.Finding) {
-	_, _ = fmt.Fprintf(w, "  %sTop CI time:%s  ", dim, reset)
+func (p *palette) writeTriageTopCITime(w io.Writer, summaries []analyze.Finding) {
+	_, _ = fmt.Fprintf(w, "  %sTop CI time:%s  ", p.dim, p.reset)
 	count := min(3, len(summaries))
 	for i := range count {
 		d, ok := summaries[i].Detail.(analyze.SummaryDetail)
@@ -106,12 +97,12 @@ func writeTriageTopCITime(w io.Writer, summaries []analyze.Finding) {
 		if i > 0 {
 			_, _ = fmt.Fprint(w, "  ")
 		}
-		_, _ = fmt.Fprintf(w, "%s%s%s %s(%s)%s", bold, d.Workflow, reset, dim, fmtTotalTime(d.Stats.TotalTime), reset)
+		_, _ = fmt.Fprintf(w, "%s%s%s %s(%s)%s", p.bold, d.Workflow, p.reset, p.dim, fmtTotalTime(d.Stats.TotalTime), p.reset)
 	}
 	_, _ = fmt.Fprintln(w)
 }
 
-func writeTriageVolatile(w io.Writer, summaries []analyze.Finding) {
+func (p *palette) writeTriageVolatile(w io.Writer, summaries []analyze.Finding) {
 	var volatile []string
 	for _, f := range summaries {
 		d, ok := f.Detail.(analyze.SummaryDetail)
@@ -125,17 +116,17 @@ func writeTriageVolatile(w io.Writer, summaries []analyze.Finding) {
 	if len(volatile) == 0 {
 		return
 	}
-	_, _ = fmt.Fprintf(w, "  %sUnpredictable:%s  ", dim, reset)
+	_, _ = fmt.Fprintf(w, "  %sUnpredictable:%s  ", p.dim, p.reset)
 	for i, name := range volatile {
 		if i > 0 {
 			_, _ = fmt.Fprint(w, ", ")
 		}
-		_, _ = fmt.Fprintf(w, "%s%s%s", yellow, name, reset)
+		_, _ = fmt.Fprintf(w, "%s%s%s", p.yellow, name, p.reset)
 	}
 	_, _ = fmt.Fprintln(w)
 }
 
-func writeTriageRegressions(w io.Writer, changepoints []analyze.Finding) {
+func (p *palette) writeTriageRegressions(w io.Writer, changepoints []analyze.Finding) {
 	var regressions []analyze.ChangePointDetail
 	for _, f := range changepoints {
 		d, ok := f.Detail.(analyze.ChangePointDetail)
@@ -146,25 +137,25 @@ func writeTriageRegressions(w io.Writer, changepoints []analyze.Finding) {
 	if len(regressions) == 0 {
 		return
 	}
-	_, _ = fmt.Fprintf(w, "  %sRegressions:%s  ", dim, reset)
+	_, _ = fmt.Fprintf(w, "  %sRegressions:%s  ", p.dim, p.reset)
 	shown := min(5, len(regressions))
 	for i := range regressions[:shown] {
 		if i > 0 {
 			_, _ = fmt.Fprint(w, ", ")
 		}
-		_, _ = fmt.Fprintf(w, "%s%s %+.0f%%%s", red, regressions[i].JobName, regressions[i].PctChange, reset)
+		_, _ = fmt.Fprintf(w, "%s%s %+.0f%%%s", p.red, regressions[i].JobName, regressions[i].PctChange, p.reset)
 	}
 	if len(regressions) > shown {
-		_, _ = fmt.Fprintf(w, "%s, +%d more%s", dim, len(regressions)-shown, reset)
+		_, _ = fmt.Fprintf(w, "%s, +%d more%s", p.dim, len(regressions)-shown, p.reset)
 	}
 	_, _ = fmt.Fprintln(w)
 }
 
-func writeTriageFlaky(w io.Writer, failures []analyze.Finding) {
+func (p *palette) writeTriageFlaky(w io.Writer, failures []analyze.Finding) {
 	if len(failures) == 0 {
 		return
 	}
-	_, _ = fmt.Fprintf(w, "  %sFlaky:%s  ", dim, reset)
+	_, _ = fmt.Fprintf(w, "  %sFlaky:%s  ", p.dim, p.reset)
 	count := min(3, len(failures))
 	for i := range count {
 		d, ok := failures[i].Detail.(analyze.FailureDetail)
@@ -174,12 +165,12 @@ func writeTriageFlaky(w io.Writer, failures []analyze.Finding) {
 		if i > 0 {
 			_, _ = fmt.Fprint(w, ", ")
 		}
-		_, _ = fmt.Fprintf(w, "%s%s%s %s(%.0f%%)%s", red, d.Workflow, reset, dim, d.FailureRate*100, reset)
+		_, _ = fmt.Fprintf(w, "%s%s%s %s(%.0f%%)%s", p.red, d.Workflow, p.reset, p.dim, d.FailureRate*100, p.reset)
 	}
 	_, _ = fmt.Fprintln(w)
 }
 
-func writeSummaryTable(w io.Writer, findings []analyze.Finding) {
+func (p *palette) writeSummaryTable(w io.Writer, findings []analyze.Finding) {
 	// Findings are already sorted by total CI time descending from the analyzer.
 	// Split into multi-job and single-job workflows so each group gets its own
 	// tabwriter context -- prevents a long name in one group from blowing up
@@ -208,16 +199,16 @@ func writeSummaryTable(w io.Writer, findings []analyze.Finding) {
 	// Multi-job workflows: each gets its own tabwriter for the job tree.
 	for _, mf := range multiJob {
 		d, _ := mf.finding.Detail.(analyze.SummaryDetail)
-		marker := mostCITimeMarker(mf.idx, firstIdx, len(findings))
-		volTag := fmtVolatility(d.Stats.VolatilityLabel)
-		queueTag := fmtQueueTime(d.Queue)
+		marker := p.mostCITimeMarker(mf.idx, firstIdx, len(findings))
+		volTag := p.fmtVolatility(d.Stats.VolatilityLabel)
+		queueTag := p.fmtQueueTime(d.Queue)
 
 		_, _ = fmt.Fprintf(w, "%s%s%s  %d runs, median %s%s%s, p95 %s%s%s, total %s%s%s%s%s%s\n",
-			bold, d.Workflow, reset,
+			p.bold, d.Workflow, p.reset,
 			d.Stats.TotalRuns,
-			cyan, fmtDur(d.Stats.Median), reset,
-			cyan, fmtDur(d.Stats.P95), reset,
-			bold, fmtTotalTime(d.Stats.TotalTime), reset,
+			p.cyan, fmtDur(d.Stats.Median), p.reset,
+			p.cyan, fmtDur(d.Stats.P95), p.reset,
+			p.bold, fmtTotalTime(d.Stats.TotalTime), p.reset,
 			volTag, queueTag, marker)
 
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
@@ -226,9 +217,9 @@ func writeSummaryTable(w io.Writer, findings []analyze.Finding) {
 			if j == len(d.Jobs)-1 {
 				prefix = "  `-"
 			}
-			jobVol := fmtVolatility(job.Stats.VolatilityLabel)
+			jobVol := p.fmtVolatility(job.Stats.VolatilityLabel)
 			_, _ = fmt.Fprintf(tw, "%s%s%s %s\t%d runs\tmedian %s\tp95 %s\tmin %s\tmax %s%s\n",
-				dim, prefix, reset, job.Name,
+				p.dim, prefix, p.reset, job.Name,
 				job.Stats.TotalRuns,
 				fmtDur(job.Stats.Median), fmtDur(job.Stats.P95),
 				fmtDur(job.Stats.Min), fmtDur(job.Stats.Max),
@@ -243,16 +234,16 @@ func writeSummaryTable(w io.Writer, findings []analyze.Finding) {
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 		for _, sf := range singleJob {
 			d, _ := sf.finding.Detail.(analyze.SummaryDetail)
-			marker := mostCITimeMarker(sf.idx, firstIdx, len(findings))
-			volTag := fmtVolatility(d.Stats.VolatilityLabel)
-			queueTag := fmtQueueTime(d.Queue)
+			marker := p.mostCITimeMarker(sf.idx, firstIdx, len(findings))
+			volTag := p.fmtVolatility(d.Stats.VolatilityLabel)
+			queueTag := p.fmtQueueTime(d.Queue)
 
 			_, _ = fmt.Fprintf(tw, "%s%s%s\t%d runs\tmedian %s%s%s\tp95 %s%s%s\ttotal %s%s%s%s%s%s\n",
-				bold, d.Workflow, reset,
+				p.bold, d.Workflow, p.reset,
 				d.Stats.TotalRuns,
-				cyan, fmtDur(d.Stats.Median), reset,
-				cyan, fmtDur(d.Stats.P95), reset,
-				bold, fmtTotalTime(d.Stats.TotalTime), reset,
+				p.cyan, fmtDur(d.Stats.Median), p.reset,
+				p.cyan, fmtDur(d.Stats.P95), p.reset,
+				p.bold, fmtTotalTime(d.Stats.TotalTime), p.reset,
 				volTag, queueTag, marker)
 		}
 		_ = tw.Flush()
@@ -266,40 +257,40 @@ type indexedFinding struct {
 	finding analyze.Finding
 }
 
-func mostCITimeMarker(idx, firstIdx, total int) string {
+func (p *palette) mostCITimeMarker(idx, firstIdx, total int) string {
 	if idx == firstIdx && total > 1 {
-		return red + " << most CI time" + reset
+		return p.red + " << most CI time" + p.reset
 	}
 	return ""
 }
 
-func fmtVolatility(label string) string {
+func (p *palette) fmtVolatility(label string) string {
 	switch label {
 	case analyze.VolatilityVolatile:
-		return " " + red + "[volatile]" + reset
+		return " " + p.red + "[volatile]" + p.reset
 	case analyze.VolatilitySpiky:
-		return " " + yellow + "[spiky]" + reset
+		return " " + p.yellow + "[spiky]" + p.reset
 	case analyze.VolatilityVariable:
-		return " " + dim + "[variable]" + reset
+		return " " + p.dim + "[variable]" + p.reset
 	default:
 		return ""
 	}
 }
 
-func fmtQueueTime(q analyze.QueueStats) string {
+func (p *palette) fmtQueueTime(q analyze.QueueStats) string {
 	// Only show queue time when median is notable (> 5 seconds)
 	if q.Median.Std() <= 5*time.Second {
 		return ""
 	}
-	return fmt.Sprintf(" %s[queue %s]%s", yellow, fmtDur(q.Median), reset)
+	return fmt.Sprintf(" %s[queue %s]%s", p.yellow, fmtDur(q.Median), p.reset)
 }
 
-func writeStepTable(w io.Writer, findings []analyze.Finding, verbose bool) {
+func (p *palette) writeStepTable(w io.Writer, findings []analyze.Finding, verbose bool) {
 	shown := len(findings)
 	if !verbose {
 		shown = min(5, shown)
 	}
-	_, _ = fmt.Fprintf(w, "%s── Step Breakdown (top %d jobs) ──%s\n", dim, shown, reset)
+	_, _ = fmt.Fprintf(w, "%s── Step Breakdown (top %d jobs) ──%s\n", p.dim, shown, p.reset)
 
 	for _, f := range findings[:shown] {
 		d, ok := f.Detail.(analyze.StepTimingDetail)
@@ -308,30 +299,30 @@ func writeStepTable(w io.Writer, findings []analyze.Finding, verbose bool) {
 		}
 
 		_, _ = fmt.Fprintf(w, "  %s%s%s %s/ %s%s\n",
-			bold, d.WorkflowName, reset, dim, d.JobName, reset)
+			p.bold, d.WorkflowName, p.reset, p.dim, d.JobName, p.reset)
 
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 		for _, st := range d.Steps {
 			volTag := ""
 			if st.Volatility >= 2.0 {
-				volTag = fmt.Sprintf(" %s[%.1fx]%s", yellow, st.Volatility, reset)
+				volTag = fmt.Sprintf(" %s[%.1fx]%s", p.yellow, st.Volatility, p.reset)
 			}
 			_, _ = fmt.Fprintf(tw, "    %s\tmedian %s\tp95 %s\t%s%.0f%% of job%s%s\n",
 				st.Name,
 				fmtDur(st.Median), fmtDur(st.P95),
-				dim, st.PctOfJob, reset,
+				p.dim, st.PctOfJob, p.reset,
 				volTag)
 		}
 		_ = tw.Flush()
 	}
 	if len(findings) > shown {
-		_, _ = fmt.Fprintf(w, "  %s(%d more jobs hidden, use -v to show)%s\n", dim, len(findings)-shown, reset)
+		_, _ = fmt.Fprintf(w, "  %s(%d more jobs hidden, use -v to show)%s\n", p.dim, len(findings)-shown, p.reset)
 	}
 	_, _ = fmt.Fprintln(w)
 }
 
-func writePipelineTable(w io.Writer, findings []analyze.Finding) {
-	_, _ = fmt.Fprintf(w, "%s── Pipeline Structure ──%s\n", dim, reset)
+func (p *palette) writePipelineTable(w io.Writer, findings []analyze.Finding) {
+	_, _ = fmt.Fprintf(w, "%s── Pipeline Structure ──%s\n", p.dim, p.reset)
 
 	for _, f := range findings {
 		d, ok := f.Detail.(analyze.PipelineDetail)
@@ -340,10 +331,10 @@ func writePipelineTable(w io.Writer, findings []analyze.Finding) {
 		}
 
 		_, _ = fmt.Fprintf(w, "  %s%s%s  %s%.0f%% parallel%s, wall-clock %s%s%s, total job time %s%s%s\n",
-			bold, d.Workflow, reset,
-			cyan, d.Parallelism*100, reset,
-			cyan, fmtDur(d.MedianWallClock), reset,
-			dim, fmtDur(d.MedianJobSum), reset)
+			p.bold, d.Workflow, p.reset,
+			p.cyan, d.Parallelism*100, p.reset,
+			p.cyan, fmtDur(d.MedianWallClock), p.reset,
+			p.dim, fmtDur(d.MedianJobSum), p.reset)
 
 		for i, stage := range d.Stages {
 			prefix := "  |-"
@@ -352,17 +343,17 @@ func writePipelineTable(w io.Writer, findings []analyze.Finding) {
 			}
 			arrow := ""
 			if stage.Sequential {
-				arrow = " " + yellow + "<< waits" + reset
+				arrow = " " + p.yellow + "<< waits" + p.reset
 				if stage.PotentialSavings.Std() >= time.Minute {
-					arrow += " " + dim + "(~" + fmtDur(stage.PotentialSavings) + "/run if parallel)" + reset
+					arrow += " " + p.dim + "(~" + fmtDur(stage.PotentialSavings) + "/run if parallel)" + p.reset
 				}
 			}
 			critical := ""
 			if stage.Name == d.CriticalPath {
-				critical = " " + red + "<< critical path" + reset
+				critical = " " + p.red + "<< critical path" + p.reset
 			}
 			_, _ = fmt.Fprintf(w, "  %s%s%s %s  %s  %.0f%%%s%s\n",
-				dim, prefix, reset,
+				p.dim, prefix, p.reset,
 				stage.Name, fmtDur(stage.Duration), stage.PctOfPipeline,
 				arrow, critical)
 		}
@@ -370,8 +361,8 @@ func writePipelineTable(w io.Writer, findings []analyze.Finding) {
 	}
 }
 
-func writeRunnerTable(w io.Writer, findings []analyze.Finding) {
-	_, _ = fmt.Fprintf(w, "%s── Runner Sizing ──%s\n", dim, reset)
+func (p *palette) writeRunnerTable(w io.Writer, findings []analyze.Finding) {
+	_, _ = fmt.Fprintf(w, "%s── Runner Sizing ──%s\n", p.dim, p.reset)
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	for _, f := range findings {
@@ -379,13 +370,13 @@ func writeRunnerTable(w io.Writer, findings []analyze.Finding) {
 		if !ok {
 			continue
 		}
-		icon := yellow + "▼" + reset // oversized: downsize
+		icon := p.yellow + "▼" + p.reset // oversized: downsize
 		if d.Issue == analyze.IssueUndersized {
-			icon = cyan + "▲" + reset // undersized: upsize
+			icon = p.cyan + "▲" + p.reset // undersized: upsize
 		}
 		_, _ = fmt.Fprintf(tw, "  %s %s / %s\t%s%d cores%s\tmedian %s\t%s\n",
 			icon, d.WorkflowName, d.JobName,
-			bold, d.Cores, reset,
+			p.bold, d.Cores, p.reset,
 			fmtDur(d.MedianDur),
 			d.Suggestion)
 	}
@@ -393,13 +384,13 @@ func writeRunnerTable(w io.Writer, findings []analyze.Finding) {
 	_, _ = fmt.Fprintln(w)
 }
 
-func writeCostTable(w io.Writer, findings []analyze.Finding) {
+func (p *palette) writeCostTable(w io.Writer, findings []analyze.Finding) {
 	shown := min(5, len(findings))
 	header := fmt.Sprintf("%d workflows", len(findings))
 	if shown < len(findings) {
 		header = fmt.Sprintf("top %d of %d", shown, len(findings))
 	}
-	_, _ = fmt.Fprintf(w, "%s── CI Cost (%s) ──%s\n", dim, header, reset)
+	_, _ = fmt.Fprintf(w, "%s── CI Cost (%s) ──%s\n", p.dim, header, p.reset)
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', tabwriter.StripEscape)
 	for _, f := range findings[:shown] {
@@ -409,10 +400,10 @@ func writeCostTable(w io.Writer, findings []analyze.Finding) {
 		}
 
 		_, _ = fmt.Fprintf(tw, "  %s%s%s\t%s%.0f mins%s\t%s(%.0f/day)%s\t%s%d runs%s\n",
-			esc(bold), d.Workflow, esc(reset),
-			esc(cyan), d.BillableMinutes, esc(reset),
-			esc(dim), d.DailyRate, esc(reset),
-			esc(dim), d.TotalRuns, esc(reset))
+			esc(p.bold), d.Workflow, esc(p.reset),
+			esc(p.cyan), d.BillableMinutes, esc(p.reset),
+			esc(p.dim), d.DailyRate, esc(p.reset),
+			esc(p.dim), d.TotalRuns, esc(p.reset))
 
 		// Show top 3 costliest jobs
 		limit := min(3, len(d.Jobs))
@@ -420,29 +411,29 @@ func writeCostTable(w io.Writer, findings []analyze.Finding) {
 			j := d.Jobs[i]
 			mult := ""
 			if j.Multiplier > 1 {
-				mult = fmt.Sprintf(" %s(%.0fx)%s", esc(yellow), j.Multiplier, esc(reset))
+				mult = fmt.Sprintf(" %s(%.0fx)%s", esc(p.yellow), j.Multiplier, esc(p.reset))
 			}
 			_, _ = fmt.Fprintf(tw, "  %s  %s%s\t%s%.0f mins%s%s\n",
-				esc(dim), j.Name, esc(reset),
-				esc(dim), j.BillableMinutes, esc(reset),
+				esc(p.dim), j.Name, esc(p.reset),
+				esc(p.dim), j.BillableMinutes, esc(p.reset),
 				mult)
 		}
 	}
 	_ = tw.Flush()
 	if len(findings) > shown {
-		_, _ = fmt.Fprintf(w, "  %s(%d more workflows not shown)%s\n", dim, len(findings)-shown, reset)
+		_, _ = fmt.Fprintf(w, "  %s(%d more workflows not shown)%s\n", p.dim, len(findings)-shown, p.reset)
 	}
 	_, _ = fmt.Fprintln(w)
 }
 
-func writeFailureTable(w io.Writer, findings []analyze.Finding) {
+func (p *palette) writeFailureTable(w io.Writer, findings []analyze.Finding) {
 	// Sub-5% already filtered by postprocessor
 	if len(findings) == 0 {
 		return
 	}
 
 	shown := min(7, len(findings))
-	_, _ = fmt.Fprintf(w, "%s── Failure Rates (%d) ──%s\n", dim, len(findings), reset)
+	_, _ = fmt.Fprintf(w, "%s── Failure Rates (%d) ──%s\n", p.dim, len(findings), p.reset)
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	for _, f := range findings[:shown] {
@@ -451,12 +442,12 @@ func writeFailureTable(w io.Writer, findings []analyze.Finding) {
 			continue
 		}
 
-		rateColor := dim
+		rateColor := p.dim
 		switch {
 		case d.FailureRate >= 0.2:
-			rateColor = red
+			rateColor = p.red
 		case d.FailureRate >= 0.05:
-			rateColor = yellow
+			rateColor = p.yellow
 		}
 
 		// Build breakdown string (sorted for stable output)
@@ -476,28 +467,28 @@ func writeFailureTable(w io.Writer, findings []analyze.Finding) {
 		failsAt := ""
 		if len(d.FailingSteps) > 0 {
 			if top, dominant := dominantFailingStep(&d); dominant {
-				failsAt = fmt.Sprintf("\tfails at: %s%s%s", yellow, top.StepName, reset)
+				failsAt = fmt.Sprintf("\tfails at: %s%s%s", p.yellow, top.StepName, p.reset)
 			} else {
 				failsAt = fmt.Sprintf("\tfailures across %d steps %s(top: %s)%s",
-					len(d.FailingSteps), dim, top.StepName, reset)
+					len(d.FailingSteps), p.dim, top.StepName, p.reset)
 			}
 		}
 
 		_, _ = fmt.Fprintf(tw, "  %s%s%s\t%s%.0f%%%s\t%s(%d/%d runs)%s\t%s%s%s%s\n",
-			bold, d.Workflow, reset,
-			rateColor, d.FailureRate*100, reset,
-			dim, d.FailureCount, d.TotalRuns, reset,
-			dim, strings.Join(parts, ", "), reset,
+			p.bold, d.Workflow, p.reset,
+			rateColor, d.FailureRate*100, p.reset,
+			p.dim, d.FailureCount, d.TotalRuns, p.reset,
+			p.dim, strings.Join(parts, ", "), p.reset,
 			failsAt)
 	}
 	_ = tw.Flush()
 	if len(findings) > shown {
-		_, _ = fmt.Fprintf(w, "  %s(%d more not shown)%s\n", dim, len(findings)-shown, reset)
+		_, _ = fmt.Fprintf(w, "  %s(%d more not shown)%s\n", p.dim, len(findings)-shown, p.reset)
 	}
 	_, _ = fmt.Fprintln(w)
 }
 
-func writeOutlierTable(w io.Writer, findings []analyze.Finding) {
+func (p *palette) writeOutlierTable(w io.Writer, findings []analyze.Finding) {
 	// Findings are already grouped by postprocessor into OutlierGroupDetail.
 	// Sort by worst duration descending.
 	sorted := make([]analyze.Finding, len(findings))
@@ -514,7 +505,7 @@ func writeOutlierTable(w io.Writer, findings []analyze.Finding) {
 		return 0
 	})
 
-	_, _ = fmt.Fprintf(w, "%s── Outliers (%d groups) ──%s\n", dim, len(sorted), reset)
+	_, _ = fmt.Fprintf(w, "%s── Outliers (%d groups) ──%s\n", p.dim, len(sorted), p.reset)
 
 	maxSubject := 0
 	for _, f := range sorted {
@@ -534,25 +525,25 @@ func writeOutlierTable(w io.Writer, findings []analyze.Finding) {
 		if d.JobName != "" {
 			subject += " / " + d.JobName
 		}
-		durColor := yellow
+		durColor := p.yellow
 		if d.MaxSeverity == analyze.SeverityCritical {
-			durColor = red
+			durColor = p.red
 		}
 		countStr := fmt.Sprintf("%dx", d.Count)
 		if d.Count == 1 {
 			countStr = "  "
 		}
 		_, _ = fmt.Fprintf(w, "  %s %-*s  %s%-3s%s %s%-8s%s %s%s%s  %s%s%s\n",
-			severityDot(d.MaxSeverity), maxSubject, subject,
-			bold, countStr, reset,
-			durColor, fmtDur(d.WorstDuration), reset,
-			dim, fmtPercentile(d.WorstPercentile), reset,
-			dim, truncSHA(d.WorstCommitSHA), reset)
+			p.severityDot(d.MaxSeverity), maxSubject, subject,
+			p.bold, countStr, p.reset,
+			durColor, fmtDur(d.WorstDuration), p.reset,
+			p.dim, fmtPercentile(d.WorstPercentile), p.reset,
+			p.dim, truncSHA(d.WorstCommitSHA), p.reset)
 	}
 	_, _ = fmt.Fprintln(w)
 }
 
-func writeChangePointTable(w io.Writer, findings []analyze.Finding, verbose bool) {
+func (p *palette) writeChangePointTable(w io.Writer, findings []analyze.Finding, verbose bool) {
 	// Split by category (set by postprocessor)
 	var actionable, oscillating, minor []analyze.Finding
 	for _, f := range findings {
@@ -571,28 +562,28 @@ func writeChangePointTable(w io.Writer, findings []analyze.Finding, verbose bool
 	}
 
 	if len(actionable) > 0 {
-		_, _ = fmt.Fprintf(w, "%s── Change Points (%d) ──%s\n", dim, len(actionable), reset)
-		writeChangePointRows(w, actionable)
+		_, _ = fmt.Fprintf(w, "%s── Change Points (%d) ──%s\n", p.dim, len(actionable), p.reset)
+		p.writeChangePointRows(w, actionable)
 		_, _ = fmt.Fprintln(w)
 	}
 
 	if len(oscillating) > 0 {
-		writeOscillatingJobs(w, oscillating)
+		p.writeOscillatingJobs(w, oscillating)
 	}
 
 	switch {
 	case verbose && len(minor) > 0:
-		_, _ = fmt.Fprintf(w, "%s── Change Points (minor, %d) ──%s\n", dim, len(minor), reset)
-		writeChangePointRows(w, minor)
+		_, _ = fmt.Fprintf(w, "%s── Change Points (minor, %d) ──%s\n", p.dim, len(minor), p.reset)
+		p.writeChangePointRows(w, minor)
 		_, _ = fmt.Fprintln(w)
 	case len(minor) > 0:
-		_, _ = fmt.Fprintf(w, "  %s(%d minor change points hidden, use -v to show)%s\n\n", dim, len(minor), reset)
+		_, _ = fmt.Fprintf(w, "  %s(%d minor change points hidden, use -v to show)%s\n\n", p.dim, len(minor), p.reset)
 	}
 
 }
 
 // writeOscillatingJobs summarizes jobs with 3+ change points — these are volatile, not changing.
-func writeOscillatingJobs(w io.Writer, findings []analyze.Finding) {
+func (p *palette) writeOscillatingJobs(w io.Writer, findings []analyze.Finding) {
 	type jobSummary struct {
 		name     string
 		count    int
@@ -621,26 +612,26 @@ func writeOscillatingJobs(w io.Writer, findings []analyze.Finding) {
 		summaries[i].earliest = earliest[summaries[i].name].BeforeMean
 	}
 
-	_, _ = fmt.Fprintf(w, "%s── Oscillating Jobs (%d jobs, too volatile for reliable change detection) ──%s\n", dim, len(summaries), reset)
+	_, _ = fmt.Fprintf(w, "%s── Oscillating Jobs (%d jobs, too volatile for reliable change detection) ──%s\n", p.dim, len(summaries), p.reset)
 	for _, s := range summaries {
-		icon := yellow + "~" + reset
-		trend := dim + "stable" + reset
+		icon := p.yellow + "~" + p.reset
+		trend := p.dim + "stable" + p.reset
 		if s.current > s.earliest+s.earliest/10 {
-			trend = red + "trending up" + reset
+			trend = p.red + "trending up" + p.reset
 		} else if s.current < s.earliest-s.earliest/10 {
-			trend = green + "trending down" + reset
+			trend = p.green + "trending down" + p.reset
 		}
 		_, _ = fmt.Fprintf(w, "  %s %s  %s%d shifts%s, was %s now %s (%s)\n",
-			icon, s.name, dim, s.count, reset,
+			icon, s.name, p.dim, s.count, p.reset,
 			fmtDur(s.earliest), fmtDur(s.current), trend)
 	}
 	_, _ = fmt.Fprintln(w)
 }
 
-func writeChangePointRows(w io.Writer, findings []analyze.Finding) {
+func (p *palette) writeChangePointRows(w io.Writer, findings []analyze.Finding) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', tabwriter.StripEscape)
 	_, _ = fmt.Fprintf(tw, "  %sDIR\tJOB\tCHANGE\tBEFORE\tAFTER\tDATE\tCOMMIT\tP-VALUE\tSTATUS%s\n",
-		dim, reset)
+		p.dim, p.reset)
 	for _, f := range findings {
 		d, ok := f.Detail.(analyze.ChangePointDetail)
 		if !ok {
@@ -649,22 +640,22 @@ func writeChangePointRows(w io.Writer, findings []analyze.Finding) {
 
 		var icon, changeColor string
 		if d.Direction == analyze.DirectionSpeedup {
-			icon = esc(green) + "▼" + esc(reset)
-			changeColor = green
+			icon = esc(p.green) + "▼" + esc(p.reset)
+			changeColor = p.green
 		} else {
-			icon = esc(red) + "▲" + esc(reset)
-			changeColor = red
+			icon = esc(p.red) + "▲" + esc(p.reset)
+			changeColor = p.red
 		}
 
-		status := formatPersistence(&d)
+		status := p.formatPersistence(&d)
 
 		_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s%s%s\t%s\t%s\t%s\t%s%s%s\t%s\t%s\n",
 			icon, d.JobName,
-			esc(changeColor), fmt.Sprintf("%+.0f%%", d.PctChange), esc(reset),
+			esc(changeColor), fmt.Sprintf("%+.0f%%", d.PctChange), esc(p.reset),
 			fmtDur(d.BeforeMean), fmtDur(d.AfterMean),
 			d.Date.Format("2006-01-02"),
-			esc(dim), truncSHA(d.CommitSHA), esc(reset),
-			fmtPValueStr(d.PValue),
+			esc(p.dim), truncSHA(d.CommitSHA), esc(p.reset),
+			p.fmtPValueStr(d.PValue),
 			status)
 	}
 	_ = tw.Flush()
@@ -675,50 +666,50 @@ func esc(code string) string {
 	return "\xff" + code + "\xff"
 }
 
-func fmtPValueStr(p float64) string {
-	s := fmt.Sprintf("%.4f", p)
+func (p *palette) fmtPValueStr(pval float64) string {
+	s := fmt.Sprintf("%.4f", pval)
 	var color string
 	switch {
-	case p < 0.01:
-		color = green
-	case p < 0.05:
-		color = yellow
+	case pval < 0.01:
+		color = p.green
+	case pval < 0.05:
+		color = p.yellow
 	default:
-		color = dim
+		color = p.dim
 	}
-	return esc(color) + s + esc(reset)
+	return esc(color) + s + esc(p.reset)
 }
 
-func formatPersistence(d *analyze.ChangePointDetail) string {
+func (p *palette) formatPersistence(d *analyze.ChangePointDetail) string {
 	switch d.Persistence {
 	case analyze.PersistencePersistent:
-		return fmt.Sprintf("%s✓ %d runs%s", esc(green), d.PostChangeRuns, esc(reset))
+		return fmt.Sprintf("%s✓ %d runs%s", esc(p.green), d.PostChangeRuns, esc(p.reset))
 	case analyze.PersistenceTransient:
-		return fmt.Sprintf("%stransient (%d runs)%s", esc(yellow), d.PostChangeRuns, esc(reset))
+		return fmt.Sprintf("%stransient (%d runs)%s", esc(p.yellow), d.PostChangeRuns, esc(p.reset))
 	case analyze.PersistenceInconclusive:
-		return fmt.Sprintf("%s? %d runs%s", esc(dim), d.PostChangeRuns, esc(reset))
+		return fmt.Sprintf("%s? %d runs%s", esc(p.dim), d.PostChangeRuns, esc(p.reset))
 	default:
 		return ""
 	}
 }
 
 // severityDot returns a colored dot. Single visible char so alignment is consistent.
-func severityDot(severity string) string {
+func (p *palette) severityDot(severity string) string {
 	switch severity {
 	case analyze.SeverityCritical:
-		return red + "●" + reset
+		return p.red + "●" + p.reset
 	case analyze.SeverityWarning:
-		return yellow + "●" + reset
+		return p.yellow + "●" + p.reset
 	default:
-		return dim + "●" + reset
+		return p.dim + "●" + p.reset
 	}
 }
 
-func writeLegend(w io.Writer) {
-	_, _ = fmt.Fprintf(w, "\n%s", dim)
+func (p *palette) writeLegend(w io.Writer) {
+	_, _ = fmt.Fprintf(w, "\n%s", p.dim)
 	_, _ = fmt.Fprint(w, "Volatility (p95/median): [variable] 1.3-2x  [spiky] 2-3x  [volatile] >3x\n")
 	_, _ = fmt.Fprintf(w, "Outliers: %s●%s critical (p99+)  %s●%s warning (p95+)  %s●%s info\n",
-		red, dim, yellow, dim, dim, dim)
+		p.red, p.dim, p.yellow, p.dim, p.dim, p.dim)
 	_, _ = fmt.Fprint(w, "Change points: ▲ slowdown  ▼ speedup | Status: N runs = persistent, transient = reverted, ? = too few runs\n")
-	_, _ = fmt.Fprintf(w, "%s", reset)
+	_, _ = fmt.Fprintf(w, "%s", p.reset)
 }
