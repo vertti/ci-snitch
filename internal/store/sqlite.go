@@ -215,61 +215,18 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// Column lists shared by every INSERT and SELECT on a table so the two can't
+// drift; the order is the scan contract for scanRuns/loadJobsForRuns/scanStepsInto.
+const (
+	runCols  = "id, workflow_id, workflow_name, name, event, status, conclusion, head_branch, head_sha, run_attempt, created_at, started_at, updated_at"
+	jobCols  = "id, run_id, name, status, conclusion, started_at, completed_at, runner_name, runner_group_name, labels"
+	stepCols = "job_id, name, number, status, conclusion, started_at, completed_at"
+)
+
 // SaveRunDetail persists a run and its jobs and steps.
 // Uses INSERT OR REPLACE so re-fetched runs (e.g. previously in-progress) are updated.
 func (s *Store) SaveRunDetail(d *model.RunDetail) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback() //nolint:errcheck // error on deferred close has no actionable caller
-
-	r := d.Run
-
-	// Clear existing children before replacing the parent: with foreign_keys ON,
-	// the implicit delete inside INSERT OR REPLACE on runs would otherwise fail
-	// because dependent jobs/steps reference the run we are about to replace.
-	if _, err := tx.Exec(`DELETE FROM steps WHERE job_id IN (SELECT id FROM jobs WHERE run_id = ?)`, r.ID); err != nil {
-		return fmt.Errorf("delete old steps for run %d: %w", r.ID, err)
-	}
-	if _, err := tx.Exec(`DELETE FROM jobs WHERE run_id = ?`, r.ID); err != nil {
-		return fmt.Errorf("delete old jobs for run %d: %w", r.ID, err)
-	}
-
-	_, err = tx.Exec(`INSERT OR REPLACE INTO runs (id, workflow_id, workflow_name, name, event, status, conclusion, head_branch, head_sha, run_attempt, created_at, started_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ID, r.WorkflowID, r.WorkflowName, r.Name, r.Event, r.Status, r.Conclusion,
-		r.HeadBranch, r.HeadSHA, r.RunAttempt,
-		fmtTime(r.CreatedAt), fmtTime(r.StartedAt), fmtTime(r.UpdatedAt),
-	)
-	if err != nil {
-		return fmt.Errorf("insert run %d: %w", r.ID, err)
-	}
-
-	for j := range d.Jobs {
-		_, err := tx.Exec(`INSERT INTO jobs (id, run_id, name, status, conclusion, started_at, completed_at, runner_name, runner_group_name, labels)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			d.Jobs[j].ID, r.ID, d.Jobs[j].Name, d.Jobs[j].Status, d.Jobs[j].Conclusion,
-			fmtTime(d.Jobs[j].StartedAt), fmtTime(d.Jobs[j].CompletedAt),
-			d.Jobs[j].RunnerName, d.Jobs[j].RunnerGroupName, encodeLabels(d.Jobs[j].Labels),
-		)
-		if err != nil {
-			return fmt.Errorf("insert job %d: %w", d.Jobs[j].ID, err)
-		}
-
-		for st := range d.Jobs[j].Steps {
-			_, err := tx.Exec(`INSERT INTO steps (job_id, name, number, status, conclusion, started_at, completed_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?)`,
-				d.Jobs[j].ID, d.Jobs[j].Steps[st].Name, d.Jobs[j].Steps[st].Number, d.Jobs[j].Steps[st].Status, d.Jobs[j].Steps[st].Conclusion,
-				fmtTime(d.Jobs[j].Steps[st].StartedAt), fmtTime(d.Jobs[j].Steps[st].CompletedAt),
-			)
-			if err != nil {
-				return fmt.Errorf("insert step %q for job %d: %w", d.Jobs[j].Steps[st].Name, d.Jobs[j].ID, err)
-			}
-		}
-	}
-
-	return tx.Commit()
+	return s.SaveRunDetails([]model.RunDetail{*d})
 }
 
 // SaveRunDetails persists multiple run details in a single transaction
@@ -285,7 +242,7 @@ func (s *Store) SaveRunDetails(details []model.RunDetail) error {
 	}
 	defer tx.Rollback() //nolint:errcheck // error on deferred close has no actionable caller
 
-	runStmt, err := tx.Prepare(`INSERT OR REPLACE INTO runs (id, workflow_id, workflow_name, name, event, status, conclusion, head_branch, head_sha, run_attempt, created_at, started_at, updated_at)
+	runStmt, err := tx.Prepare(`INSERT OR REPLACE INTO runs (` + runCols + `)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare run stmt: %w", err)
@@ -304,14 +261,14 @@ func (s *Store) SaveRunDetails(details []model.RunDetail) error {
 	}
 	defer deleteJobsStmt.Close() //nolint:errcheck // error on deferred close has no actionable caller
 
-	jobStmt, err := tx.Prepare(`INSERT INTO jobs (id, run_id, name, status, conclusion, started_at, completed_at, runner_name, runner_group_name, labels)
+	jobStmt, err := tx.Prepare(`INSERT INTO jobs (` + jobCols + `)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare job stmt: %w", err)
 	}
 	defer jobStmt.Close() //nolint:errcheck // error on deferred close has no actionable caller
 
-	stepStmt, err := tx.Prepare(`INSERT INTO steps (job_id, name, number, status, conclusion, started_at, completed_at)
+	stepStmt, err := tx.Prepare(`INSERT INTO steps (` + stepCols + `)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare step stmt: %w", err)
@@ -366,7 +323,7 @@ func (s *Store) SaveRunDetails(details []model.RunDetail) error {
 
 // RunsSince returns completed runs for a workflow since the given time.
 func (s *Store) RunsSince(workflowID int64, since time.Time) ([]model.WorkflowRun, error) {
-	rows, err := s.db.Query(`SELECT id, workflow_id, workflow_name, name, event, status, conclusion, head_branch, head_sha, run_attempt, created_at, started_at, updated_at
+	rows, err := s.db.Query(`SELECT `+runCols+`
 		FROM runs WHERE workflow_id = ? AND created_at >= ? AND status = 'completed'
 		ORDER BY created_at ASC`,
 		workflowID, fmtTime(since),
@@ -399,77 +356,16 @@ func (s *Store) IncompleteRunIDs() ([]int64, error) {
 }
 
 // LoadRunDetail loads a fully hydrated run detail from the store.
+// A missing run is an error identifiable as sql.ErrNoRows.
 func (s *Store) LoadRunDetail(runID int64) (*model.RunDetail, error) {
-	row := s.db.QueryRow(`SELECT id, workflow_id, workflow_name, name, event, status, conclusion, head_branch, head_sha, run_attempt, created_at, started_at, updated_at
-		FROM runs WHERE id = ?`, runID)
-
-	run, err := scanRun(row)
-	if err != nil {
-		return nil, fmt.Errorf("load run %d: %w", runID, err)
-	}
-
-	jobRows, err := s.db.Query(`SELECT id, run_id, name, status, conclusion, started_at, completed_at, runner_name, runner_group_name, labels
-		FROM jobs WHERE run_id = ? ORDER BY started_at ASC`, runID)
+	details, err := s.LoadRunDetailsByIDs([]int64{runID})
 	if err != nil {
 		return nil, err
 	}
-	defer jobRows.Close() //nolint:errcheck // error on deferred close has no actionable caller
-
-	var jobs []model.Job
-	for jobRows.Next() {
-		var j model.Job
-		var startStr, compStr, labelsStr string
-		if err := jobRows.Scan(&j.ID, &j.RunID, &j.Name, &j.Status, &j.Conclusion, &startStr, &compStr,
-			&j.RunnerName, &j.RunnerGroupName, &labelsStr); err != nil {
-			return nil, err
-		}
-		if j.StartedAt, err = parseTime(startStr); err != nil {
-			return nil, err
-		}
-		if j.CompletedAt, err = parseTime(compStr); err != nil {
-			return nil, err
-		}
-		j.Labels = decodeLabels(labelsStr)
-
-		steps, err := s.loadSteps(j.ID)
-		if err != nil {
-			return nil, err
-		}
-		j.Steps = steps
-
-		jobs = append(jobs, j)
+	if len(details) == 0 {
+		return nil, fmt.Errorf("load run %d: %w", runID, sql.ErrNoRows)
 	}
-	if err := jobRows.Err(); err != nil {
-		return nil, err
-	}
-
-	return &model.RunDetail{Run: run, Jobs: jobs}, nil
-}
-
-func (s *Store) loadSteps(jobID int64) ([]model.Step, error) {
-	rows, err := s.db.Query(`SELECT name, number, status, conclusion, started_at, completed_at
-		FROM steps WHERE job_id = ? ORDER BY number ASC`, jobID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close() //nolint:errcheck // error on deferred close has no actionable caller
-
-	var steps []model.Step
-	for rows.Next() {
-		var st model.Step
-		var sStart, sComp string
-		if err := rows.Scan(&st.Name, &st.Number, &st.Status, &st.Conclusion, &sStart, &sComp); err != nil {
-			return nil, err
-		}
-		if st.StartedAt, err = parseTime(sStart); err != nil {
-			return nil, err
-		}
-		if st.CompletedAt, err = parseTime(sComp); err != nil {
-			return nil, err
-		}
-		steps = append(steps, st)
-	}
-	return steps, rows.Err()
+	return &details[0], nil
 }
 
 // LoadRunDetails loads all completed run details for a workflow since the given time.
@@ -511,7 +407,7 @@ func (s *Store) loadRunDetailsChunk(ids []int64) ([]model.RunDetail, error) {
 	ph, args := placeholders(ids)
 
 	//nolint:gosec // ph is "?,?,..." placeholders, values are bound args
-	runRows, err := s.db.Query(`SELECT id, workflow_id, workflow_name, name, event, status, conclusion, head_branch, head_sha, run_attempt, created_at, started_at, updated_at
+	runRows, err := s.db.Query(`SELECT `+runCols+`
 		FROM runs WHERE id IN (`+ph+`) ORDER BY created_at ASC`, args...)
 	if err != nil {
 		return nil, err
@@ -544,7 +440,7 @@ func (s *Store) loadRunDetailsChunk(ids []int64) ([]model.RunDetail, error) {
 
 func (s *Store) loadJobsForRuns(runPh string, runArgs []any) (jobsByRun map[int64][]model.Job, jobIDs []int64, err error) {
 	//nolint:gosec // runPh is "?,?,..." placeholders, values are bound args
-	rows, err := s.db.Query(`SELECT id, run_id, name, status, conclusion, started_at, completed_at, runner_name, runner_group_name, labels
+	rows, err := s.db.Query(`SELECT `+jobCols+`
 		FROM jobs WHERE run_id IN (`+runPh+`) ORDER BY started_at ASC`, runArgs...)
 	if err != nil {
 		return nil, nil, err
@@ -578,7 +474,7 @@ func (s *Store) loadStepsForJobs(jobIDs []int64) (map[int64][]model.Step, error)
 		end := min(start+idChunkSize, len(jobIDs))
 		ph, args := placeholders(jobIDs[start:end])
 		//nolint:gosec // ph is "?,?,..." placeholders, values are bound args
-		rows, err := s.db.Query(`SELECT job_id, name, number, status, conclusion, started_at, completed_at
+		rows, err := s.db.Query(`SELECT `+stepCols+`
 			FROM steps WHERE job_id IN (`+ph+`) ORDER BY number ASC`, args...)
 		if err != nil {
 			return nil, err
@@ -642,26 +538,6 @@ func scanRuns(rows *sql.Rows) ([]model.WorkflowRun, error) {
 		runs = append(runs, r)
 	}
 	return runs, rows.Err()
-}
-
-func scanRun(row *sql.Row) (model.WorkflowRun, error) {
-	var r model.WorkflowRun
-	var createdStr, startedStr, updatedStr string
-	err := row.Scan(&r.ID, &r.WorkflowID, &r.WorkflowName, &r.Name, &r.Event, &r.Status, &r.Conclusion,
-		&r.HeadBranch, &r.HeadSHA, &r.RunAttempt, &createdStr, &startedStr, &updatedStr)
-	if err != nil {
-		return r, err
-	}
-	if r.CreatedAt, err = parseTime(createdStr); err != nil {
-		return r, err
-	}
-	if r.StartedAt, err = parseTime(startedStr); err != nil {
-		return r, err
-	}
-	if r.UpdatedAt, err = parseTime(updatedStr); err != nil {
-		return r, err
-	}
-	return r, nil
 }
 
 const timeFormat = time.RFC3339

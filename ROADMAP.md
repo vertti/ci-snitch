@@ -272,9 +272,8 @@ Removed from the old "already correct" list — disproven by this review:
 ### Q3. Golden-file tests for output formatters [M]
 - The package whose output is the product has only substring assertions; alignment/ordering regressions pass. Add `testdata/*.golden` for table/markdown/llm with an `-update` flag (anonymized fixture data). Fold in the palette-struct change (`table.go:85`/`color.go:32` package-global mutable ANSI vars make test order significant) so colored goldens are possible.
 
-### Q4. Store: dedupe single-item paths; hoist column lists [S]
-- `SaveRunDetail`/`LoadRunDetail`/`loadSteps` single-item paths have zero production callers yet duplicate the batch SQL/scan logic (~120 lines). Reimplement as one-element wrappers over batch paths.
-- The 13-column runs list is spelled out 5×, jobs 4×: hoist `runCols`/`jobCols`/`stepCols` consts shared by insert/select; funnel run scanning through one scanner.
+### Q4. Store: dedupe single-item paths; hoist column lists [S] ✅ done
+- `SaveRunDetail`/`LoadRunDetail` are one-element wrappers over the batch paths (`loadSteps`/`scanRun` deleted, −114 lines net); missing-run contract pinned as `sql.ErrNoRows` before the rewrite. `runCols`/`jobCols`/`stepCols` consts shared by all INSERT/SELECT sites.
 
 ### Q5. Export label constants; use them across analyze/output [S]
 - Labels minted in analyze are string-matched in output with no compile-time link: persistence (`table.go:708` vs existing constants), volatility (`"volatile"`/`"spiky"` at `table.go:127,283`), runner `"oversized"`/`"undersized"` (`runners.go:98`). Also use the existing Type constants at all construction sites and co-locate them with their analyzers.

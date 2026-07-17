@@ -112,6 +112,16 @@ func TestSaveAndLoadRunDetail(t *testing.T) {
 	assert.Equal(t, "Build", loaded.Jobs[0].Steps[1].Name)
 }
 
+func TestLoadRunDetail_MissingRunErrors(t *testing.T) {
+	// Pins the single-item contract before/through the batch-path rewrite:
+	// a missing run is an error (callers rely on it), identifiable as
+	// sql.ErrNoRows, not a nil detail.
+	s := testStore(t)
+	_, err := s.LoadRunDetail(424242)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, sql.ErrNoRows)
+}
+
 func TestSaveRunDetail_Upsert(t *testing.T) {
 	s := testStore(t)
 	detail := testRunDetail()
