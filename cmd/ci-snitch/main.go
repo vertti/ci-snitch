@@ -48,8 +48,7 @@ func main() {
 	if err != nil {
 		// --fail-on gates exit 2 so CI can distinguish "findings tripped the
 		// gate" from operational failure (1).
-		var ec *exitCodeError
-		if errors.As(err, &ec) {
+		if ec, ok := errors.AsType[*exitCodeError](err); ok {
 			os.Exit(ec.Code())
 		}
 		os.Exit(1)
