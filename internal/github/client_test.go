@@ -239,7 +239,7 @@ func TestFetchRuns_WindowsAreDisjointAndContiguous(t *testing.T) {
 
 	for i := 1; i < len(createdParams); i++ {
 		prevEnd := strings.SplitN(createdParams[i-1], "..", 2)[1]
-		nextStart := strings.SplitN(createdParams[i], "..", 2)[0]
+		nextStart, _, _ := strings.Cut(createdParams[i], "..")
 		prev, err := time.Parse("2006-01-02", prevEnd)
 		require.NoError(t, err)
 		next, err := time.Parse("2006-01-02", nextStart)
