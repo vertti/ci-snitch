@@ -3,7 +3,7 @@ module github.com/vertti/ci-snitch
 go 1.26.2
 
 require (
-	github.com/google/go-github/v90 v90.0.0
+	github.com/google/go-github/v91 v91.0.0
 	github.com/mattn/go-isatty v0.0.24
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
