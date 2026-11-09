@@ -113,7 +113,7 @@ Exit codes: `0` clean, `1` operational error, `2` a `--fail-on` condition matche
 ## Development
 
 ```bash
-mise install              # Go 1.26 + golangci-lint
+mise install              # toolchain pinned in mise.toml
 mise run check            # format + lint + test
 go run ./cmd/smoke        # smoke test against cli/cli
 ```
