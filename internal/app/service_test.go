@@ -227,6 +227,15 @@ func TestRun_WorkflowsMissingRunDetailsAreRecordedInMetaMostMissingFirst(t *test
 	}, res.Meta.Incomplete)
 }
 
+func TestRun_TruncatedRunsCountAsMissingRunDetails(t *testing.T) {
+	f := fetcherFor(fakeRunDetail(1, "success"), fakeRunDetail(2, "success"), fakeRunDetail(3, "success"))
+	f.details[2].Truncated = true
+
+	res, err := runService(t, f, nil)
+	require.NoError(t, err)
+	require.Equal(t, []analyze.IncompleteWorkflow{{Workflow: "CI", Hydrated: 2, Listed: 3}}, res.Meta.Incomplete)
+}
+
 func TestRun_FullyHydratedScanRecordsNoIncompleteWorkflows(t *testing.T) {
 	res, err := runService(t, baseFetcher(), nil)
 	require.NoError(t, err)

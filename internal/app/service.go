@@ -294,12 +294,15 @@ func nothingHydratedError(listed int, diags []diag.Diagnostic) error {
 	return errors.New(msg)
 }
 
-// incompleteWorkflows compares what was listed with what was hydrated, so it
-// holds whatever the cause: a rate limit, a failed batch, a deleted run.
+// incompleteWorkflows compares what was listed with what was hydrated in
+// full, so it holds whatever the cause: a rate limit, a failed batch, a
+// deleted run, a run left truncated.
 func incompleteWorkflows(listed []workflowRuns, details []model.RunDetail) []analyze.IncompleteWorkflow {
 	hydrated := make(map[int64]bool, len(details))
 	for i := range details {
-		hydrated[details[i].Run.ID] = true
+		if !details[i].Truncated {
+			hydrated[details[i].Run.ID] = true
+		}
 	}
 	var incomplete []analyze.IncompleteWorkflow
 	for _, wr := range listed {
