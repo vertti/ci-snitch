@@ -359,7 +359,6 @@ Each finding was checked against the raw API, job logs or the cache. Filling the
 ### R13. Paper cuts found while fixing [XS]
 - `-q` does not silence the client's `slog` lines: "GraphQL batch failed, falling back to REST" still reaches stderr, because the client logger is wired to stderr at INFO whatever the flag says.
 - `cmd/smoke` passes vacuously when its workflow has no runs in the last 3 days ("No runs to hydrate", exit 0).
-- A request that fails on the network is not retried. During a pause the workflow listing hit the R1 timeout and the scan aborted (seen in the smoke test: a timeout, then an `EOF`, then success a minute later). One retry for idempotent requests would absorb it.
 
 Order: R1, R2, R4, R7 (trust) → R3, R5, R6 (fetch cost) → R8–R10 → R11–R13.
 
