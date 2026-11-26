@@ -2,6 +2,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -112,6 +113,7 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 		return analyze.AnalysisResult{}, err
 	}
 	pipelineDiags = append(pipelineDiags, hydrateDiags...)
+	incomplete := incompleteWorkflows(allWfRuns, allDetails)
 	s.Prog.Done()
 
 	if len(allDetails) == 0 {
@@ -168,6 +170,7 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 	result.Meta.BranchCategory = opts.BranchCategory
 	result.Meta.Workflow = opts.Workflow
 	result.Meta.Since = opts.Since
+	result.Meta.Incomplete = incomplete
 	result.Diagnostics = append(result.Diagnostics, pipelineDiags...)
 
 	// Summarize any jobs missing runner labels (GraphQL doesn't expose them).
@@ -274,6 +277,31 @@ func unknownWorkflowError(workflows []model.Workflow, filter string) error {
 		names = append(names[:15], "…")
 	}
 	return fmt.Errorf("workflow %q not found; available workflows: %s", filter, strings.Join(names, ", "))
+}
+
+// incompleteWorkflows compares what was listed with what was hydrated, so it
+// holds whatever the cause: a rate limit, a failed batch, a deleted run.
+func incompleteWorkflows(listed []workflowRuns, details []model.RunDetail) []analyze.IncompleteWorkflow {
+	hydrated := make(map[int64]bool, len(details))
+	for i := range details {
+		hydrated[details[i].Run.ID] = true
+	}
+	var incomplete []analyze.IncompleteWorkflow
+	for _, wr := range listed {
+		n := 0
+		for i := range wr.runs {
+			if hydrated[wr.runs[i].ID] {
+				n++
+			}
+		}
+		if n < len(wr.runs) {
+			incomplete = append(incomplete, analyze.IncompleteWorkflow{Workflow: wr.wf.Name, Hydrated: n, Listed: len(wr.runs)})
+		}
+	}
+	slices.SortFunc(incomplete, func(a, b analyze.IncompleteWorkflow) int {
+		return cmp.Or(cmp.Compare(b.Listed-b.Hydrated, a.Listed-a.Hydrated), cmp.Compare(a.Workflow, b.Workflow))
+	})
+	return incomplete
 }
 
 func countJobsMissingLabels(details []model.RunDetail) int {

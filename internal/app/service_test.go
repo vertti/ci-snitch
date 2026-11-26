@@ -202,6 +202,37 @@ func TestRun_HydrationWarningsSurfaceInDiagnostics(t *testing.T) {
 	assertHasDiagnostic(t, res.Diagnostics, diag.KindNetwork, "failed to fetch run 2")
 }
 
+func TestRun_WorkflowsMissingRunDetailsAreRecordedInMetaMostMissingFirst(t *testing.T) {
+	ci := []model.RunDetail{fakeRunDetail(1, "success"), fakeRunDetail(2, "success"), fakeRunDetail(3, "success")}
+	deploy := []model.RunDetail{fakeRunDetail(4, "success"), fakeRunDetail(5, "success"), fakeRunDetail(6, "success")}
+	runsOf := func(details []model.RunDetail, workflowID int64) []model.WorkflowRun {
+		runs := make([]model.WorkflowRun, len(details))
+		for i := range details {
+			details[i].Run.WorkflowID = workflowID
+			runs[i] = details[i].Run
+		}
+		return runs
+	}
+	f := &fakeFetcher{
+		workflows: []model.Workflow{{ID: 1, Name: "CI"}, {ID: 2, Name: "Deploy"}},
+		runs:      map[int64][]model.WorkflowRun{1: runsOf(ci, 1), 2: runsOf(deploy, 2)},
+		details:   []model.RunDetail{ci[0], ci[1], deploy[0]},
+	}
+
+	res, err := runService(t, f, nil)
+	require.NoError(t, err)
+	require.Equal(t, []analyze.IncompleteWorkflow{
+		{Workflow: "Deploy", Hydrated: 1, Listed: 3},
+		{Workflow: "CI", Hydrated: 2, Listed: 3},
+	}, res.Meta.Incomplete)
+}
+
+func TestRun_FullyHydratedScanRecordsNoIncompleteWorkflows(t *testing.T) {
+	res, err := runService(t, baseFetcher(), nil)
+	require.NoError(t, err)
+	require.Empty(t, res.Meta.Incomplete)
+}
+
 func TestRun_PreprocessWarningsSurfaceInDiagnostics(t *testing.T) {
 	f := baseFetcher()
 	// One failed run: with IncludeFailures=false preprocess excludes it and warns.
