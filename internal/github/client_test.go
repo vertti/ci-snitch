@@ -51,6 +51,12 @@ func TestNewClient_ValidRepo(t *testing.T) {
 	assert.Equal(t, "repo", c.repo)
 }
 
+func TestNewClient_BoundsEveryRequestWithATimeout(t *testing.T) {
+	c, err := NewClient("token", "owner/repo")
+	require.NoError(t, err)
+	assert.Positive(t, c.gh.Client().Timeout)
+}
+
 func TestNewClient_InvalidRepo(t *testing.T) {
 	tests := []string{"", "noslash", "/nope", "nope/"}
 	for _, input := range tests {
