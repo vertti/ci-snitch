@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/vertti/ci-snitch/internal/analyze"
+	"github.com/vertti/ci-snitch/internal/app"
 	"github.com/vertti/ci-snitch/internal/github"
 	"github.com/vertti/ci-snitch/internal/output"
 	"github.com/vertti/ci-snitch/internal/store"
@@ -135,5 +136,20 @@ func run() error {
 	}
 	fmt.Printf("LLM briefing renders (%d bytes)\n", briefing.Len())
 
+	return checkServiceRun(ctx, &app.Service{Client: c, Store: s, Prog: output.NewProgressQuiet()},
+		&app.Options{Repo: repo, Since: since, Workflow: wf.Name})
+}
+
+// checkServiceRun runs the CLI's own orchestration. A healthy scan hydrates
+// every run it lists, so any incomplete workflow is a failure.
+func checkServiceRun(ctx context.Context, svc *app.Service, opts *app.Options) error {
+	res, err := svc.Run(ctx, opts)
+	if err != nil {
+		return fmt.Errorf("service run: %w", err)
+	}
+	if len(res.Meta.Incomplete) > 0 {
+		return fmt.Errorf("service run reports partial data: %+v", res.Meta.Incomplete)
+	}
+	fmt.Printf("Service run: %d runs analyzed, every listed run hydrated\n", res.Meta.TotalRuns)
 	return nil
 }
