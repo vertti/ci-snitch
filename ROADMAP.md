@@ -305,6 +305,62 @@ Removed from the old "already correct" list — disproven by this review:
 
 ---
 
+## R — Real-world scan findings (2026-11-26; cold 30-day scan of a private monorepo: 10.8k runs, 32 workflows, third-party 4- and 16-vCPU runners)
+
+Each finding was checked against the raw API, job logs or the cache. Filling the cache took five invocations and about 45 minutes, so the fetch problems come first.
+
+### R1. HTTP timeout on every API request [XS]
+- The first invocation sat silent for 30 minutes until it was killed. Its goroutine dump shows two batches parked in `http2ClientConn.roundTrip` under `doGraphQL`: `gh.NewClient` gets no timeout and the context has no deadline, so a stalled response waits forever. Fix: `gh.WithTimeout` on the shared client, which covers REST and GraphQL.
+
+### R2. Rate-limit errors that are not typed `RATE_LIMITED` fall back to REST [S]
+- GitHub answered some batches with a GraphQL error whose message is "API rate limit already exceeded for user ID …" and no `RATE_LIMITED` type, and others with HTTP 403 (secondary limit). `doGraphQL` recognizes only the type, so both took the generic path and fell back to REST: the 20x core-pool spend D6 exists to prevent. Fix: classify by status (403/429), by `X-RateLimit-Remaining: 0` and by message, as well as by type.
+- The diagnostic drops GitHub's message. Keep it.
+- This is the "real secondary-limit incident" the central-limiter entry under "Items intentionally not adopted" waits for. The classification fix comes first; a limiter only if it recurs.
+
+### R3. The pre-flight budget underestimates cost tenfold and reads a counter hydration does not spend from [S–M]
+- A 20-run batch costs 10 points, not 1. Measured with `rateLimit{cost}`: 1, 3, 5 and 10 points for batches of 1, 5, 10 and 20 runs. The estimate printed "~592 calls" for a scan that drained the 5,000-point pool.
+- The REST `/rate_limit` snapshot said 3,995 points remained while GraphQL responses carried `X-RateLimit-Remaining` between 0 and 4 at the same moment. Two counters with different reset times answered for one token, alternating per request. Fix: budget in points per batch, `max(1, round(0.51 × runs))`, which fits all four measurements and prices the smaller batches R5 produces at their real cost (20 single-run batches cost 20 points, not 10). Trust the headers on GraphQL responses over the REST snapshot.
+- `checkRuns(first:50)` sets the price: each run requests 51 connections. `first:20` would cost 0.21 points per run, and the truncation path (P2) already completes the rare larger run.
+
+### R4. A partially hydrated scan exits 0 and reports as if complete [S]
+- After the pool drained, the two largest workflows were 17% and 26% hydrated. The run exited 0, printed two `[warn]` lines, and ranked its priority findings from the partial set. Fix: when the reset is minutes away, wait and resume. Otherwise lead every format with a partial-data banner that names the workflows, and add a `--fail-on` condition for it.
+
+### R5. Batches of 20 time out on job-heavy workflows [S]
+- For a workflow with 6 jobs of about 50 steps each, 41 of 43 batches returned 502 or 504 and fell back to 20 REST calls apiece: 8.5 minutes for 854 runs. The first invocation logged 102 such fallbacks. Fix: on 502/504, halve the batch and retry before falling back.
+- Reproduces on a public repo: a 7-day `cli/cli` scan (998 runs) logged four 502 fallbacks.
+
+### R6. Skipped runs are hydrated [S]
+- 3.2k of the 10.8k listed runs (30%) had conclusion `skipped`: comment- and label-triggered workflows whose job `if:` was false. They have no timed jobs, yet each one costs hydration points. Fix: keep them for counts, skip hydration.
+
+### R7. The whole-series outlier clamp flattens a short genuine regime [S]
+- A deploy job ran at a 5.3-minute median for six runs, then at 20 minutes for the remaining 230. The fence computed from the whole series (IQR 1.0 min around 22 min) clamped all six early runs up to 17.6 min. The change point landed on the right commit but was reported as "+12%, minor" instead of roughly +275%, and a later 2-minute shift took the headline.
+- Amends the "`ClampOutliers` before CUSUM" entry under "Verified still correct": sound for detection, wrong as the source of the reported levels. Fix: report segment levels as raw medians, and clamp against a local window so a run of consecutive points counts as a level, not as outliers.
+
+### R8. Cost ignores runner size where it matters most [M]
+- GraphQL hydration carries no labels, so 11.5k jobs were priced at 1x and only REST-fallback runs had labels at all. Third-party labels (`<vendor>-16vcpu-…`) are priced 1x by design, which understated the 16-vCPU test workflows fourfold next to a 4-vCPU deploy job. Fix: learn labels over REST by sampling each (workflow, job name) across the window, not once, because a job can move to another runner size under the same name (A13 prices per run for that reason). Report vCPU-minutes beside billable minutes.
+
+### R9. Step-level hotspots and regressions are invisible [M]
+- Steps are reported as the top three per job by median, on successful runs only. Two regressions sat below that: an artifact upload that went from 12 s to 98 s, and a failure-only upload step that went from 2 s to 175 s (it runs only in failed jobs, which the duration series excludes). The widest single target, one test step summing to 14% of all runner time across two workflows, appears nowhere as a total. Fix: rank steps by total time across workflows and conclusions, and run change-point detection on step series.
+
+### R10. Queue time is always zero [S]
+- `run_started_at` equalled `created_at` on all 10,756 first attempts, so the Queue column never renders. Real waits exist: runs held by a concurrency group started their first job a mean 6.1 minutes after creation. Fix: queue = first job start minus run creation.
+
+### R11. Wording batch [XS–S]
+- `[FLAKY]` on a pull-request workflow whose top failing steps were lint and compile. Call it flaky only when the same SHA later passed, or on the default branch.
+- "Undersized runner" for a 22-minute job that waits on a cloud API. The heuristic sees duration only; phrase it as a question.
+- More than twenty "has N outliers" bullets for sub-minute jobs. Rank by excess seconds × frequency and cut the tail.
+
+### R12. HTML time map [M]
+- An icicle of workflow → job → step, sized by runner time, answered "where does the time go" faster than any table in this scan. Candidate `--format html`.
+
+### R13. Paper cuts found while fixing [XS]
+- `-q` does not silence the client's `slog` lines: "GraphQL batch failed, falling back to REST" still reaches stderr, because the client logger is wired to stderr at INFO whatever the flag says.
+- `cmd/smoke` passes vacuously when its workflow has no runs in the last 3 days ("No runs to hydrate", exit 0).
+
+Order: R1, R2, R4, R7 (trust) → R3, R5, R6 (fetch cost) → R8–R10 → R11–R13.
+
+---
+
 ## Verification gate
 
 Every PR:
