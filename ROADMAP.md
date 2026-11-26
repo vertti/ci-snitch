@@ -338,9 +338,11 @@ Each finding was checked against the raw API, job logs or the cache. Filling the
 ### R6. Skipped runs are hydrated [S]
 - 3.2k of the 10.8k listed runs (30%) had conclusion `skipped`: comment- and label-triggered workflows whose job `if:` was false. They have no timed jobs, yet each one costs hydration points. Fix: keep them for counts, skip hydration.
 
-### R7. The whole-series outlier clamp flattens a short genuine regime [S]
+### R7. The whole-series outlier clamp flattens a short genuine regime [S] ✅ done
 - A deploy job ran at a 5.3-minute median for six runs, then at 20 minutes for the remaining 230. The fence computed from the whole series (IQR 1.0 min around 22 min) clamped all six early runs up to 17.6 min. The change point landed on the right commit but was reported as "+12%, minor" instead of roughly +275%, and a later 2-minute shift took the headline.
 - Amends the "`ClampOutliers` before CUSUM" entry under "Verified still correct": sound for detection, wrong as the source of the reported levels. Fix: report segment levels as raw medians, and clamp against a local window so a run of consecutive points counts as a level, not as outliers.
+- Shipped: segment levels are medians of the raw durations, and the clamp that feeds CUSUM leaves a run of `MinSegment` consecutive values beyond the same fence alone, because that is a level and not a set of outliers. On the scan above the change point at the culprit commit now reads +272% (5m20s to 19m52s, critical). `before_mean` and `after_mean` keep their names and now hold medians.
+- Open: the regression dedup keeps the latest slowdown per job, so the later +11% step is still the headline and the +272% step is filed as minor. Two slowdowns in a row that both hold should read as one regression from the first level to the last.
 
 ### R8. Cost ignores runner size where it matters most [M]
 - GraphQL hydration carries no labels, so 11.5k jobs were priced at 1x and only REST-fallback runs had labels at all. Third-party labels (`<vendor>-16vcpu-…`) are priced 1x by design, which understated the 16-vCPU test workflows fourfold next to a 4-vCPU deploy job. Fix: learn labels over REST by sampling each (workflow, job name) across the window, not once, because a job can move to another runner size under the same name (A13 prices per run for that reason). Report vCPU-minutes beside billable minutes.
