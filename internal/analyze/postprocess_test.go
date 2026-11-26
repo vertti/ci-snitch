@@ -225,3 +225,54 @@ func TestPostProcess_FilterLowFailureRate(t *testing.T) {
 	require.Len(t, failures, 1, "sub-5% failure rate should be filtered")
 	assert.Equal(t, "tests", failures[0].Workflow)
 }
+
+func changePointCategories(findings []Finding) []string {
+	var categories []string
+	for _, f := range findings {
+		if d, ok := f.Detail.(ChangePointDetail); ok {
+			categories = append(categories, d.Category)
+		}
+	}
+	return categories
+}
+
+// plateaus builds a job's durations as consecutive plateaus of runsEach runs.
+func plateaus(runsEach int, levels ...time.Duration) []time.Duration {
+	var durations []time.Duration
+	for _, level := range levels {
+		for i := range runsEach {
+			durations = append(durations, level+time.Duration(i%3)*time.Second)
+		}
+	}
+	return durations
+}
+
+func analyzeChangePoints(t *testing.T, durations []time.Duration) []Finding {
+	t.Helper()
+	details := makeTimedDetails(durations)
+	result := NewEngine(ChangePointAnalyzer{}).Run(t.Context(), details, details, nil, map[int64]string{100: "CI"})
+	require.Empty(t, result.Diagnostics)
+	return result.Findings
+}
+
+func TestPostProcess_RepeatedSlowdownsAreARegressionNotOscillation(t *testing.T) {
+	slowdown := func(pct float64) Finding {
+		return Finding{Type: TypeChangepoint, Severity: SeverityWarning, Detail: ChangePointDetail{
+			WorkflowName: "CI", JobName: "build", Direction: DirectionSlowdown,
+			Persistence: PersistencePersistent, PctChange: pct,
+		}}
+	}
+
+	result := postProcess([]Finding{slowdown(60), slowdown(38), slowdown(27)})
+	assert.Equal(t, []string{CategoryMinor, CategoryMinor, CategoryRegression}, changePointCategories(result),
+		"three slowdowns in a row never reverse direction: the latest is the regression")
+}
+
+func TestEngine_SteadilySlowingJobReportsARegression(t *testing.T) {
+	findings := analyzeChangePoints(t, plateaus(25, 5*time.Minute, 8*time.Minute, 11*time.Minute, 14*time.Minute))
+
+	categories := changePointCategories(findings)
+	require.Len(t, categories, 3, "one change point per step")
+	assert.Contains(t, categories, CategoryRegression)
+	assert.NotContains(t, categories, CategoryOscillating)
+}
