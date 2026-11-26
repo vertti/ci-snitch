@@ -420,6 +420,13 @@ func TestTruncateBody(t *testing.T) {
 	assert.True(t, strings.HasSuffix(long, "..."))
 }
 
+func TestAPIErrorMessage(t *testing.T) {
+	assert.Equal(t, "Bad credentials", string(apiErrorMessage([]byte(`{"message": "Bad credentials"}`))))
+	assert.Equal(t, "<html>502</html>", string(apiErrorMessage([]byte("<html>502</html>"))), "a non-JSON body is shown as is")
+	assert.JSONEq(t, `{"errors": []}`, string(apiErrorMessage([]byte(`{"errors": []}`))), "JSON without a message is shown as is")
+	assert.Empty(t, apiErrorMessage(nil))
+}
+
 func TestFetchRunDetailsGraphQL_NullNodeStillWarns(t *testing.T) {
 	// A "rN": null node (deleted run / permissions) keeps its per-run
 	// warning — pins the pre-existing behavior.
