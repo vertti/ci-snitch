@@ -14,6 +14,8 @@ type MarkdownFormatter struct {
 
 // Format implements Formatter.
 func (m MarkdownFormatter) Format(w io.Writer, result *analyze.AnalysisResult) error {
+	out := &stickyErrWriter{w: w}
+	w = out
 	_, _ = fmt.Fprintf(w, "# CI Performance Report\n\n")
 	_, _ = fmt.Fprintf(w, "**%d runs** analyzed (%s to %s)\n\n",
 		result.Meta.TotalRuns,
@@ -34,7 +36,7 @@ func (m MarkdownFormatter) Format(w io.Writer, result *analyze.AnalysisResult) e
 	mdWriteRunners(w, g.Runners)
 	mdWriteSteps(w, g.Steps)
 
-	return nil
+	return out.Err()
 }
 
 func mdWriteSummaries(w io.Writer, findings []analyze.Finding) {
