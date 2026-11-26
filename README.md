@@ -119,5 +119,5 @@ A scan that could not fetch every run (a rate limit, failed batches) still repor
 ```bash
 mise install              # toolchain pinned in mise.toml
 mise run check            # format + lint + test
-go run ./cmd/smoke        # smoke test against cli/cli
+mise run smoke            # smoke test against cli/cli
 ```
