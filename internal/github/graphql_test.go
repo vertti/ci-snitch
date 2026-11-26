@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -259,6 +260,75 @@ func TestFetchRunDetailsGraphQL_RateLimitedDoesNotFallBackToREST(t *testing.T) {
 	assert.Equal(t, 1, rateWarnings, "one aggregated rate-limit warning, got %v", warnings)
 }
 
+func TestFetchRunDetailsGraphQL_UntypedRateLimitsDoNotFallBackToREST(t *testing.T) {
+	// GitHub reports a rate limit in more shapes than the RATE_LIMITED type.
+	// Each must stop hydration like the typed error, in GitHub's own words.
+	cases := []struct {
+		name       string
+		status     int
+		body       string
+		wantReason string
+	}{
+		{
+			name:       "error message without a type",
+			status:     http.StatusOK,
+			body:       `{"errors": [{"message": "API rate limit already exceeded for user ID 1."}]}`,
+			wantReason: "API rate limit already exceeded for user ID 1.",
+		},
+		{
+			name:       "secondary limit as 403",
+			status:     http.StatusForbidden,
+			body:       `{"documentation_url": "https://docs.github.com/graphql/overview/rate-limits-and-node-limits-for-the-graphql-api#secondary-rate-limits", "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}`,
+			wantReason: "HTTP 403: You have exceeded a secondary rate limit.",
+		},
+		{
+			name:       "429 with no body",
+			status:     http.StatusTooManyRequests,
+			wantReason: "HTTP 429",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var restCalls atomic.Int32
+			mux := http.NewServeMux()
+			mux.HandleFunc("POST /graphql", func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			})
+			mux.HandleFunc("GET /repos/test-owner/test-repo/actions/runs/{id}/jobs", func(w http.ResponseWriter, _ *http.Request) {
+				restCalls.Add(1)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"total_count": 0, "jobs": []}`))
+			})
+
+			details, warnings := testClient(t, mux).FetchRunDetailsGraphQL(context.Background(), graphqlTestRuns(45))
+			assert.Empty(t, details)
+			assert.Zero(t, restCalls.Load(), "must not fall back to REST on a rate limit")
+
+			require.Len(t, warnings, 1)
+			assert.Equal(t, diag.KindRateLimit, warnings[0].Kind)
+			assert.Contains(t, warnings[0].Message, "45 runs")
+			assert.Contains(t, warnings[0].Message, tc.wantReason)
+		})
+	}
+}
+
+func TestFetchRunDetailsGraphQL_ForbiddenWithoutRateLimitStillFallsBackToREST(t *testing.T) {
+	// A 403 is also how SSO and permission problems arrive; only the ones
+	// that say "rate limit" are rate limits.
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /graphql", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message": "Resource protected by organization SAML enforcement."}`))
+	})
+	restJobsHandler(mux, 1, 2)
+
+	details, _ := testClient(t, mux).FetchRunDetailsGraphQL(context.Background(), graphqlTestRuns(2))
+	assert.Len(t, details, 2)
+}
+
 func TestFetchRunDetailsGraphQL_StalledResponseTimesOutIntoRESTFallback(t *testing.T) {
 	release := make(chan struct{})
 	mux := http.NewServeMux()
@@ -348,6 +418,13 @@ func TestTruncateBody(t *testing.T) {
 	long := truncateBody([]byte(strings.Repeat("x", 300)))
 	assert.Len(t, long, 203, "200 bytes plus ellipsis")
 	assert.True(t, strings.HasSuffix(long, "..."))
+}
+
+func TestAPIErrorMessage(t *testing.T) {
+	assert.Equal(t, "Bad credentials", string(apiErrorMessage([]byte(`{"message": "Bad credentials"}`))))
+	assert.Equal(t, "<html>502</html>", string(apiErrorMessage([]byte("<html>502</html>"))), "a non-JSON body is shown as is")
+	assert.JSONEq(t, `{"errors": []}`, string(apiErrorMessage([]byte(`{"errors": []}`))), "JSON without a message is shown as is")
+	assert.Empty(t, apiErrorMessage(nil))
 }
 
 func TestFetchRunDetailsGraphQL_NullNodeStillWarns(t *testing.T) {

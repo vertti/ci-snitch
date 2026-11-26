@@ -313,9 +313,11 @@ Each finding was checked against the raw API, job logs or the cache. Filling the
 - The first invocation sat silent for 30 minutes until it was killed. Its goroutine dump shows two batches parked in `http2ClientConn.roundTrip` under `doGraphQL`: `gh.NewClient` got no timeout and the context has no deadline, so a stalled response waited forever.
 - `gh.WithTimeout(requestTimeout)` (30s) on the shared client bounds REST and GraphQL alike (red test: `NewClient` built a client with a 0s timeout). A stalled batch now errors into the existing REST fallback instead of blocking.
 
-### R2. Rate-limit errors that are not typed `RATE_LIMITED` fall back to REST [S]
-- GitHub answered some batches with a GraphQL error whose message is "API rate limit already exceeded for user ID …" and no `RATE_LIMITED` type, and others with HTTP 403 (secondary limit). `doGraphQL` recognizes only the type, so both took the generic path and fell back to REST: the 20x core-pool spend D6 exists to prevent. Fix: classify by status (403/429), by `X-RateLimit-Remaining: 0` and by message, as well as by type.
-- The diagnostic drops GitHub's message. Keep it.
+### R2. Rate-limit errors that are not typed `RATE_LIMITED` fall back to REST [S] ✅ done
+- GitHub answered some batches with a GraphQL error whose message is "API rate limit already exceeded for user ID …" and no `RATE_LIMITED` type, and others with HTTP 403 (secondary limit). `doGraphQL` recognized only the type, so both took the generic path and fell back to REST: the 20x core-pool spend D6 exists to prevent.
+- A response is now a rate limit when it has the type, when its error message or non-200 body says "rate limit", or when it is a 429 (red tests for all three untyped shapes: 45 REST calls each before). A 403 that does not say so still falls back, because SSO and permission errors arrive as 403 too. The `X-RateLimit-Remaining` header went unused: every observed and documented shape carries the wording.
+- The sentinel became a `rateLimitError` holding GitHub's message, so the diagnostic reads "GitHub rate limit hit (You have exceeded a secondary rate limit. …); skipped hydration of N runs". Non-200 errors show the API error's `message` instead of raw JSON.
+- A secondary limit now ends that workflow's hydration where it used to continue through REST. R4 turns the stop into wait-and-resume; ship the two together.
 - This is the "real secondary-limit incident" the central-limiter entry under "Items intentionally not adopted" waits for. The classification fix comes first; a limiter only if it recurs.
 
 ### R3. The pre-flight budget underestimates cost tenfold and reads a counter hydration does not spend from [S–M]
@@ -324,7 +326,7 @@ Each finding was checked against the raw API, job logs or the cache. Filling the
 - `checkRuns(first:50)` sets the price: each run requests 51 connections. `first:20` would cost 0.21 points per run, and the truncation path (P2) already completes the rare larger run.
 
 ### R4. A partially hydrated scan exits 0 and reports as if complete [S]
-- After the pool drained, the two largest workflows were 17% and 26% hydrated. The run exited 0, printed two `[warn]` lines, and ranked its priority findings from the partial set. Fix: when the reset is minutes away, wait and resume. Otherwise lead every format with a partial-data banner that names the workflows, and add a `--fail-on` condition for it.
+- After the pool drained, the two largest workflows were 17% and 26% hydrated. The run exited 0, printed two `[warn]` lines, and ranked its priority findings from the partial set. Fix: when the reset is minutes away, or a secondary limit names a `Retry-After`, wait and resume. Otherwise lead every format with a partial-data banner that names the workflows, and add a `--fail-on` condition for it.
 
 ### R5. Batches of 20 time out on job-heavy workflows [S]
 - For a workflow with 6 jobs of about 50 steps each, 41 of 43 batches returned 502 or 504 and fell back to 20 REST calls apiece: 8.5 minutes for 854 runs. The first invocation logged 102 such fallbacks. Fix: on 502/504, halve the batch and retry before falling back.
