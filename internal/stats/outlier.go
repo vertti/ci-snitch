@@ -2,6 +2,7 @@ package stats
 
 import (
 	"math"
+	"slices"
 	"sort"
 )
 
@@ -105,11 +106,11 @@ func MADOutliers(data []float64, threshold float64) (outliers []OutlierResult) {
 	return outliers
 }
 
-// ClampOutliers replaces isolated extreme values with the nearest fence value.
-// Uses the IQR method: values beyond Q3 + multiplier×IQR (or below Q1 - multiplier×IQR)
-// are clamped to the fence. This prevents single extreme outliers from poisoning
-// downstream analysis while preserving genuine level shifts (which move the IQR).
-func ClampOutliers(data []float64, multiplier float64) []float64 {
+// ClampOutliers replaces extreme values with the nearest fence value: beyond
+// Q3 + multiplier×IQR, or below Q1 - multiplier×IQR. A run of at least keepRun
+// consecutive values beyond the same fence is a level of its own, not a set
+// of outliers, and is left as it is.
+func ClampOutliers(data []float64, multiplier float64, keepRun int) []float64 {
 	if len(data) < 5 {
 		return data
 	}
@@ -121,17 +122,34 @@ func ClampOutliers(data []float64, multiplier float64) []float64 {
 
 	lower := q1 - multiplier*iqr
 	upper := q3 + multiplier*iqr
-
-	result := make([]float64, len(data))
-	for i, v := range data {
+	fenceFor := func(v float64) (fence float64, beyond bool) {
 		switch {
 		case v > upper:
-			result[i] = upper
+			return upper, true
 		case v < lower:
-			result[i] = lower
+			return lower, true
 		default:
-			result[i] = v
+			return 0, false
 		}
+	}
+
+	result := slices.Clone(data)
+	for start := 0; start < len(data); {
+		fence, beyond := fenceFor(data[start])
+		end := start + 1
+		for end < len(data) {
+			f, b := fenceFor(data[end])
+			if b != beyond || f != fence {
+				break
+			}
+			end++
+		}
+		if beyond && end-start < keepRun {
+			for i := start; i < end; i++ {
+				result[i] = fence
+			}
+		}
+		start = end
 	}
 	return result
 }

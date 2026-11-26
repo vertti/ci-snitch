@@ -16,8 +16,8 @@ type ChangePointDetail struct {
 	WorkflowName   string    `json:"workflow_name"`
 	JobName        string    `json:"job_name"`
 	ChangeIdx      int       `json:"change_idx"`
-	BeforeMean     Duration  `json:"before_mean"`
-	AfterMean      Duration  `json:"after_mean"`
+	BeforeMean     Duration  `json:"before_mean"` // median of the segment before the change
+	AfterMean      Duration  `json:"after_mean"`  // median of the segment after it
 	PctChange      float64   `json:"pct_change"`
 	Direction      string    `json:"direction"`
 	PValue         float64   `json:"p_value"`
@@ -87,10 +87,11 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 			continue
 		}
 
-		// Clamp extreme outliers before changepoint detection.
+		// Clamp isolated extreme values before changepoint detection.
 		// A single 38-min run in a 10-min job can fool CUSUM into reporting
-		// a persistent regression when the job actually got faster.
-		clamped := stats.ClampOutliers(js.Durations, 4.0)
+		// a persistent regression when the job actually got faster. A run of
+		// minSeg shifted values is a level CUSUM must see, so it stays.
+		clamped := stats.ClampOutliers(js.Durations, 4.0, minSeg)
 		cps := stats.CUSUMDetect(clamped, threshold, minSeg)
 		for cpIdx, cp := range cps {
 			// The run where the change surfaced, for commit/date context
@@ -119,11 +120,12 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 			// 0.05 boundary drifted ~5% between runs on identical data.
 			_, pValue := stats.MannWhitneyURand(before, after, seededRNG(jk.WorkflowID, jk.Job, cp.Index))
 
-			// Segment levels from the clamped series (what CUSUM saw): with
-			// bounded segments a raw mean would let one extreme outlier
-			// manufacture a large "% change" out of an otherwise flat level.
-			beforeMean := stats.Mean(clamped[segStart:cp.Index])
-			afterMean := stats.Mean(clamped[cp.Index:postChangeEnd])
+			// Segment levels are medians of the raw values. A mean would let
+			// one extreme outlier manufacture a large "% change" out of a
+			// flat level, and the clamped series is fitted to the whole
+			// history, which pulls a short segment toward the long one.
+			beforeMean := stats.Median(before)
+			afterMean := stats.Median(after)
 			pctChange := 0.0
 			if beforeMean != 0 {
 				pctChange = (afterMean - beforeMean) / beforeMean * 100

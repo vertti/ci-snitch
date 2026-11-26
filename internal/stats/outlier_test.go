@@ -105,7 +105,7 @@ func TestClampOutliers_ClampsExtremeValues(t *testing.T) {
 		101, 98, 102, 100, 103, 99, 101, 100, 102, 98,
 		2000, // extreme outlier
 	}
-	result := ClampOutliers(data, 4.0)
+	result := ClampOutliers(data, 4.0, 5)
 	require.Len(t, result, len(data))
 
 	// The 2000 should be clamped to the median (~100)
@@ -117,13 +117,13 @@ func TestClampOutliers_ClampsExtremeValues(t *testing.T) {
 
 func TestClampOutliers_PreservesNormalData(t *testing.T) {
 	data := []float64{100, 102, 101, 103, 99, 100, 101, 102, 100, 101}
-	result := ClampOutliers(data, 4.0)
+	result := ClampOutliers(data, 4.0, 5)
 	assert.Equal(t, data, result, "normal data should be unchanged")
 }
 
 func TestClampOutliers_TooFewPoints(t *testing.T) {
 	data := []float64{1, 2, 3}
-	result := ClampOutliers(data, 4.0)
+	result := ClampOutliers(data, 4.0, 5)
 	assert.Equal(t, data, result, "should return input unchanged")
 }
 
@@ -137,4 +137,26 @@ func TestPercentileRank(t *testing.T) {
 	// Tied worst pair: (8 + 2/2)/10 = 90 each, not 80.
 	tied := []float64{1, 2, 3, 4, 5, 6, 7, 8, 20, 20}
 	assert.InDelta(t, 90.0, percentileRank(tied, 20), 0.1)
+}
+
+func TestClampOutliers_KeepsARunOfShiftedValuesAsALevel(t *testing.T) {
+	// 100 values around 300, then 20 around 600: too few to move the IQR, but
+	// twenty in a row are a new level, not twenty outliers.
+	var data []float64
+	for i := range 100 {
+		data = append(data, 300+float64(i%3))
+	}
+	for i := range 20 {
+		data = append(data, 600+float64(i%3))
+	}
+	assert.Equal(t, data, ClampOutliers(data, 4.0, 5))
+
+	// The same values scattered one at a time are still outliers.
+	scattered := append([]float64{}, data[:100]...)
+	for i := 10; i < 100; i += 10 {
+		scattered[i] = 600
+	}
+	clamped := ClampOutliers(scattered, 4.0, 5)
+	assert.Less(t, clamped[10], 320.0)
+	assert.Less(t, clamped[90], 320.0)
 }
