@@ -16,6 +16,7 @@ import (
 	"github.com/vertti/ci-snitch/internal/github"
 	"github.com/vertti/ci-snitch/internal/model"
 	"github.com/vertti/ci-snitch/internal/output"
+	"github.com/vertti/ci-snitch/internal/preprocess"
 )
 
 var testBase = time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
@@ -234,6 +235,29 @@ func TestRun_TruncatedRunsCountAsMissingRunDetails(t *testing.T) {
 	res, err := runService(t, f, nil)
 	require.NoError(t, err)
 	require.Equal(t, []analyze.IncompleteWorkflow{{Workflow: "CI", Hydrated: 2, Listed: 3}}, res.Meta.Incomplete)
+}
+
+func TestRun_CompletenessIsJudgedWithinTheSelectedBranchCategory(t *testing.T) {
+	pr := fakeRunDetail(3, "success")
+	pr.Run.Event = "pull_request"
+	runMain := func(hydrated ...int) analyze.AnalysisResult {
+		f := fetcherFor(fakeRunDetail(1, "success"), fakeRunDetail(2, "success"), pr)
+		all := f.details
+		f.details = nil
+		for _, i := range hydrated {
+			f.details = append(f.details, all[i])
+		}
+		svc := &Service{Client: f, Prog: output.NewProgress()}
+		res, err := svc.Run(context.Background(), &Options{
+			Repo: "example-org/example-repo", Since: testBase.Add(-24 * time.Hour),
+			BranchCategory: preprocess.CategoryMain,
+		})
+		require.NoError(t, err)
+		return res
+	}
+
+	require.Empty(t, runMain(0, 1).Meta.Incomplete, "a missing pull_request run is outside a main-category report")
+	require.Equal(t, []analyze.IncompleteWorkflow{{Workflow: "CI", Hydrated: 1, Listed: 2}}, runMain(0, 2).Meta.Incomplete)
 }
 
 func TestRun_FullyHydratedScanRecordsNoIncompleteWorkflows(t *testing.T) {

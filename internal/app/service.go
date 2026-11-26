@@ -113,7 +113,7 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 		return analyze.AnalysisResult{}, err
 	}
 	pipelineDiags = append(pipelineDiags, hydrateDiags...)
-	incomplete := incompleteWorkflows(allWfRuns, allDetails)
+	incomplete := incompleteWorkflows(allWfRuns, allDetails, opts.BranchCategory)
 	s.Prog.Done()
 
 	if len(allDetails) == 0 {
@@ -296,8 +296,9 @@ func nothingHydratedError(listed int, diags []diag.Diagnostic) error {
 
 // incompleteWorkflows compares what was listed with what was hydrated in
 // full, so it holds whatever the cause: a rate limit, a failed batch, a
-// deleted run, a run left truncated.
-func incompleteWorkflows(listed []workflowRuns, details []model.RunDetail) []analyze.IncompleteWorkflow {
+// deleted run, a run left truncated. Listed runs outside the selected branch
+// category never reach the report, so they are not compared.
+func incompleteWorkflows(listed []workflowRuns, details []model.RunDetail, category string) []analyze.IncompleteWorkflow {
 	hydrated := make(map[int64]bool, len(details))
 	for i := range details {
 		if !details[i].Truncated {
@@ -306,14 +307,18 @@ func incompleteWorkflows(listed []workflowRuns, details []model.RunDetail) []ana
 	}
 	var incomplete []analyze.IncompleteWorkflow
 	for _, wr := range listed {
-		n := 0
+		inScope, n := 0, 0
 		for i := range wr.runs {
+			if !preprocess.InEventCategory(&wr.runs[i], category) {
+				continue
+			}
+			inScope++
 			if hydrated[wr.runs[i].ID] {
 				n++
 			}
 		}
-		if n < len(wr.runs) {
-			incomplete = append(incomplete, analyze.IncompleteWorkflow{Workflow: wr.wf.Name, Hydrated: n, Listed: len(wr.runs)})
+		if n < inScope {
+			incomplete = append(incomplete, analyze.IncompleteWorkflow{Workflow: wr.wf.Name, Hydrated: n, Listed: inScope})
 		}
 	}
 	slices.SortFunc(incomplete, func(a, b analyze.IncompleteWorkflow) int {
