@@ -46,13 +46,13 @@ func (c *Client) FetchRunDetailsGraphQL(ctx context.Context, runs []model.Workfl
 		batchDetails, batchWarnings, err := c.fetchBatchGraphQL(ctx, batch)
 		details = append(details, batchDetails...)
 		warnings = append(warnings, batchWarnings...)
-		if errors.Is(err, errGraphQLRateLimited) {
+		if limited, ok := errors.AsType[*rateLimitError](err); ok {
 			// Falling back to REST here would burn ~20x the core budget the
 			// pre-flight check approved. Skip the remaining hydration instead.
 			skipped := len(graphqlRuns) - start
 			warnings = append(warnings, diag.New(
 				diag.Warn, diag.KindRateLimit, "graphql",
-				fmt.Sprintf("GraphQL rate limit exhausted; skipped hydration of %d runs (not falling back to REST to protect the core pool)", skipped),
+				fmt.Sprintf("GitHub rate limit hit (%s); skipped hydration of %d runs (not falling back to REST to protect the core pool)", limited.reason, skipped),
 			))
 			break
 		}
@@ -135,7 +135,7 @@ func (c *Client) fetchBatchGraphQL(ctx context.Context, runs []model.WorkflowRun
 
 	raw, err := c.doGraphQL(ctx, query)
 	if err != nil {
-		if errors.Is(err, errGraphQLRateLimited) || ctx.Err() != nil {
+		if _, limited := errors.AsType[*rateLimitError](err); limited || ctx.Err() != nil {
 			return nil, nil, err
 		}
 		c.log("GraphQL batch failed, falling back to REST", "error", err, "batch_size", len(runs))
@@ -181,7 +181,14 @@ func (c *Client) doGraphQL(ctx context.Context, query string) (json.RawMessage, 
 	// only the first 200 bytes end up in the error string anyway.
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		return nil, fmt.Errorf("graphql: HTTP %d: %s", resp.StatusCode, truncateBody(body))
+		reason := fmt.Sprintf("HTTP %d", resp.StatusCode)
+		if msg := truncateBody(apiErrorMessage(body)); msg != "" {
+			reason += ": " + msg
+		}
+		if resp.StatusCode == http.StatusTooManyRequests || mentionsRateLimit(string(body)) {
+			return nil, &rateLimitError{reason}
+		}
+		return nil, errors.New("graphql: " + reason)
 	}
 
 	// Successful batch responses are large but bounded by the query shape;
@@ -202,18 +209,37 @@ func (c *Client) doGraphQL(ctx context.Context, query string) (json.RawMessage, 
 		return nil, fmt.Errorf("graphql: parse response: %w", err)
 	}
 	if len(result.Errors) > 0 {
-		if result.Errors[0].Type == "RATE_LIMITED" {
-			return nil, fmt.Errorf("graphql: %s: %w", result.Errors[0].Message, errGraphQLRateLimited)
+		first := result.Errors[0]
+		if first.Type == "RATE_LIMITED" || mentionsRateLimit(first.Message) {
+			return nil, &rateLimitError{first.Message}
 		}
-		return nil, fmt.Errorf("graphql: %s", result.Errors[0].Message)
+		return nil, fmt.Errorf("graphql: %s", first.Message)
 	}
 
 	return result.Data, nil
 }
 
-// errGraphQLRateLimited marks a GraphQL-pool exhaustion; callers must not
-// respond by falling back to REST (that multiplies core-pool spend ~20x).
-var errGraphQLRateLimited = errors.New("graphql rate limited")
+// rateLimitError is a GitHub rate limit, primary or secondary. Callers must
+// not fall back to REST on it (that multiplies core-pool spend ~20x).
+type rateLimitError struct{ reason string }
+
+func (e *rateLimitError) Error() string { return "graphql rate limited: " + e.reason }
+
+// GitHub marks only some rate-limit responses with the RATE_LIMITED type;
+// the wording is the one thing every shape of them shares.
+func mentionsRateLimit(s string) bool {
+	return strings.Contains(strings.ToLower(s), "rate limit")
+}
+
+func apiErrorMessage(body []byte) []byte {
+	var apiErr struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(body, &apiErr) == nil && apiErr.Message != "" {
+		return []byte(apiErr.Message)
+	}
+	return body
+}
 
 func truncateBody(b []byte) string {
 	if len(b) > 200 {
