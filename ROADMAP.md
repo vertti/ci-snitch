@@ -327,6 +327,7 @@ Each finding was checked against the raw API, job logs or the cache. Filling the
 
 ### R5. Batches of 20 time out on job-heavy workflows [S]
 - For a workflow with 6 jobs of about 50 steps each, 41 of 43 batches returned 502 or 504 and fell back to 20 REST calls apiece: 8.5 minutes for 854 runs. The first invocation logged 102 such fallbacks. Fix: on 502/504, halve the batch and retry before falling back.
+- Reproduces on a public repo: a 7-day `cli/cli` scan (998 runs) logged four 502 fallbacks.
 
 ### R6. Skipped runs are hydrated [S]
 - 3.2k of the 10.8k listed runs (30%) had conclusion `skipped`: comment- and label-triggered workflows whose job `if:` was false. They have no timed jobs, yet each one costs hydration points. Fix: keep them for counts, skip hydration.
@@ -352,7 +353,11 @@ Each finding was checked against the raw API, job logs or the cache. Filling the
 ### R12. HTML time map [M]
 - An icicle of workflow → job → step, sized by runner time, answered "where does the time go" faster than any table in this scan. Candidate `--format html`.
 
-Order: R1, R2, R4, R7 (trust) → R3, R5, R6 (fetch cost) → R8–R10 → R11, R12.
+### R13. Paper cuts found while fixing [XS]
+- `-q` does not silence the client's `slog` lines: "GraphQL batch failed, falling back to REST" still reaches stderr, because the client logger is wired to stderr at INFO whatever the flag says.
+- `cmd/smoke` passes vacuously when its workflow has no runs in the last 3 days ("No runs to hydrate", exit 0).
+
+Order: R1, R2, R4, R7 (trust) → R3, R5, R6 (fetch cost) → R8–R10 → R11–R13.
 
 ---
 
