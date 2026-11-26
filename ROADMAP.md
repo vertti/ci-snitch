@@ -317,7 +317,7 @@ Each finding was checked against the raw API, job logs or the cache. Filling the
 - GitHub answered some batches with a GraphQL error whose message is "API rate limit already exceeded for user ID …" and no `RATE_LIMITED` type, and others with HTTP 403 (secondary limit). `doGraphQL` recognized only the type, so both took the generic path and fell back to REST: the 20x core-pool spend D6 exists to prevent.
 - A response is now a rate limit when it has the type, when its error message or non-200 body says "rate limit", or when it is a 429 (red tests for all three untyped shapes: 45 REST calls each before). A 403 that does not say so still falls back, because SSO and permission errors arrive as 403 too. The `X-RateLimit-Remaining` header went unused: every observed and documented shape carries the wording.
 - The sentinel became a `rateLimitError` holding GitHub's message, so the diagnostic reads "GitHub rate limit hit (You have exceeded a secondary rate limit. …); skipped hydration of N runs". Non-200 errors show the API error's `message` instead of raw JSON.
-- A secondary limit now ends that workflow's hydration where it used to continue through REST. R4 turns the stop into wait-and-resume; ship the two together.
+- A secondary limit now ends that workflow's hydration where it used to continue through REST. The scan then reports partial data (R4); waiting and running again is left to the caller.
 - This is the "real secondary-limit incident" the central-limiter entry under "Items intentionally not adopted" waits for. The classification fix comes first; a limiter only if it recurs.
 
 ### R3. The pre-flight budget underestimates cost tenfold and reads a counter hydration does not spend from [S–M]
@@ -325,11 +325,10 @@ Each finding was checked against the raw API, job logs or the cache. Filling the
 - The REST `/rate_limit` snapshot said 3,995 points remained while GraphQL responses carried `X-RateLimit-Remaining` between 0 and 4 at the same moment. Two counters with different reset times answered for one token, alternating per request. Fix: budget in points per batch, `max(1, round(0.51 × runs))`, which fits all four measurements and prices the smaller batches R5 produces at their real cost (20 single-run batches cost 20 points, not 10). Trust the headers on GraphQL responses over the REST snapshot.
 - `checkRuns(first:50)` sets the price: each run requests 51 connections. `first:20` would cost 0.21 points per run, and the truncation path (P2) already completes the rare larger run.
 
-### R4. A partially hydrated scan exits 0 and reports as if complete [S]
+### R4. A partially hydrated scan exits 0 and reports as if complete [S] ✅ done
 - After the pool drained, the two largest workflows were 17% and 26% hydrated. The run exited 0, printed two `[warn]` lines, and ranked its priority findings from the partial set.
 - ✅ Shipped: the result records each workflow whose listed runs were not all hydrated (`meta.incomplete`), derived by comparing the listed runs in the selected `--branch-category` with the runs hydrated in full, so it holds whatever the cause and a run left truncated counts as missing. Table, markdown and LLM output lead with a notice that names up to five of them, most missing first, and `--fail-on partial-data` exits 2. A scan that hydrated nothing no longer says "no runs found": it says none of the N listed runs could be fetched and gives the first warning. `cmd/smoke` now runs the service path and fails if a healthy scan reports partial data.
-- Open: when the reset is minutes away, or a secondary limit names a `Retry-After`, wait and resume. R2 made a secondary limit end hydration, so this is what gets a complete scan back.
-- Open: when every run of one `--branch-category` failed to hydrate and other categories did not, the error still reads "no runs found for --branch-category".
+- Not adopted: waiting in-process for the reset or a `Retry-After`. A command-line tool should not sleep for minutes; whatever calls it decides whether to wait. A second run fetches only the runs the cache lacks, so the caller's loop is: `--fail-on partial-data` exits 2, wait, run again.
 
 ### R5. Batches of 20 time out on job-heavy workflows [S]
 - For a workflow with 6 jobs of about 50 steps each, 41 of 43 batches returned 502 or 504 and fell back to 20 REST calls apiece: 8.5 minutes for 854 runs. The first invocation logged 102 such fallbacks. Fix: on 502/504, halve the batch and retry before falling back.
@@ -364,6 +363,8 @@ Each finding was checked against the raw API, job logs or the cache. Filling the
 ### R13. Paper cuts found while fixing [XS]
 - `-q` does not silence the client's `slog` lines: "GraphQL batch failed, falling back to REST" still reaches stderr, because the client logger is wired to stderr at INFO whatever the flag says.
 - `cmd/smoke` passes vacuously when its workflow has no runs in the last 3 days ("No runs to hydrate", exit 0).
+- When every run of one `--branch-category` failed to hydrate and other categories did not, the error still reads "no runs found for --branch-category".
+- The rate-limit warning does not say when to retry. Neither the primary limit's reset time nor a secondary limit's `Retry-After` is read, so a caller that waits (R4) has to guess or ask the API itself.
 
 Order: R1, R2, R4, R7 (trust) → R3, R5, R6 (fetch cost) → R8–R10 → R11–R13.
 
@@ -413,3 +414,7 @@ New this review:
 - **Release signing / SBOM (cosign)** — checksums cover transport integrity; keyless signing is cheap but adds release-pipeline complexity with no current user demand. Revisit if distribution widens.
 - **CONTRIBUTING.md** — no external contributors yet; the dev loop is documented in README/CLAUDE.md. Add when the first outside PR appears.
 - **Config file for CLI defaults** — flags suffice at current surface area; F6's multi-repo config is the natural moment to introduce one.
+
+From the R findings:
+
+- **Waiting in-process for a rate-limit reset (R4)** — a CLI should not sleep for minutes; the caller owns the wait and the retry. Revisit only if callers ask for it as an explicit flag.
