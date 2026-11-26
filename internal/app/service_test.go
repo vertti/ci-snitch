@@ -233,6 +233,17 @@ func TestRun_FullyHydratedScanRecordsNoIncompleteWorkflows(t *testing.T) {
 	require.Empty(t, res.Meta.Incomplete)
 }
 
+func TestRun_NothingHydratedErrorSaysSoAndWhy(t *testing.T) {
+	f := baseFetcher()
+	f.details = nil
+	f.hydrateWarnings = []diag.Diagnostic{diag.New(diag.Warn, diag.KindRateLimit, "graphql",
+		"GitHub rate limit hit (API rate limit already exceeded); skipped hydration of 2 runs")}
+
+	_, err := runService(t, f, nil)
+	require.ErrorContains(t, err, "none of the 2 listed runs could be fetched")
+	require.ErrorContains(t, err, "GitHub rate limit hit")
+}
+
 func TestRun_PreprocessWarningsSurfaceInDiagnostics(t *testing.T) {
 	f := baseFetcher()
 	// One failed run: with IncludeFailures=false preprocess excludes it and warns.

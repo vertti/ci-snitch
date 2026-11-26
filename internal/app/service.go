@@ -117,6 +117,9 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 	s.Prog.Done()
 
 	if len(allDetails) == 0 {
+		if totalRuns > 0 {
+			return analyze.AnalysisResult{}, nothingHydratedError(totalRuns, hydrateDiags)
+		}
 		msg := fmt.Sprintf("no runs found for %s since %s", opts.Repo, opts.Since.Format("2006-01-02"))
 		if opts.Workflow != "" {
 			msg += fmt.Sprintf(" (workflow %q)", opts.Workflow)
@@ -277,6 +280,18 @@ func unknownWorkflowError(workflows []model.Workflow, filter string) error {
 		names = append(names[:15], "…")
 	}
 	return fmt.Errorf("workflow %q not found; available workflows: %s", filter, strings.Join(names, ", "))
+}
+
+// nothingHydratedError carries the first warning with it: this path returns
+// before the diagnostics are printed, so the cause would otherwise be lost.
+func nothingHydratedError(listed int, diags []diag.Diagnostic) error {
+	msg := fmt.Sprintf("none of the %d listed runs could be fetched", listed)
+	for _, d := range diags {
+		if d.Severity != diag.Info {
+			return fmt.Errorf("%s: %s", msg, d.Message)
+		}
+	}
+	return errors.New(msg)
 }
 
 // incompleteWorkflows compares what was listed with what was hydrated, so it
