@@ -2,6 +2,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -112,9 +113,13 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 		return analyze.AnalysisResult{}, err
 	}
 	pipelineDiags = append(pipelineDiags, hydrateDiags...)
+	incomplete := incompleteWorkflows(allWfRuns, allDetails, opts.BranchCategory)
 	s.Prog.Done()
 
 	if len(allDetails) == 0 {
+		if totalRuns > 0 {
+			return analyze.AnalysisResult{}, nothingHydratedError(totalRuns, hydrateDiags)
+		}
 		msg := fmt.Sprintf("no runs found for %s since %s", opts.Repo, opts.Since.Format("2006-01-02"))
 		if opts.Workflow != "" {
 			msg += fmt.Sprintf(" (workflow %q)", opts.Workflow)
@@ -168,6 +173,7 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 	result.Meta.BranchCategory = opts.BranchCategory
 	result.Meta.Workflow = opts.Workflow
 	result.Meta.Since = opts.Since
+	result.Meta.Incomplete = incomplete
 	result.Diagnostics = append(result.Diagnostics, pipelineDiags...)
 
 	// Summarize any jobs missing runner labels (GraphQL doesn't expose them).
@@ -274,6 +280,51 @@ func unknownWorkflowError(workflows []model.Workflow, filter string) error {
 		names = append(names[:15], "…")
 	}
 	return fmt.Errorf("workflow %q not found; available workflows: %s", filter, strings.Join(names, ", "))
+}
+
+// nothingHydratedError carries the first warning with it: this path returns
+// before the diagnostics are printed, so the cause would otherwise be lost.
+func nothingHydratedError(listed int, diags []diag.Diagnostic) error {
+	msg := fmt.Sprintf("none of the %d listed runs could be fetched", listed)
+	for _, d := range diags {
+		if d.Severity != diag.Info {
+			return fmt.Errorf("%s: %s", msg, d.Message)
+		}
+	}
+	return errors.New(msg)
+}
+
+// incompleteWorkflows compares what was listed with what was hydrated in
+// full, so it holds whatever the cause: a rate limit, a failed batch, a
+// deleted run, a run left truncated. Listed runs outside the selected branch
+// category never reach the report, so they are not compared.
+func incompleteWorkflows(listed []workflowRuns, details []model.RunDetail, category string) []analyze.IncompleteWorkflow {
+	hydrated := make(map[int64]bool, len(details))
+	for i := range details {
+		if !details[i].Truncated {
+			hydrated[details[i].Run.ID] = true
+		}
+	}
+	var incomplete []analyze.IncompleteWorkflow
+	for _, wr := range listed {
+		inScope, n := 0, 0
+		for i := range wr.runs {
+			if !preprocess.InEventCategory(&wr.runs[i], category) {
+				continue
+			}
+			inScope++
+			if hydrated[wr.runs[i].ID] {
+				n++
+			}
+		}
+		if n < inScope {
+			incomplete = append(incomplete, analyze.IncompleteWorkflow{Workflow: wr.wf.Name, Hydrated: n, Listed: inScope})
+		}
+	}
+	slices.SortFunc(incomplete, func(a, b analyze.IncompleteWorkflow) int {
+		return cmp.Or(cmp.Compare(b.Listed-b.Hydrated, a.Listed-a.Hydrated), cmp.Compare(a.Workflow, b.Workflow))
+	})
+	return incomplete
 }
 
 func countJobsMissingLabels(details []model.RunDetail) int {

@@ -21,6 +21,15 @@ type ResultMeta struct {
 	BranchCategory string       `json:"branch_category,omitempty"`
 	Workflow       string       `json:"workflow,omitempty"`
 	Since          time.Time    `json:"since"`
+	// Incomplete lists the workflows that are missing run details, most missing first.
+	Incomplete []IncompleteWorkflow `json:"incomplete,omitempty"`
+}
+
+// IncompleteWorkflow is a workflow whose listed runs were not all hydrated.
+type IncompleteWorkflow struct {
+	Workflow string `json:"workflow"`
+	Hydrated int    `json:"hydrated"`
+	Listed   int    `json:"listed"`
 }
 
 // AnalysisResult is the output of the analysis engine.

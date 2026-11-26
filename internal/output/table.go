@@ -26,6 +26,10 @@ func (t TableFormatter) Format(w io.Writer, result *analyze.AnalysisResult) erro
 		p = *t.pal
 	}
 
+	if notice := partialDataNotice(result.Meta.Incomplete); notice != "" {
+		_, _ = fmt.Fprintf(w, "%s%sPARTIAL DATA:%s %s\n\n", p.bold, p.yellow, p.reset, notice)
+	}
+
 	if len(result.Findings) == 0 {
 		_, err := fmt.Fprintln(w, "No findings.")
 		return err

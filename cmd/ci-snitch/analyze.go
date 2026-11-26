@@ -159,7 +159,7 @@ If no repository is specified, detects the GitHub remote from the current direct
 	cmd.Flags().BoolVar(&includeFailures, "include-failures", false, "include failed runs in analysis")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "verbose output (show fetch details)")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "suppress progress and diagnostic output on stderr")
-	cmd.Flags().StringVar(&failOn, "fail-on", "", "exit 2 when conditions match: regression, failure-rate>N (comma-separated)")
+	cmd.Flags().StringVar(&failOn, "fail-on", "", "exit 2 when conditions match: regression, failure-rate>N, partial-data (comma-separated)")
 
 	_ = cmd.RegisterFlagCompletionFunc("format", cobra.FixedCompletions(
 		[]string{"table", "json", "markdown", "llm"}, cobra.ShellCompDirectiveNoFileComp))

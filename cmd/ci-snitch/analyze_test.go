@@ -208,6 +208,45 @@ func TestServiceRun_BasicPipeline(t *testing.T) {
 	assert.NotEmpty(t, result.Findings)
 }
 
+func TestServiceRun_PartialHydrationReachesTheReportAndTheGate(t *testing.T) {
+	now := time.Now()
+	var runs []model.WorkflowRun
+	var details []model.RunDetail
+	for id := int64(100); id < 103; id++ {
+		run := model.WorkflowRun{
+			ID: id, WorkflowID: 1, WorkflowName: "CI",
+			Status: "completed", Conclusion: "success",
+			HeadBranch: "main", HeadSHA: "abc123", RunAttempt: 1,
+			CreatedAt: now.Add(-time.Hour), StartedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-30 * time.Minute),
+		}
+		runs = append(runs, run)
+		details = append(details, model.RunDetail{Run: run, Jobs: []model.Job{{
+			ID: 200 + id, RunID: id, Name: "build", Status: "completed", Conclusion: "success",
+			StartedAt: now.Add(-time.Hour), CompletedAt: now.Add(-30 * time.Minute),
+			Labels: []string{"ubuntu-latest"},
+		}}})
+	}
+	svc := &app.Service{
+		Client: &stubFetcher{workflows: []model.Workflow{{ID: 1, Name: "CI"}}, runs: runs, details: details[:2]},
+		Prog:   output.NewProgressQuiet(),
+	}
+
+	result, err := svc.Run(context.Background(), &app.Options{Repo: "test/repo", Since: now.Add(-7 * 24 * time.Hour)})
+	require.NoError(t, err)
+
+	var report bytes.Buffer
+	require.NoError(t, output.MarkdownFormatter{}.Format(&report, &result))
+	assert.Contains(t, report.String(), "> **Partial data:** 1 workflow is missing run details (CI: 2 of 3 runs fetched)")
+
+	var gate bytes.Buffer
+	conds, err := parseFailOn("partial-data")
+	require.NoError(t, err)
+	var ec *exitCodeError
+	require.ErrorAs(t, applyFailOnGate(&gate, conds, &result), &ec)
+	assert.Equal(t, 2, ec.code)
+	assert.Contains(t, gate.String(), "fail-on: partial data: CI has details for 2 of 3 runs")
+}
+
 func TestServiceRun_NoRunsError(t *testing.T) {
 	svc := &app.Service{
 		Client: &stubFetcher{
