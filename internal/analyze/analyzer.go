@@ -164,6 +164,7 @@ const (
 	CategoryOscillating = "oscillating" // volatile job: 3+ shifts that keep reversing direction (noise)
 	CategoryMinor       = "minor"       // severity=info, hidden by default
 	CategorySpeedup     = "speedup"     // improvement
+	CategoryReverted    = "reverted"    // slowdown that a later change point undid; kept as history
 )
 
 // OutlierGroupDetail is a post-processed grouped view of outliers for a (workflow, job).

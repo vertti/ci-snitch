@@ -276,3 +276,27 @@ func TestEngine_SteadilySlowingJobReportsARegression(t *testing.T) {
 	assert.Contains(t, categories, CategoryRegression)
 	assert.NotContains(t, categories, CategoryOscillating)
 }
+
+func TestPostProcess_RevertedSlowdownIsNotAnActiveRegression(t *testing.T) {
+	result := postProcess([]Finding{
+		{Type: TypeChangepoint, Severity: SeverityCritical, Detail: ChangePointDetail{
+			WorkflowName: "CI", JobName: "build", Direction: DirectionSlowdown,
+			Persistence: PersistenceTransient, PctChange: 60,
+		}},
+		{Type: TypeChangepoint, Severity: SeverityCritical, Detail: ChangePointDetail{
+			WorkflowName: "CI", JobName: "build", Direction: DirectionSpeedup,
+			Persistence: PersistencePersistent, PctChange: -37,
+		}},
+	})
+	assert.Equal(t, []string{CategoryReverted, CategorySpeedup}, changePointCategories(result))
+}
+
+func TestEngine_SlowdownThatWasRevertedLeavesNoRegression(t *testing.T) {
+	findings := analyzeChangePoints(t, plateaus(30, 5*time.Minute, 8*time.Minute, 5*time.Minute))
+
+	require.Len(t, findings, 2)
+	slowdown, ok := findings[0].Detail.(ChangePointDetail)
+	require.True(t, ok)
+	assert.Equal(t, PersistenceTransient, slowdown.Persistence)
+	assert.Equal(t, []string{CategoryReverted, CategorySpeedup}, changePointCategories(findings))
+}

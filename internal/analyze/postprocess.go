@@ -37,7 +37,8 @@ func postProcess(findings []Finding) []Finding {
 // categorizeChangePoints assigns a Category to each change point:
 //   - oscillating: job has 3+ notable change points that reverse direction at
 //     least twice (too volatile); a job that only keeps getting slower is not
-//   - regression: latest non-transient slowdown per (workflow, job) (deduplicated)
+//   - regression: latest slowdown per (workflow, job) that still holds (deduplicated)
+//   - reverted: slowdown that a later change point undid
 //   - speedup: improvements
 //   - minor: severity=info
 //
@@ -109,6 +110,8 @@ func categorizeChangePoints(findings []Finding) []Finding {
 			d.Category = CategoryMinor
 		case d.Direction == DirectionSpeedup:
 			d.Category = CategorySpeedup
+		case d.Persistence == PersistenceTransient:
+			d.Category = CategoryReverted
 		default:
 			d.Category = CategoryRegression
 		}
@@ -117,7 +120,7 @@ func categorizeChangePoints(findings []Finding) []Finding {
 		result = append(result, f)
 
 		// Track latest regression per (workflow, job)
-		if d.Category == CategoryRegression && d.Direction == DirectionSlowdown && d.Persistence != PersistenceTransient {
+		if d.Category == CategoryRegression {
 			if idx, exists := latestRegression[key]; exists {
 				// Mark the older one as minor
 				older := result[idx]
