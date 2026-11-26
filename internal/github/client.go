@@ -17,6 +17,9 @@ import (
 
 const defaultMaxConcurrentJobs = 20
 
+// GitHub ends any API request after 10s of processing; the rest is transfer headroom.
+const requestTimeout = 30 * time.Second
+
 // Client wraps the GitHub API for fetching Actions workflow data.
 type Client struct {
 	gh         *gh.Client
@@ -44,7 +47,7 @@ func NewClient(token, ownerRepo string, opts ...ClientOption) (*Client, error) {
 		return nil, fmt.Errorf("invalid repo format %q, expected owner/repo", ownerRepo)
 	}
 
-	ghClient, err := gh.NewClient(gh.WithAuthToken(token))
+	ghClient, err := gh.NewClient(gh.WithAuthToken(token), gh.WithTimeout(requestTimeout))
 	if err != nil {
 		return nil, fmt.Errorf("new github client: %w", err)
 	}

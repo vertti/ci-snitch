@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
+	gh "github.com/google/go-github/v93/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -255,6 +257,22 @@ func TestFetchRunDetailsGraphQL_RateLimitedDoesNotFallBackToREST(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, rateWarnings, "one aggregated rate-limit warning, got %v", warnings)
+}
+
+func TestFetchRunDetailsGraphQL_StalledResponseTimesOutIntoRESTFallback(t *testing.T) {
+	release := make(chan struct{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /graphql", func(http.ResponseWriter, *http.Request) {
+		<-release
+	})
+	restJobsHandler(mux, 1, 2)
+
+	c := testClient(t, mux, gh.WithTimeout(250*time.Millisecond))
+	// Must run before the server's Close, which waits for the stalled handler.
+	t.Cleanup(func() { close(release) })
+
+	details, _ := c.FetchRunDetailsGraphQL(context.Background(), graphqlTestRuns(2))
+	assert.Len(t, details, 2)
 }
 
 func TestFetchRunDetailsGraphQL_CancelledContextAbortsCleanly(t *testing.T) {

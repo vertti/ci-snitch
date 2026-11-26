@@ -309,8 +309,9 @@ Removed from the old "already correct" list — disproven by this review:
 
 Each finding was checked against the raw API, job logs or the cache. Filling the cache took five invocations and about 45 minutes, so the fetch problems come first.
 
-### R1. HTTP timeout on every API request [XS]
-- The first invocation sat silent for 30 minutes until it was killed. Its goroutine dump shows two batches parked in `http2ClientConn.roundTrip` under `doGraphQL`: `gh.NewClient` gets no timeout and the context has no deadline, so a stalled response waits forever. Fix: `gh.WithTimeout` on the shared client, which covers REST and GraphQL.
+### R1. HTTP timeout on every API request [XS] ✅ done
+- The first invocation sat silent for 30 minutes until it was killed. Its goroutine dump shows two batches parked in `http2ClientConn.roundTrip` under `doGraphQL`: `gh.NewClient` got no timeout and the context has no deadline, so a stalled response waited forever.
+- `gh.WithTimeout(requestTimeout)` (30s) on the shared client bounds REST and GraphQL alike (red test: `NewClient` built a client with a 0s timeout). A stalled batch now errors into the existing REST fallback instead of blocking.
 
 ### R2. Rate-limit errors that are not typed `RATE_LIMITED` fall back to REST [S]
 - GitHub answered some batches with a GraphQL error whose message is "API rate limit already exceeded for user ID …" and no `RATE_LIMITED` type, and others with HTTP 403 (secondary limit). `doGraphQL` recognizes only the type, so both took the generic path and fell back to REST: the 20x core-pool spend D6 exists to prevent. Fix: classify by status (403/429), by `X-RateLimit-Remaining: 0` and by message, as well as by type.
