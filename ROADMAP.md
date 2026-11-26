@@ -319,7 +319,7 @@ Each finding was checked against the raw API, job logs or the cache. Filling the
 
 ### R3. The pre-flight budget underestimates cost tenfold and reads a counter hydration does not spend from [S–M]
 - A 20-run batch costs 10 points, not 1. Measured with `rateLimit{cost}`: 1, 3, 5 and 10 points for batches of 1, 5, 10 and 20 runs. The estimate printed "~592 calls" for a scan that drained the 5,000-point pool.
-- The REST `/rate_limit` snapshot said 3,995 points remained while GraphQL responses carried `X-RateLimit-Remaining` between 0 and 4 at the same moment. Two counters with different reset times answered for one token, alternating per request. Fix: budget in points (0.5 per run) and trust the headers on GraphQL responses over the REST snapshot.
+- The REST `/rate_limit` snapshot said 3,995 points remained while GraphQL responses carried `X-RateLimit-Remaining` between 0 and 4 at the same moment. Two counters with different reset times answered for one token, alternating per request. Fix: budget in points per batch, `max(1, round(0.51 × runs))`, which fits all four measurements and prices the smaller batches R5 produces at their real cost (20 single-run batches cost 20 points, not 10). Trust the headers on GraphQL responses over the REST snapshot.
 - `checkRuns(first:50)` sets the price: each run requests 51 connections. `first:20` would cost 0.21 points per run, and the truncation path (P2) already completes the rare larger run.
 
 ### R4. A partially hydrated scan exits 0 and reports as if complete [S]
@@ -337,7 +337,7 @@ Each finding was checked against the raw API, job logs or the cache. Filling the
 - Amends the "`ClampOutliers` before CUSUM" entry under "Verified still correct": sound for detection, wrong as the source of the reported levels. Fix: report segment levels as raw medians, and clamp against a local window so a run of consecutive points counts as a level, not as outliers.
 
 ### R8. Cost ignores runner size where it matters most [M]
-- GraphQL hydration carries no labels, so 11.5k jobs were priced at 1x and only REST-fallback runs had labels at all. Third-party labels (`<vendor>-16vcpu-…`) are priced 1x by design, which understated the 16-vCPU test workflows fourfold next to a 4-vCPU deploy job. Fix: learn labels with one REST call per (workflow, job name), and report vCPU-minutes beside billable minutes.
+- GraphQL hydration carries no labels, so 11.5k jobs were priced at 1x and only REST-fallback runs had labels at all. Third-party labels (`<vendor>-16vcpu-…`) are priced 1x by design, which understated the 16-vCPU test workflows fourfold next to a 4-vCPU deploy job. Fix: learn labels over REST by sampling each (workflow, job name) across the window, not once, because a job can move to another runner size under the same name (A13 prices per run for that reason). Report vCPU-minutes beside billable minutes.
 
 ### R9. Step-level hotspots and regressions are invisible [M]
 - Steps are reported as the top three per job by median, on successful runs only. Two regressions sat below that: an artifact upload that went from 12 s to 98 s, and a failure-only upload step that went from 2 s to 175 s (it runs only in failed jobs, which the duration series excludes). The widest single target, one test step summing to 14% of all runner time across two workflows, appears nowhere as a total. Fix: rank steps by total time across workflows and conclusions, and run change-point detection on step series.
