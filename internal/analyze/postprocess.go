@@ -37,7 +37,7 @@ func postProcess(findings []Finding) []Finding {
 // categorizeChangePoints assigns a Category to each change point:
 //   - oscillating: job has 3+ notable change points that reverse direction at
 //     least twice (too volatile); a job that only keeps getting slower is not
-//   - regression: latest slowdown per (workflow, job) that still holds (deduplicated)
+//   - regression: a (workflow, job)'s slowdowns that still hold, folded into one
 //   - reverted: slowdown that a later change point undid
 //   - speedup: improvements
 //   - minor: severity=info
@@ -87,8 +87,9 @@ func categorizeChangePoints(findings []Finding) []Finding {
 		return tally != nil && tally.notable >= 3 && tally.reversals >= 2
 	}
 
-	// Track latest regression per (workflow, job) for dedup
-	latestRegression := make(map[wfJobName]int) // (workflow, job) -> index in result
+	// A job with a notable speedup between two slowdowns that hold is
+	// oscillating, so a job's regressions are always one uninterrupted chain.
+	regressions := make(map[wfJobName][]int) // (workflow, job) -> indexes in result, in series order
 
 	var result []Finding
 	for _, f := range changepoints {
@@ -119,20 +120,56 @@ func categorizeChangePoints(findings []Finding) []Finding {
 		f.Detail = d
 		result = append(result, f)
 
-		// Track latest regression per (workflow, job)
 		if d.Category == CategoryRegression {
-			if idx, exists := latestRegression[key]; exists {
-				// Mark the older one as minor
-				older := result[idx]
-				od, _ := older.Detail.(ChangePointDetail)
-				od.Category = CategoryMinor
-				result[idx].Detail = od
-			}
-			latestRegression[key] = len(result) - 1
+			regressions[key] = append(regressions[key], len(result)-1)
 		}
+	}
+	for _, chain := range regressions {
+		foldRegressionChain(result, chain)
 	}
 
 	return result
+}
+
+// foldRegressionChain turns a job's consecutive slowdowns into one regression.
+// The largest slowdown carries it, because its commit is the one to look at:
+// it gets the level before the first slowdown, the level after the last, and
+// how that last level has held. The other slowdowns become minor.
+func foldRegressionChain(result []Finding, chain []int) {
+	if len(chain) < 2 {
+		return
+	}
+	details := make([]ChangePointDetail, len(chain))
+	largest := 0
+	for i, idx := range chain {
+		details[i], _ = result[idx].Detail.(ChangePointDetail)
+		if details[i].AfterMean-details[i].BeforeMean > details[largest].AfterMean-details[largest].BeforeMean {
+			largest = i
+		}
+	}
+	first, last := details[0], details[len(details)-1]
+	for i, idx := range chain {
+		d := details[i]
+		if i != largest {
+			d.Category = CategoryMinor
+			result[idx].Detail = d
+			continue
+		}
+		d.BeforeMean = first.BeforeMean
+		d.AfterMean = last.AfterMean
+		d.PctChange = 0
+		if first.BeforeMean != 0 {
+			d.PctChange = float64(last.AfterMean-first.BeforeMean) / float64(first.BeforeMean) * 100
+		}
+		d.Persistence = last.Persistence
+		d.PostChangeRuns = last.PostChangeRuns
+		d.PostChangeCV = last.PostChangeCV
+		d.Slowdowns = len(chain)
+		result[idx].Detail = d
+		result[idx].Description = fmt.Sprintf("%.0f%% change over %d slowdowns, the largest at %s (commit %s), before: %s, after: %s (p=%.4f)",
+			d.PctChange, d.Slowdowns, d.Date.Format("2006-01-02"), d.CommitSHA[:min(8, len(d.CommitSHA))],
+			time.Duration(d.BeforeMean).Round(time.Second), time.Duration(d.AfterMean).Round(time.Second), d.PValue)
+	}
 }
 
 // applyMultipleComparisonCorrection converts the change points' p-values into

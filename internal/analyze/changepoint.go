@@ -29,6 +29,9 @@ type ChangePointDetail struct {
 	Persistence    string    `json:"persistence"`
 	OverlapRatio   float64   `json:"overlap_ratio"` // fraction of after-points within before-segment's IQR (0-1)
 	Category       string    `json:"category,omitempty"`
+	// Slowdowns is set on a regression that stands for several consecutive
+	// slowdowns: the levels span them all, the commit is the largest one's.
+	Slowdowns int `json:"slowdowns,omitempty"`
 	// Commit context, enriched post-analysis for regressions (F2/F5):
 	CommitFilesChanged int    `json:"commit_files_changed,omitempty"`
 	CommitAdditions    int    `json:"commit_additions,omitempty"`

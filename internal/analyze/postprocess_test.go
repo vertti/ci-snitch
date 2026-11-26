@@ -26,30 +26,6 @@ func TestPostProcess_CategorizeOscillating(t *testing.T) {
 	}
 }
 
-func TestPostProcess_DedupRegressions(t *testing.T) {
-	findings := []Finding{
-		{Type: TypeChangepoint, Severity: SeverityWarning, Detail: ChangePointDetail{
-			JobName: "build", Direction: DirectionSlowdown, Persistence: PersistencePersistent,
-			Date: time.Now().Add(-2 * time.Hour), PctChange: 15,
-		}},
-		{Type: TypeChangepoint, Severity: SeverityWarning, Detail: ChangePointDetail{
-			JobName: "build", Direction: DirectionSlowdown, Persistence: PersistencePersistent,
-			Date: time.Now().Add(-1 * time.Hour), PctChange: 20,
-		}},
-	}
-
-	result := postProcess(findings)
-	var regressions []ChangePointDetail
-	for _, f := range result {
-		d, ok := f.Detail.(ChangePointDetail)
-		if ok && d.Category == CategoryRegression {
-			regressions = append(regressions, d)
-		}
-	}
-	require.Len(t, regressions, 1, "should keep only latest regression per job")
-	assert.InDelta(t, 20, regressions[0].PctChange, 0.1, "should keep the latest one")
-}
-
 func TestPostProcess_OscillationNotMixedAcrossWorkflows(t *testing.T) {
 	// Jobs routinely share names ("build", "test") across workflows. Two
 	// notable shifts in each of two workflows must not sum to 4 and trip the
@@ -264,8 +240,8 @@ func TestPostProcess_RepeatedSlowdownsAreARegressionNotOscillation(t *testing.T)
 	}
 
 	result := postProcess([]Finding{slowdown(60), slowdown(38), slowdown(27)})
-	assert.Equal(t, []string{CategoryMinor, CategoryMinor, CategoryRegression}, changePointCategories(result),
-		"three slowdowns in a row never reverse direction: the latest is the regression")
+	assert.Equal(t, []string{CategoryRegression, CategoryMinor, CategoryMinor}, changePointCategories(result),
+		"three slowdowns in a row never reverse direction: together they are one regression")
 }
 
 func TestEngine_SteadilySlowingJobReportsARegression(t *testing.T) {
@@ -299,4 +275,66 @@ func TestEngine_SlowdownThatWasRevertedLeavesNoRegression(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, PersistenceTransient, slowdown.Persistence)
 	assert.Equal(t, []string{CategoryReverted, CategorySpeedup}, changePointCategories(findings))
+}
+
+func TestPostProcess_ConsecutiveSlowdownsReadAsOneRegressionFromFirstLevelToLast(t *testing.T) {
+	// A job goes 5m20s -> 19m52s at one commit, then 19m52s -> 22m6s at a later
+	// one, and stays there.
+	onset := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	big := Finding{Type: TypeChangepoint, Severity: SeverityCritical, Detail: ChangePointDetail{
+		WorkflowName: "Deploy", JobName: "deploy", Direction: DirectionSlowdown,
+		BeforeMean: Duration(320 * time.Second), AfterMean: Duration(1192 * time.Second), PctChange: 272.5,
+		CommitSHA: "aaaaaaa1", Date: onset, ChangeIdx: 6,
+		Persistence: PersistenceInconclusive, PostChangeRuns: 8,
+	}}
+	small := Finding{Type: TypeChangepoint, Severity: SeverityWarning, Detail: ChangePointDetail{
+		WorkflowName: "Deploy", JobName: "deploy", Direction: DirectionSlowdown,
+		BeforeMean: Duration(1192 * time.Second), AfterMean: Duration(1326 * time.Second), PctChange: 11.2,
+		CommitSHA: "bbbbbbb2", Date: onset.Add(24 * time.Hour), ChangeIdx: 14,
+		Persistence: PersistencePersistent, PostChangeRuns: 218,
+	}}
+
+	result := postProcess([]Finding{big, small})
+	require.Equal(t, []string{CategoryRegression, CategoryMinor}, changePointCategories(result))
+
+	d, ok := result[0].Detail.(ChangePointDetail)
+	require.True(t, ok)
+	assert.Equal(t, "aaaaaaa1", d.CommitSHA, "the commit of the largest slowdown is the one to look at")
+	assert.Equal(t, Duration(320*time.Second), d.BeforeMean, "level before the first slowdown")
+	assert.Equal(t, Duration(1326*time.Second), d.AfterMean, "level after the last one")
+	assert.InDelta(t, 314.4, d.PctChange, 0.1)
+	assert.Equal(t, 2, d.Slowdowns)
+	assert.Equal(t, PersistencePersistent, d.Persistence, "how the final level has held")
+	assert.Equal(t, 218, d.PostChangeRuns)
+}
+
+func TestPostProcess_SingleRegressionIsLeftAsItIs(t *testing.T) {
+	only := Finding{Type: TypeChangepoint, Severity: SeverityCritical, Detail: ChangePointDetail{
+		WorkflowName: "CI", JobName: "build", Direction: DirectionSlowdown,
+		BeforeMean: Duration(300 * time.Second), AfterMean: Duration(480 * time.Second), PctChange: 60,
+		Persistence: PersistencePersistent, PostChangeRuns: 20,
+	}}
+
+	result := postProcess([]Finding{only})
+	d, ok := result[0].Detail.(ChangePointDetail)
+	require.True(t, ok)
+	assert.Equal(t, CategoryRegression, d.Category)
+	assert.Zero(t, d.Slowdowns)
+	assert.InDelta(t, 60.0, d.PctChange, 0.001)
+}
+
+func TestEngine_SteadilySlowingJobReportsItsWholeSlowdown(t *testing.T) {
+	findings := analyzeChangePoints(t, plateaus(25, 5*time.Minute, 8*time.Minute, 11*time.Minute, 14*time.Minute))
+
+	var regressions []ChangePointDetail
+	for _, f := range findings {
+		if d, ok := f.Detail.(ChangePointDetail); ok && d.Category == CategoryRegression {
+			regressions = append(regressions, d)
+		}
+	}
+	require.Len(t, regressions, 1)
+	assert.InDelta(t, (5 * time.Minute).Seconds(), time.Duration(regressions[0].BeforeMean).Seconds(), 2)
+	assert.InDelta(t, (14 * time.Minute).Seconds(), time.Duration(regressions[0].AfterMean).Seconds(), 2)
+	assert.InDelta(t, 180.0, regressions[0].PctChange, 1.0)
+	assert.Equal(t, 3, regressions[0].Slowdowns)
 }
