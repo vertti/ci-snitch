@@ -2,6 +2,7 @@
 package output
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/vertti/ci-snitch/internal/analyze"
@@ -34,4 +35,27 @@ func Get(name string, opts Options) (Formatter, bool) {
 	default:
 		return TableFormatter{Verbose: opts.Verbose}, false
 	}
+}
+
+// stickyErrWriter remembers the first write error. The formatters make many
+// unchecked writes; this is how Format still learns the report was cut short.
+type stickyErrWriter struct {
+	w   io.Writer
+	err error
+}
+
+func (s *stickyErrWriter) Write(p []byte) (int, error) {
+	if s.err != nil {
+		return 0, s.err
+	}
+	n, err := s.w.Write(p)
+	s.err = err
+	return n, err
+}
+
+func (s *stickyErrWriter) Err() error {
+	if s.err == nil {
+		return nil
+	}
+	return fmt.Errorf("write report: %w", s.err)
 }

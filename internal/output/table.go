@@ -25,10 +25,12 @@ func (t TableFormatter) Format(w io.Writer, result *analyze.AnalysisResult) erro
 	if t.pal != nil {
 		p = *t.pal
 	}
+	out := &stickyErrWriter{w: w}
+	w = out
 
 	if len(result.Findings) == 0 {
-		_, err := fmt.Fprintln(w, "No findings.")
-		return err
+		_, _ = fmt.Fprintln(w, "No findings.")
+		return out.Err()
 	}
 
 	g := groupByType(result.Findings)
@@ -74,7 +76,7 @@ func (t TableFormatter) Format(w io.Writer, result *analyze.AnalysisResult) erro
 
 	// Legend
 	p.writeLegend(w)
-	return nil
+	return out.Err()
 }
 
 func (p *palette) writeTriageHeader(w io.Writer, summaries, changepoints, failures []analyze.Finding) {
