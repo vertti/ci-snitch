@@ -2,12 +2,18 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/vertti/ci-snitch/internal/analyze"
+	"github.com/vertti/ci-snitch/internal/app"
+	"github.com/vertti/ci-snitch/internal/model"
+	"github.com/vertti/ci-snitch/internal/output"
 )
 
 func TestParseFailOn(t *testing.T) {
@@ -45,9 +51,8 @@ func TestFailOnEvaluate(t *testing.T) {
 		{Type: analyze.TypeChangepoint, Detail: analyze.ChangePointDetail{
 			WorkflowName: "CI", JobName: "lint", Category: analyze.CategorySpeedup, PctChange: -20,
 		}},
-		{Type: analyze.TypeFailure, Detail: analyze.FailureDetail{
-			Workflow: "CI", FailureRate: 0.15,
-		}},
+	}, Reliability: []analyze.WorkflowReliability{
+		{Workflow: "CI", TotalRuns: 100, FailureCount: 15, FailureRate: 0.15},
 	}}
 
 	conds, err := parseFailOn("regression")
@@ -120,4 +125,61 @@ func TestApplyFailOnGate_CleanResultPasses(t *testing.T) {
 	err := applyFailOnGate(&buf, []failOnCondition{{kind: failOnRegression}}, &analyze.AnalysisResult{})
 	require.NoError(t, err)
 	assert.Empty(t, buf.String())
+}
+
+// scanWithFailures runs the service over one workflow whose first `failures`
+// runs failed.
+func scanWithFailures(t *testing.T, runs, failures int) analyze.AnalysisResult {
+	t.Helper()
+	now := time.Now()
+	var listed []model.WorkflowRun
+	var details []model.RunDetail
+	for i := range runs {
+		conclusion := "success"
+		if i < failures {
+			conclusion = "failure"
+		}
+		started := now.Add(-time.Duration(runs-i) * time.Hour)
+		run := model.WorkflowRun{
+			ID: int64(100 + i), WorkflowID: 1, WorkflowName: "CI",
+			Status: "completed", Conclusion: conclusion,
+			HeadBranch: "main", HeadSHA: "abc123", RunAttempt: 1,
+			CreatedAt: started, StartedAt: started, UpdatedAt: started.Add(10 * time.Minute),
+		}
+		listed = append(listed, run)
+		details = append(details, model.RunDetail{Run: run, Jobs: []model.Job{{
+			ID: int64(1000 + i), RunID: run.ID, Name: "build", Status: "completed", Conclusion: conclusion,
+			StartedAt: started, CompletedAt: started.Add(10 * time.Minute),
+			Labels: []string{"ubuntu-latest"},
+		}}})
+	}
+	svc := &app.Service{
+		Client: &stubFetcher{workflows: []model.Workflow{{ID: 1, Name: "CI"}}, runs: listed, details: details},
+		Prog:   output.NewProgressQuiet(),
+	}
+	result, err := svc.Run(context.Background(), &app.Options{Repo: "test/repo", Since: now.Add(-30 * 24 * time.Hour)})
+	require.NoError(t, err)
+	return result
+}
+
+func TestFailOnFailureRate_CountsFailuresTheReportDoesNotShow(t *testing.T) {
+	conds, err := parseFailOn("failure-rate>0")
+	require.NoError(t, err)
+
+	scans := map[string]struct{ runs, failures int }{
+		"a rate under the 5% display threshold": {runs: 100, failures: 1},
+		"a workflow with fewer than five runs":  {runs: 4, failures: 1},
+	}
+	for name, scan := range scans {
+		t.Run(name, func(t *testing.T) {
+			result := scanWithFailures(t, scan.runs, scan.failures)
+			for _, f := range result.Findings {
+				require.NotEqual(t, analyze.TypeFailure, f.Type, "the report still hides it")
+			}
+
+			reasons := evaluateFailOn(conds, &result)
+			require.Len(t, reasons, 1)
+			assert.Contains(t, reasons[0], fmt.Sprintf("%d of %d runs", scan.failures, scan.runs))
+		})
+	}
 }
