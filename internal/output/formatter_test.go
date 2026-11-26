@@ -757,3 +757,35 @@ func TestFmtDur(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatters_SayWhenARegressionSpansSeveralSlowdowns(t *testing.T) {
+	result := analyze.AnalysisResult{
+		Findings: []analyze.Finding{{
+			Type: analyze.TypeChangepoint, Severity: analyze.SeverityCritical,
+			Detail: analyze.ChangePointDetail{
+				WorkflowName: "Deploy", JobName: "deploy",
+				Direction: analyze.DirectionSlowdown, Category: analyze.CategoryRegression,
+				BeforeMean: dur(320 * time.Second), AfterMean: dur(1326 * time.Second), PctChange: 314,
+				CommitSHA: "aaaaaaa1bbbb", Date: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+				Persistence: analyze.PersistencePersistent, PostChangeRuns: 218, Slowdowns: 2,
+			},
+		}},
+		Meta: analyze.ResultMeta{TotalRuns: 236, TimeRange: [2]time.Time{time.Now(), time.Now()}},
+	}
+	pal := plainPalette()
+	want := map[string]struct {
+		formatter Formatter
+		text      string
+	}{
+		"table":    {TableFormatter{pal: &pal}, "218 runs (2 slowdowns)"},
+		"markdown": {MarkdownFormatter{}, "persistent, 218 runs after, over 2 slowdowns)"},
+		"llm":      {LLMFormatter{}, "over 2 slowdowns, the largest at commit `aaaaaaa1` on 2026-03-01"},
+	}
+	for name, tc := range want {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			require.NoError(t, tc.formatter.Format(&buf, &result))
+			assert.Contains(t, buf.String(), tc.text)
+		})
+	}
+}

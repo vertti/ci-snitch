@@ -99,10 +99,14 @@ func llmWritePriorityRegressions(w io.Writer, changepoints []analyze.Finding) (w
 			continue
 		}
 		wrote = true
-		_, _ = fmt.Fprintf(w, "- **[REGRESSION]** %s: %+.0f%% (%s -> %s) at commit `%s` on %s",
+		where := "at commit"
+		if d.Slowdowns > 1 {
+			where = fmt.Sprintf("over %d slowdowns, the largest at commit", d.Slowdowns)
+		}
+		_, _ = fmt.Fprintf(w, "- **[REGRESSION]** %s: %+.0f%% (%s -> %s) %s `%s` on %s",
 			d.JobName, d.PctChange,
 			fmtDur(d.BeforeMean), fmtDur(d.AfterMean),
-			truncSHA(d.CommitSHA), d.Date.Format("2006-01-02"))
+			where, truncSHA(d.CommitSHA), d.Date.Format("2006-01-02"))
 		if d.Persistence == analyze.PersistencePersistent {
 			_, _ = fmt.Fprintf(w, " -- persistent over %d runs", d.PostChangeRuns)
 		}

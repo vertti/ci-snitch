@@ -652,6 +652,9 @@ func (p *palette) writeChangePointRows(w io.Writer, findings []analyze.Finding) 
 		}
 
 		status := p.formatPersistence(&d)
+		if d.Slowdowns > 1 {
+			status += fmt.Sprintf(" (%d slowdowns)", d.Slowdowns)
+		}
 
 		_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s%s%s\t%s\t%s\t%s\t%s%s%s\t%s\t%s\n",
 			icon, d.JobName,

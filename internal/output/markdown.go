@@ -91,10 +91,14 @@ func mdWriteChangepoints(w io.Writer, findings []analyze.Finding, verbose bool) 
 			if d.Direction == analyze.DirectionSpeedup {
 				icon = "▼"
 			}
-			_, _ = fmt.Fprintf(w, "- **%s %+.0f%%** in `%s` at `%s` — %s -> %s (p=%.4f, %s, %d runs after)\n",
+			span := ""
+			if d.Slowdowns > 1 {
+				span = fmt.Sprintf(", over %d slowdowns", d.Slowdowns)
+			}
+			_, _ = fmt.Fprintf(w, "- **%s %+.0f%%** in `%s` at `%s` — %s -> %s (p=%.4f, %s, %d runs after%s)\n",
 				icon, d.PctChange, d.JobName, truncSHA(d.CommitSHA),
 				fmtDur(d.BeforeMean), fmtDur(d.AfterMean), d.PValue,
-				d.Persistence, d.PostChangeRuns)
+				d.Persistence, d.PostChangeRuns, span)
 		}
 		_, _ = fmt.Fprintln(w)
 	}
