@@ -183,3 +183,17 @@ func TestFailOnFailureRate_CountsFailuresTheReportDoesNotShow(t *testing.T) {
 		})
 	}
 }
+
+func TestFailOnFailureRate_TripsForAWorkflowWhoseRunsAllFailed(t *testing.T) {
+	result := scanWithFailures(t, 10, 10)
+
+	var report bytes.Buffer
+	require.NoError(t, output.MarkdownFormatter{}.Format(&report, &result))
+	assert.Contains(t, report.String(), "**10 runs** analyzed")
+
+	conds, err := parseFailOn("failure-rate>50")
+	require.NoError(t, err)
+	reasons := evaluateFailOn(conds, &result)
+	require.Len(t, reasons, 1)
+	assert.Contains(t, reasons[0], "CI at 100% (10 of 10 runs")
+}

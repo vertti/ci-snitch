@@ -83,6 +83,11 @@ func (e *Engine) Run(ctx context.Context, details, allDetails []model.RunDetail,
 
 	var result AnalysisResult
 	result.Meta = computeMeta(details)
+	if len(details) == 0 {
+		// No run qualified for duration analysis; the report still covers
+		// the runs the failure and cost analyzers read.
+		result.Meta = computeMeta(allDetails)
+	}
 
 	for _, a := range e.analyzers {
 		// Analyzers are pure CPU work and ignore ctx themselves; checking

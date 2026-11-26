@@ -450,19 +450,28 @@ func TestRun_RateLimitReadErrorIsNonFatal(t *testing.T) {
 	require.NoError(t, err, "an unreadable rate limit must not block analysis")
 }
 
-func TestRun_AllRunsFilteredOutError(t *testing.T) {
-	f := baseFetcher()
-	for i := range f.details {
-		f.details[i].Run.Conclusion = "failure" // IncludeFailures defaults to false
-	}
-	for i, r := range f.runs[1] {
-		r.Conclusion = "failure"
-		f.runs[1][i] = r
+func TestRun_WorkflowWhoseRunsAllFailedStillGetsItsFailureReport(t *testing.T) {
+	var details []model.RunDetail
+	for id := int64(1); id <= 10; id++ {
+		details = append(details, fakeRunDetail(id, "failure")) // IncludeFailures defaults to false
 	}
 
-	_, err := runService(t, f, nil)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "filtered out during preprocessing")
+	res, err := runService(t, fetcherFor(details...), nil)
+	require.NoError(t, err)
+
+	var failures []analyze.FailureDetail
+	for _, f := range res.Findings {
+		if d, ok := f.Detail.(analyze.FailureDetail); ok {
+			failures = append(failures, d)
+		}
+	}
+	require.Len(t, failures, 1)
+	require.Equal(t, 10, failures[0].FailureCount)
+	require.InDelta(t, 1.0, failures[0].FailureRate, 0.0001)
+
+	require.Equal(t, 10, res.Meta.TotalRuns, "the report counts the runs it covers")
+	require.False(t, res.Meta.TimeRange[0].IsZero())
+	assertHasDiagnostic(t, res.Diagnostics, diag.KindPreprocess, "duration analysis is empty")
 }
 
 func TestRun_CacheLoadErrorFallsBackToFetch(t *testing.T) {

@@ -155,7 +155,12 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 	pipelineDiags = append(pipelineDiags, ppWarnings...)
 
 	if len(filtered) == 0 {
-		return analyze.AnalysisResult{}, fmt.Errorf("all %d runs were filtered out during preprocessing", len(allDetails))
+		// Nothing to time, but the failure and cost analyzers read allDetails.
+		pipelineDiags = append(pipelineDiags, diag.New(
+			diag.Warn, diag.KindPreprocess, "global",
+			fmt.Sprintf("none of the %d selected runs is a successful first attempt: duration analysis is empty, failure and cost analysis cover all of them",
+				len(allDetails)),
+		))
 	}
 
 	s.Prog.Status("Analyzing %d runs...", len(filtered))
