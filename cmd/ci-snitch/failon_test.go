@@ -18,6 +18,8 @@ func TestParseFailOn(t *testing.T) {
 		{input: "regression"},
 		{input: "failure-rate>25"},
 		{input: "regression,failure-rate>10"},
+		{input: "partial-data"},
+		{input: "regression,partial-data"},
 		{input: "bogus", wantErr: "unknown --fail-on condition"},
 		{input: "failure-rate>abc", wantErr: "threshold"},
 		{input: "failure-rate>-5", wantErr: "threshold"},
@@ -68,6 +70,21 @@ func TestFailOnEvaluate(t *testing.T) {
 	noRegression := &analyze.AnalysisResult{Findings: result.Findings[1:]}
 	conds, _ = parseFailOn("regression")
 	assert.Empty(t, evaluateFailOn(conds, noRegression))
+}
+
+func TestFailOnEvaluate_PartialDataTripsOncePerIncompleteWorkflow(t *testing.T) {
+	conds, err := parseFailOn("partial-data")
+	require.NoError(t, err)
+
+	partial := &analyze.AnalysisResult{Meta: analyze.ResultMeta{Incomplete: []analyze.IncompleteWorkflow{
+		{Workflow: "tests", Hydrated: 146, Listed: 854},
+		{Workflow: "deploy", Hydrated: 61, Listed: 235},
+	}}}
+	reasons := evaluateFailOn(conds, partial)
+	require.Len(t, reasons, 2)
+	assert.Equal(t, "partial data: tests has details for 146 of 854 runs", reasons[0])
+
+	assert.Empty(t, evaluateFailOn(conds, &analyze.AnalysisResult{}))
 }
 
 func TestExitCodeError(t *testing.T) {

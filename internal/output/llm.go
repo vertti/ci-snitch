@@ -30,6 +30,9 @@ func (l LLMFormatter) Format(w io.Writer, result *analyze.AnalysisResult) error 
 
 	_, _ = fmt.Fprintf(w, "# CI Performance Report: %s\nAnalyzed %d runs, %s to %s.\n\n",
 		repo, result.Meta.TotalRuns, from, to)
+	if notice := partialDataNotice(result.Meta.Incomplete); notice != "" {
+		_, _ = fmt.Fprintf(w, "**PARTIAL DATA:** %s\n\n", notice)
+	}
 
 	g := groupByType(result.Findings)
 

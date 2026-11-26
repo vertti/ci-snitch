@@ -664,6 +664,35 @@ func TestTableFormatter_OscillatingJobs(t *testing.T) {
 	assert.Contains(t, out, "trending up")
 }
 
+func TestTableFormatter_OscillatingJobsWithTheSameNameStayPerWorkflow(t *testing.T) {
+	shift := func(workflow string, before, after time.Duration) analyze.Finding {
+		return analyze.Finding{Type: analyze.TypeChangepoint, Severity: analyze.SeverityWarning, Detail: analyze.ChangePointDetail{
+			WorkflowName: workflow, JobName: "build", Category: analyze.CategoryOscillating,
+			BeforeMean: dur(before), AfterMean: dur(after),
+		}}
+	}
+	result := analyze.AnalysisResult{
+		Findings: []analyze.Finding{
+			shift("CI", 5*time.Minute, 7*time.Minute),
+			shift("CI", 7*time.Minute, 5*time.Minute),
+			shift("CI", 5*time.Minute, 8*time.Minute),
+			shift("Release", 20*time.Minute, 30*time.Minute),
+			shift("Release", 30*time.Minute, 20*time.Minute),
+			shift("Release", 20*time.Minute, 12*time.Minute),
+		},
+		Meta: analyze.ResultMeta{TotalRuns: 50, TimeRange: [2]time.Time{time.Now(), time.Now()}},
+	}
+
+	pal := plainPalette()
+	var buf bytes.Buffer
+	require.NoError(t, TableFormatter{pal: &pal}.Format(&buf, &result))
+
+	out := buf.String()
+	assert.Contains(t, out, "Oscillating Jobs (2 jobs")
+	assert.Contains(t, out, "CI / build  3 shifts, was 5m now 8m (trending up)")
+	assert.Contains(t, out, "Release / build  3 shifts, was 20m now 12m (trending down)")
+}
+
 func TestTableFormatter_ChangePointPersistence(t *testing.T) {
 	result := analyze.AnalysisResult{
 		Findings: []analyze.Finding{

@@ -84,15 +84,27 @@ const (
 	CategoryAll  = "all"
 )
 
-// FilterByEventCategory selects runs by trigger category: CategoryPR keeps
-// pull_request-event runs, CategoryMain keeps everything else (pushes,
-// schedules, manual dispatches — the default-branch style of traffic).
+// InEventCategory reports whether a run belongs to a trigger category:
+// CategoryPR is pull_request-event runs, CategoryMain everything else (pushes,
+// schedules, manual dispatches — the default-branch style of traffic). Any
+// other category selects every run.
+func InEventCategory(run *model.WorkflowRun, category string) bool {
+	isPR := run.Event == "pull_request"
+	switch category {
+	case CategoryPR:
+		return isPR
+	case CategoryMain:
+		return !isPR
+	default:
+		return true
+	}
+}
+
+// FilterByEventCategory keeps the runs in the given trigger category.
 func FilterByEventCategory(details []model.RunDetail, category string) []model.RunDetail {
-	wantPR := category == CategoryPR
 	var out []model.RunDetail
 	for i := range details {
-		isPR := details[i].Run.Event == "pull_request"
-		if wantPR == isPR {
+		if InEventCategory(&details[i].Run, category) {
 			out = append(out, details[i])
 		}
 	}
