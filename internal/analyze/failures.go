@@ -1,6 +1,7 @@
 package analyze
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -120,6 +121,22 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 	})
 
 	return findings, nil
+}
+
+func workflowReliability(ac *AnalysisContext) []WorkflowReliability {
+	var reliability []WorkflowReliability
+	for wfID, s := range collectFailureStats(ac.AllDetails) {
+		reliability = append(reliability, WorkflowReliability{
+			Workflow:     ac.WorkflowName(wfID),
+			TotalRuns:    s.total,
+			FailureCount: s.failures,
+			FailureRate:  float64(s.failures) / float64(s.total),
+		})
+	}
+	slices.SortFunc(reliability, func(a, b WorkflowReliability) int {
+		return cmp.Compare(a.Workflow, b.Workflow)
+	})
+	return reliability
 }
 
 func collectFailureStats(details []model.RunDetail) map[int64]*workflowFailureStat {

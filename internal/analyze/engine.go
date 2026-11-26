@@ -37,6 +37,17 @@ type AnalysisResult struct {
 	Findings    []Finding         `json:"findings"`
 	Diagnostics []diag.Diagnostic `json:"diagnostics"`
 	Meta        ResultMeta        `json:"meta"`
+	// Reliability covers every workflow that ran. Failure findings are the
+	// subset worth showing; a --fail-on gate must not inherit their thresholds.
+	Reliability []WorkflowReliability `json:"reliability,omitempty"`
+}
+
+// WorkflowReliability is one workflow's failure count over the runs that executed.
+type WorkflowReliability struct {
+	Workflow     string  `json:"workflow"`
+	TotalRuns    int     `json:"total_runs"`
+	FailureCount int     `json:"failure_count"`
+	FailureRate  float64 `json:"failure_rate"`
 }
 
 // Engine orchestrates running analyzers over a set of run details.
@@ -94,6 +105,7 @@ func (e *Engine) Run(ctx context.Context, details, allDetails []model.RunDetail,
 	}
 
 	result.Findings = postProcess(result.Findings)
+	result.Reliability = workflowReliability(ac)
 
 	return result
 }

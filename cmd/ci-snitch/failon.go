@@ -58,8 +58,8 @@ func parseFailOn(spec string) ([]failOnCondition, error) {
 	return conds, nil
 }
 
-// evaluateFailOn returns one reason string per finding or incomplete workflow
-// that trips a condition.
+// evaluateFailOn returns one reason string per finding or workflow that trips
+// a condition.
 func evaluateFailOn(conds []failOnCondition, result *analyze.AnalysisResult) []string {
 	var reasons []string
 	for _, cond := range conds {
@@ -70,20 +70,20 @@ func evaluateFailOn(conds []failOnCondition, result *analyze.AnalysisResult) []s
 			}
 			continue
 		}
+		if cond.kind == failOnFailureRate {
+			for _, r := range result.Reliability {
+				if r.FailureRate*100 > cond.threshold {
+					reasons = append(reasons, fmt.Sprintf("failure rate: %s at %.3g%% (%d of %d runs, threshold %.3g%%)",
+						r.Workflow, r.FailureRate*100, r.FailureCount, r.TotalRuns, cond.threshold))
+				}
+			}
+			continue
+		}
 		for _, f := range result.Findings {
-			switch cond.kind {
-			case failOnRegression:
-				d, ok := f.Detail.(analyze.ChangePointDetail)
-				if ok && d.Category == analyze.CategoryRegression {
-					reasons = append(reasons, fmt.Sprintf("regression: %s / %s %+.0f%%",
-						d.WorkflowName, d.JobName, d.PctChange))
-				}
-			case failOnFailureRate:
-				d, ok := f.Detail.(analyze.FailureDetail)
-				if ok && d.FailureRate*100 > cond.threshold {
-					reasons = append(reasons, fmt.Sprintf("failure rate: %s at %.0f%% (threshold %.0f%%)",
-						d.Workflow, d.FailureRate*100, cond.threshold))
-				}
+			d, ok := f.Detail.(analyze.ChangePointDetail)
+			if ok && d.Category == analyze.CategoryRegression {
+				reasons = append(reasons, fmt.Sprintf("regression: %s / %s %+.0f%%",
+					d.WorkflowName, d.JobName, d.PctChange))
 			}
 		}
 	}

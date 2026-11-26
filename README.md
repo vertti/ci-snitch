@@ -110,6 +110,8 @@ ci-snitch analyze your-org/your-repo --since 14d -q --fail-on "regression,failur
 
 Exit codes: `0` clean, `1` operational error, `2` a `--fail-on` condition matched.
 
+`failure-rate>N` is checked against every workflow that ran, including the ones the report leaves out (a rate under 5%, fewer than five runs). JSON lists them all under `reliability`.
+
 A scan that could not fetch every run (a rate limit, failed batches) still reports, but every format leads with a partial-data notice naming the affected workflows, and JSON lists them under `meta.incomplete`. Add `partial-data` to `--fail-on` to exit 2 instead of trusting such a report.
 
 ## Development
