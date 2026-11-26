@@ -17,7 +17,7 @@ import (
 	"github.com/vertti/ci-snitch/internal/model"
 )
 
-func testClient(t *testing.T, handler http.Handler) *Client {
+func testClient(t *testing.T, handler http.Handler, opts ...gh.ClientOptionsFunc) *Client {
 	t.Helper()
 	// go-github v87 sends requests under /api/v3/ when configured via
 	// WithEnterpriseURLs, so strip that prefix before dispatching to the
@@ -29,10 +29,10 @@ func testClient(t *testing.T, handler http.Handler) *Client {
 	srv := httptest.NewServer(root)
 	t.Cleanup(srv.Close)
 
-	ghClient, err := gh.NewClient(
+	ghClient, err := gh.NewClient(append([]gh.ClientOptionsFunc{
 		gh.WithAuthToken("test-token"),
 		gh.WithEnterpriseURLs(srv.URL, srv.URL),
-	)
+	}, opts...)...)
 	require.NoError(t, err)
 
 	return &Client{
