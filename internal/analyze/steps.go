@@ -100,6 +100,7 @@ func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 		}
 	}
 	for jk, durs := range jobDurs {
+		slices.Sort(durs)
 		jobMedians[jk] = percentile(durs, 50)
 	}
 
