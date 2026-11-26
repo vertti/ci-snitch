@@ -98,3 +98,42 @@ func TestStepTimingDetail_Type(t *testing.T) {
 	d := StepTimingDetail{}
 	assert.Equal(t, "steps", d.DetailType())
 }
+
+func TestStepAnalyzer_JobMedianIgnoresFetchOrder(t *testing.T) {
+	// "build" lasts 10s, 100s, 20s in fetch order: median 20s, not the middle
+	// element. "lint" always lasts 30s, so it is the slower job.
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	var details []model.RunDetail
+	for i, buildSeconds := range []int{10, 100, 20} {
+		start := base.Add(time.Duration(i) * time.Hour)
+		details = append(details, model.RunDetail{
+			Run: model.WorkflowRun{ID: int64(3000 + i), WorkflowID: 300, StartedAt: start},
+			Jobs: []model.Job{
+				{
+					Name: "build", StartedAt: start, CompletedAt: start.Add(time.Duration(buildSeconds) * time.Second),
+					Steps: []model.Step{{Name: "Compile", StartedAt: start, CompletedAt: start.Add(5 * time.Second)}},
+				},
+				{
+					Name: "lint", StartedAt: start, CompletedAt: start.Add(30 * time.Second),
+					Steps: []model.Step{{Name: "Lint", StartedAt: start, CompletedAt: start.Add(15 * time.Second)}},
+				},
+			},
+		})
+	}
+
+	findings, err := StepAnalyzer{}.Analyze(context.Background(), &AnalysisContext{Details: details})
+	require.NoError(t, err)
+	require.Len(t, findings, 2)
+
+	byJob := make(map[string]StepTimingDetail)
+	var order []string
+	for _, f := range findings {
+		d, ok := f.Detail.(StepTimingDetail)
+		require.True(t, ok)
+		byJob[d.JobName] = d
+		order = append(order, d.JobName)
+	}
+	assert.Equal(t, []string{"lint", "build"}, order, "jobs are ranked by median duration")
+	require.Len(t, byJob["build"].Steps, 1)
+	assert.InDelta(t, 25.0, byJob["build"].Steps[0].PctOfJob, 0.01, "5s of a 20s median job")
+}

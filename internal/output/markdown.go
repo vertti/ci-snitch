@@ -14,11 +14,16 @@ type MarkdownFormatter struct {
 
 // Format implements Formatter.
 func (m MarkdownFormatter) Format(w io.Writer, result *analyze.AnalysisResult) error {
+	out := &stickyErrWriter{w: w}
+	w = out
 	_, _ = fmt.Fprintf(w, "# CI Performance Report\n\n")
 	_, _ = fmt.Fprintf(w, "**%d runs** analyzed (%s to %s)\n\n",
 		result.Meta.TotalRuns,
 		result.Meta.TimeRange[0].Format("2006-01-02"),
 		result.Meta.TimeRange[1].Format("2006-01-02"))
+	if notice := partialDataNotice(result.Meta.Incomplete); notice != "" {
+		_, _ = fmt.Fprintf(w, "> **Partial data:** %s\n\n", notice)
+	}
 
 	g := groupByType(result.Findings)
 
@@ -31,7 +36,7 @@ func (m MarkdownFormatter) Format(w io.Writer, result *analyze.AnalysisResult) e
 	mdWriteRunners(w, g.Runners)
 	mdWriteSteps(w, g.Steps)
 
-	return nil
+	return out.Err()
 }
 
 func mdWriteSummaries(w io.Writer, findings []analyze.Finding) {

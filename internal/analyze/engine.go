@@ -21,6 +21,15 @@ type ResultMeta struct {
 	BranchCategory string       `json:"branch_category,omitempty"`
 	Workflow       string       `json:"workflow,omitempty"`
 	Since          time.Time    `json:"since"`
+	// Incomplete lists the workflows that are missing run details, most missing first.
+	Incomplete []IncompleteWorkflow `json:"incomplete,omitempty"`
+}
+
+// IncompleteWorkflow is a workflow whose listed runs were not all hydrated.
+type IncompleteWorkflow struct {
+	Workflow string `json:"workflow"`
+	Hydrated int    `json:"hydrated"`
+	Listed   int    `json:"listed"`
 }
 
 // AnalysisResult is the output of the analysis engine.
@@ -28,6 +37,17 @@ type AnalysisResult struct {
 	Findings    []Finding         `json:"findings"`
 	Diagnostics []diag.Diagnostic `json:"diagnostics"`
 	Meta        ResultMeta        `json:"meta"`
+	// Reliability covers every workflow that ran. Failure findings are the
+	// subset worth showing; a --fail-on gate must not inherit their thresholds.
+	Reliability []WorkflowReliability `json:"reliability,omitempty"`
+}
+
+// WorkflowReliability is one workflow's failure count over the runs that executed.
+type WorkflowReliability struct {
+	Workflow     string  `json:"workflow"`
+	TotalRuns    int     `json:"total_runs"`
+	FailureCount int     `json:"failure_count"`
+	FailureRate  float64 `json:"failure_rate"`
 }
 
 // Engine orchestrates running analyzers over a set of run details.
@@ -63,6 +83,11 @@ func (e *Engine) Run(ctx context.Context, details, allDetails []model.RunDetail,
 
 	var result AnalysisResult
 	result.Meta = computeMeta(details)
+	if len(details) == 0 {
+		// No run qualified for duration analysis; the report still covers
+		// the runs the failure and cost analyzers read.
+		result.Meta = computeMeta(allDetails)
+	}
 
 	for _, a := range e.analyzers {
 		// Analyzers are pure CPU work and ignore ctx themselves; checking
@@ -85,6 +110,7 @@ func (e *Engine) Run(ctx context.Context, details, allDetails []model.RunDetail,
 	}
 
 	result.Findings = postProcess(result.Findings)
+	result.Reliability = workflowReliability(ac)
 
 	return result
 }

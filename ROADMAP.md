@@ -326,7 +326,10 @@ Each finding was checked against the raw API, job logs or the cache. Filling the
 - `checkRuns(first:50)` sets the price: each run requests 51 connections. `first:20` would cost 0.21 points per run, and the truncation path (P2) already completes the rare larger run.
 
 ### R4. A partially hydrated scan exits 0 and reports as if complete [S]
-- After the pool drained, the two largest workflows were 17% and 26% hydrated. The run exited 0, printed two `[warn]` lines, and ranked its priority findings from the partial set. Fix: when the reset is minutes away, or a secondary limit names a `Retry-After`, wait and resume. Otherwise lead every format with a partial-data banner that names the workflows, and add a `--fail-on` condition for it.
+- After the pool drained, the two largest workflows were 17% and 26% hydrated. The run exited 0, printed two `[warn]` lines, and ranked its priority findings from the partial set.
+- ✅ Shipped: the result records each workflow whose listed runs were not all hydrated (`meta.incomplete`), derived by comparing the listed runs in the selected `--branch-category` with the runs hydrated in full, so it holds whatever the cause and a run left truncated counts as missing. Table, markdown and LLM output lead with a notice that names up to five of them, most missing first, and `--fail-on partial-data` exits 2. A scan that hydrated nothing no longer says "no runs found": it says none of the N listed runs could be fetched and gives the first warning. `cmd/smoke` now runs the service path and fails if a healthy scan reports partial data.
+- Open: when the reset is minutes away, or a secondary limit names a `Retry-After`, wait and resume. R2 made a secondary limit end hydration, so this is what gets a complete scan back.
+- Open: when every run of one `--branch-category` failed to hydrate and other categories did not, the error still reads "no runs found for --branch-category".
 
 ### R5. Batches of 20 time out on job-heavy workflows [S]
 - For a workflow with 6 jobs of about 50 steps each, 41 of 43 batches returned 502 or 504 and fell back to 20 REST calls apiece: 8.5 minutes for 854 runs. The first invocation logged 102 such fallbacks. Fix: on 502/504, halve the batch and retry before falling back.
@@ -335,9 +338,11 @@ Each finding was checked against the raw API, job logs or the cache. Filling the
 ### R6. Skipped runs are hydrated [S]
 - 3.2k of the 10.8k listed runs (30%) had conclusion `skipped`: comment- and label-triggered workflows whose job `if:` was false. They have no timed jobs, yet each one costs hydration points. Fix: keep them for counts, skip hydration.
 
-### R7. The whole-series outlier clamp flattens a short genuine regime [S]
+### R7. The whole-series outlier clamp flattens a short genuine regime [S] ✅ done
 - A deploy job ran at a 5.3-minute median for six runs, then at 20 minutes for the remaining 230. The fence computed from the whole series (IQR 1.0 min around 22 min) clamped all six early runs up to 17.6 min. The change point landed on the right commit but was reported as "+12%, minor" instead of roughly +275%, and a later 2-minute shift took the headline.
 - Amends the "`ClampOutliers` before CUSUM" entry under "Verified still correct": sound for detection, wrong as the source of the reported levels. Fix: report segment levels as raw medians, and clamp against a local window so a run of consecutive points counts as a level, not as outliers.
+- Shipped: segment levels are medians of the raw durations, and the clamp that feeds CUSUM leaves a run of `MinSegment` consecutive values beyond the same fence alone, because that is a level and not a set of outliers. On the scan above the change point at the culprit commit now reads +272% (5m20s to 19m52s, critical). `before_mean` and `after_mean` keep their names and now hold medians.
+- Open: the regression dedup keeps the latest slowdown per job, so the later +11% step is still the headline and the +272% step is filed as minor. Two slowdowns in a row that both hold should read as one regression from the first level to the last.
 
 ### R8. Cost ignores runner size where it matters most [M]
 - GraphQL hydration carries no labels, so 11.5k jobs were priced at 1x and only REST-fallback runs had labels at all. Third-party labels (`<vendor>-16vcpu-…`) are priced 1x by design, which understated the 16-vCPU test workflows fourfold next to a 4-vCPU deploy job. Fix: learn labels over REST by sampling each (workflow, job name) across the window, not once, because a job can move to another runner size under the same name (A13 prices per run for that reason). Report vCPU-minutes beside billable minutes.

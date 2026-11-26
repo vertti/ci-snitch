@@ -22,12 +22,17 @@ type LLMFormatter struct {
 
 // Format implements Formatter.
 func (l LLMFormatter) Format(w io.Writer, result *analyze.AnalysisResult) error {
+	out := &stickyErrWriter{w: w}
+	w = out
 	repo := result.Meta.Repo
 	from := result.Meta.TimeRange[0].Format("2006-01-02")
 	to := result.Meta.TimeRange[1].Format("2006-01-02")
 
 	_, _ = fmt.Fprintf(w, "# CI Performance Report: %s\nAnalyzed %d runs, %s to %s.\n\n",
 		repo, result.Meta.TotalRuns, from, to)
+	if notice := partialDataNotice(result.Meta.Incomplete); notice != "" {
+		_, _ = fmt.Fprintf(w, "**PARTIAL DATA:** %s\n\n", notice)
+	}
 
 	g := groupByType(result.Findings)
 
@@ -48,7 +53,10 @@ func (l LLMFormatter) Format(w io.Writer, result *analyze.AnalysisResult) error 
 	llmWriteCaveats(w, result.Diagnostics)
 	llmWriteGlossary(w)
 
-	return l.writeRawData(w, result)
+	if err := l.writeRawData(w, result); err != nil {
+		return err
+	}
+	return out.Err()
 }
 
 // llmWriteCaveats narrates data-quality diagnostics — an LLM acting on the

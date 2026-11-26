@@ -35,10 +35,12 @@ func postProcess(findings []Finding) []Finding {
 }
 
 // categorizeChangePoints assigns a Category to each change point:
-// - oscillating: job has 3+ notable change points (too volatile)
-// - regression: latest non-transient slowdown per (workflow, job) (deduplicated)
-// - speedup: improvements
-// - minor: severity=info
+//   - oscillating: job has 3+ notable change points that reverse direction at
+//     least twice (too volatile); a job that only keeps getting slower is not
+//   - regression: latest slowdown per (workflow, job) that still holds (deduplicated)
+//   - reverted: slowdown that a later change point undid
+//   - speedup: improvements
+//   - minor: severity=info
 //
 // Jobs routinely share names across workflows ("build", "test"), so both
 // the oscillation count and the regression dedup key on (workflow, job) —
@@ -53,8 +55,13 @@ func categorizeChangePoints(findings []Finding) []Finding {
 
 	applyMultipleComparisonCorrection(changepoints)
 
-	// Count notable change points per (workflow, job)
-	jobCounts := make(map[wfJobName]int)
+	// Tally notable change points per (workflow, job), in series order.
+	type shiftTally struct {
+		notable       int
+		reversals     int
+		lastDirection string
+	}
+	tallies := make(map[wfJobName]*shiftTally)
 	for _, f := range changepoints {
 		if f.Severity == SeverityInfo {
 			continue
@@ -63,7 +70,21 @@ func categorizeChangePoints(findings []Finding) []Finding {
 		if !ok {
 			continue
 		}
-		jobCounts[wfJobName{d.WorkflowName, d.JobName}]++
+		key := wfJobName{d.WorkflowName, d.JobName}
+		tally := tallies[key]
+		if tally == nil {
+			tally = &shiftTally{}
+			tallies[key] = tally
+		}
+		tally.notable++
+		if tally.lastDirection != "" && tally.lastDirection != d.Direction {
+			tally.reversals++
+		}
+		tally.lastDirection = d.Direction
+	}
+	oscillates := func(key wfJobName) bool {
+		tally := tallies[key]
+		return tally != nil && tally.notable >= 3 && tally.reversals >= 2
 	}
 
 	// Track latest regression per (workflow, job) for dedup
@@ -81,7 +102,7 @@ func categorizeChangePoints(findings []Finding) []Finding {
 		switch {
 		case f.Severity == SeverityInfo:
 			d.Category = CategoryMinor
-		case jobCounts[key] >= 3:
+		case oscillates(key):
 			d.Category = CategoryOscillating
 		case d.OverlapRatio > 0.5:
 			// >50% of after-points fall within the before-segment's IQR.
@@ -89,6 +110,8 @@ func categorizeChangePoints(findings []Finding) []Finding {
 			d.Category = CategoryMinor
 		case d.Direction == DirectionSpeedup:
 			d.Category = CategorySpeedup
+		case d.Persistence == PersistenceTransient:
+			d.Category = CategoryReverted
 		default:
 			d.Category = CategoryRegression
 		}
@@ -97,7 +120,7 @@ func categorizeChangePoints(findings []Finding) []Finding {
 		result = append(result, f)
 
 		// Track latest regression per (workflow, job)
-		if d.Category == CategoryRegression && d.Direction == DirectionSlowdown && d.Persistence != PersistenceTransient {
+		if d.Category == CategoryRegression {
 			if idx, exists := latestRegression[key]; exists {
 				// Mark the older one as minor
 				older := result[idx]

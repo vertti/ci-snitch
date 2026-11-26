@@ -25,10 +25,16 @@ func (t TableFormatter) Format(w io.Writer, result *analyze.AnalysisResult) erro
 	if t.pal != nil {
 		p = *t.pal
 	}
+	out := &stickyErrWriter{w: w}
+	w = out
+
+	if notice := partialDataNotice(result.Meta.Incomplete); notice != "" {
+		_, _ = fmt.Fprintf(w, "%s%sPARTIAL DATA:%s %s\n\n", p.bold, p.yellow, p.reset, notice)
+	}
 
 	if len(result.Findings) == 0 {
-		_, err := fmt.Fprintln(w, "No findings.")
-		return err
+		_, _ = fmt.Fprintln(w, "No findings.")
+		return out.Err()
 	}
 
 	g := groupByType(result.Findings)
@@ -74,7 +80,7 @@ func (t TableFormatter) Format(w io.Writer, result *analyze.AnalysisResult) erro
 
 	// Legend
 	p.writeLegend(w)
-	return nil
+	return out.Err()
 }
 
 func (p *palette) writeTriageHeader(w io.Writer, summaries, changepoints, failures []analyze.Finding) {
@@ -584,32 +590,30 @@ func (p *palette) writeChangePointTable(w io.Writer, findings []analyze.Finding,
 
 // writeOscillatingJobs summarizes jobs with 3+ change points — these are volatile, not changing.
 func (p *palette) writeOscillatingJobs(w io.Writer, findings []analyze.Finding) {
+	type wfJob struct{ workflow, job string }
 	type jobSummary struct {
 		name     string
 		count    int
 		current  analyze.Duration // after-mean of the latest change point
 		earliest analyze.Duration // before-mean of the first change point
 	}
-	seen := make(map[string]bool)
-	jobCounts := make(map[string]int)
-	var summaries []jobSummary
-	latest := make(map[string]analyze.ChangePointDetail)
-	earliest := make(map[string]analyze.ChangePointDetail)
+	byJob := make(map[wfJob]*jobSummary)
+	var summaries []*jobSummary
 
 	for _, f := range findings {
 		d, _ := f.Detail.(analyze.ChangePointDetail)
-		jobCounts[d.JobName]++
-		if !seen[d.JobName] {
-			seen[d.JobName] = true
-			summaries = append(summaries, jobSummary{name: d.JobName})
-			earliest[d.JobName] = d
+		key := wfJob{d.WorkflowName, d.JobName}
+		s := byJob[key]
+		if s == nil {
+			s = &jobSummary{name: d.JobName, earliest: d.BeforeMean}
+			if d.WorkflowName != "" {
+				s.name = d.WorkflowName + " / " + d.JobName
+			}
+			byJob[key] = s
+			summaries = append(summaries, s)
 		}
-		latest[d.JobName] = d
-	}
-	for i := range summaries {
-		summaries[i].count = jobCounts[summaries[i].name]
-		summaries[i].current = latest[summaries[i].name].AfterMean
-		summaries[i].earliest = earliest[summaries[i].name].BeforeMean
+		s.count++
+		s.current = d.AfterMean
 	}
 
 	_, _ = fmt.Fprintf(w, "%s── Oscillating Jobs (%d jobs, too volatile for reliable change detection) ──%s\n", p.dim, len(summaries), p.reset)

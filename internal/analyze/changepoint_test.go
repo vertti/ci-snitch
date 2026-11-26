@@ -401,3 +401,36 @@ func TestChangePointDetail_Type(t *testing.T) {
 	d := ChangePointDetail{}
 	assert.Equal(t, "changepoint", d.DetailType())
 }
+
+func TestChangePointAnalyzer_RecentSustainedRegressionKeepsItsSize(t *testing.T) {
+	// 100 runs around 5 minutes, then 20 at 10: the slow runs are too few to
+	// move the whole-series quartiles, so a clamp fitted to the whole series
+	// treated all twenty as outliers.
+	durations := plateaus(100, 5*time.Minute)
+	durations = append(durations, plateaus(20, 10*time.Minute)...)
+
+	findings := analyzeChangePoints(t, durations)
+	require.Len(t, findings, 1)
+	d, ok := findings[0].Detail.(ChangePointDetail)
+	require.True(t, ok)
+	assert.Equal(t, 100, d.ChangeIdx)
+	assert.InDelta(t, 100.0, d.PctChange, 1.0)
+	assert.Equal(t, CategoryRegression, d.Category)
+	assert.NotEqual(t, SeverityInfo, findings[0].Severity)
+}
+
+func TestChangePointAnalyzer_ShortEarlyRegimeKeepsItsLevel(t *testing.T) {
+	// Six runs at a 5.3-minute median, two of them slow for unrelated reasons,
+	// then 230 runs around 20 minutes.
+	durations := []time.Duration{810 * time.Second, 306 * time.Second, 318 * time.Second, 318 * time.Second, 936 * time.Second, 312 * time.Second}
+	durations = append(durations, plateaus(230, 20*time.Minute)...)
+
+	findings := analyzeChangePoints(t, durations)
+	require.NotEmpty(t, findings)
+	d, ok := findings[0].Detail.(ChangePointDetail)
+	require.True(t, ok)
+	assert.Equal(t, 6, d.ChangeIdx)
+	assert.Equal(t, Duration(318*time.Second), d.BeforeMean, "the level before is the median of the six raw runs")
+	assert.Greater(t, d.PctChange, 250.0)
+	assert.Equal(t, CategoryRegression, d.Category)
+}

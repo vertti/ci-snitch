@@ -131,3 +131,27 @@ func truncSHA(sha string) string {
 	}
 	return sha
 }
+
+const maxIncompleteNamed = 5
+
+// partialDataNotice names the workflows that are missing run details, worst
+// first as the slice is ordered; "" when the scan is complete.
+func partialDataNotice(incomplete []analyze.IncompleteWorkflow) string {
+	if len(incomplete) == 0 {
+		return ""
+	}
+	named := incomplete[:min(len(incomplete), maxIncompleteNamed)]
+	parts := make([]string, 0, len(named)+1)
+	for _, w := range named {
+		parts = append(parts, fmt.Sprintf("%s: %d of %d runs fetched", w.Workflow, w.Hydrated, w.Listed))
+	}
+	if more := len(incomplete) - len(named); more > 0 {
+		parts = append(parts, fmt.Sprintf("and %d more", more))
+	}
+	subject := "workflows are"
+	if len(incomplete) == 1 {
+		subject = "workflow is"
+	}
+	return fmt.Sprintf("%d %s missing run details (%s). Every number below covers only the fetched runs.",
+		len(incomplete), subject, strings.Join(parts, "; "))
+}

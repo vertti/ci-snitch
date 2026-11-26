@@ -16,6 +16,7 @@ import (
 	"github.com/vertti/ci-snitch/internal/github"
 	"github.com/vertti/ci-snitch/internal/model"
 	"github.com/vertti/ci-snitch/internal/output"
+	"github.com/vertti/ci-snitch/internal/preprocess"
 )
 
 var testBase = time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
@@ -202,6 +203,80 @@ func TestRun_HydrationWarningsSurfaceInDiagnostics(t *testing.T) {
 	assertHasDiagnostic(t, res.Diagnostics, diag.KindNetwork, "failed to fetch run 2")
 }
 
+func TestRun_WorkflowsMissingRunDetailsAreRecordedInMetaMostMissingFirst(t *testing.T) {
+	ci := []model.RunDetail{fakeRunDetail(1, "success"), fakeRunDetail(2, "success"), fakeRunDetail(3, "success")}
+	deploy := []model.RunDetail{fakeRunDetail(4, "success"), fakeRunDetail(5, "success"), fakeRunDetail(6, "success")}
+	runsOf := func(details []model.RunDetail, workflowID int64) []model.WorkflowRun {
+		runs := make([]model.WorkflowRun, len(details))
+		for i := range details {
+			details[i].Run.WorkflowID = workflowID
+			runs[i] = details[i].Run
+		}
+		return runs
+	}
+	f := &fakeFetcher{
+		workflows: []model.Workflow{{ID: 1, Name: "CI"}, {ID: 2, Name: "Deploy"}},
+		runs:      map[int64][]model.WorkflowRun{1: runsOf(ci, 1), 2: runsOf(deploy, 2)},
+		details:   []model.RunDetail{ci[0], ci[1], deploy[0]},
+	}
+
+	res, err := runService(t, f, nil)
+	require.NoError(t, err)
+	require.Equal(t, []analyze.IncompleteWorkflow{
+		{Workflow: "Deploy", Hydrated: 1, Listed: 3},
+		{Workflow: "CI", Hydrated: 2, Listed: 3},
+	}, res.Meta.Incomplete)
+}
+
+func TestRun_TruncatedRunsCountAsMissingRunDetails(t *testing.T) {
+	f := fetcherFor(fakeRunDetail(1, "success"), fakeRunDetail(2, "success"), fakeRunDetail(3, "success"))
+	f.details[2].Truncated = true
+
+	res, err := runService(t, f, nil)
+	require.NoError(t, err)
+	require.Equal(t, []analyze.IncompleteWorkflow{{Workflow: "CI", Hydrated: 2, Listed: 3}}, res.Meta.Incomplete)
+}
+
+func TestRun_CompletenessIsJudgedWithinTheSelectedBranchCategory(t *testing.T) {
+	pr := fakeRunDetail(3, "success")
+	pr.Run.Event = "pull_request"
+	runMain := func(hydrated ...int) analyze.AnalysisResult {
+		f := fetcherFor(fakeRunDetail(1, "success"), fakeRunDetail(2, "success"), pr)
+		all := f.details
+		f.details = nil
+		for _, i := range hydrated {
+			f.details = append(f.details, all[i])
+		}
+		svc := &Service{Client: f, Prog: output.NewProgress()}
+		res, err := svc.Run(context.Background(), &Options{
+			Repo: "example-org/example-repo", Since: testBase.Add(-24 * time.Hour),
+			BranchCategory: preprocess.CategoryMain,
+		})
+		require.NoError(t, err)
+		return res
+	}
+
+	require.Empty(t, runMain(0, 1).Meta.Incomplete, "a missing pull_request run is outside a main-category report")
+	require.Equal(t, []analyze.IncompleteWorkflow{{Workflow: "CI", Hydrated: 1, Listed: 2}}, runMain(0, 2).Meta.Incomplete)
+}
+
+func TestRun_FullyHydratedScanRecordsNoIncompleteWorkflows(t *testing.T) {
+	res, err := runService(t, baseFetcher(), nil)
+	require.NoError(t, err)
+	require.Empty(t, res.Meta.Incomplete)
+}
+
+func TestRun_NothingHydratedErrorSaysSoAndWhy(t *testing.T) {
+	f := baseFetcher()
+	f.details = nil
+	f.hydrateWarnings = []diag.Diagnostic{diag.New(diag.Warn, diag.KindRateLimit, "graphql",
+		"GitHub rate limit hit (API rate limit already exceeded); skipped hydration of 2 runs")}
+
+	_, err := runService(t, f, nil)
+	require.ErrorContains(t, err, "none of the 2 listed runs could be fetched")
+	require.ErrorContains(t, err, "GitHub rate limit hit")
+}
+
 func TestRun_PreprocessWarningsSurfaceInDiagnostics(t *testing.T) {
 	f := baseFetcher()
 	// One failed run: with IncludeFailures=false preprocess excludes it and warns.
@@ -375,19 +450,28 @@ func TestRun_RateLimitReadErrorIsNonFatal(t *testing.T) {
 	require.NoError(t, err, "an unreadable rate limit must not block analysis")
 }
 
-func TestRun_AllRunsFilteredOutError(t *testing.T) {
-	f := baseFetcher()
-	for i := range f.details {
-		f.details[i].Run.Conclusion = "failure" // IncludeFailures defaults to false
-	}
-	for i, r := range f.runs[1] {
-		r.Conclusion = "failure"
-		f.runs[1][i] = r
+func TestRun_WorkflowWhoseRunsAllFailedStillGetsItsFailureReport(t *testing.T) {
+	var details []model.RunDetail
+	for id := int64(1); id <= 10; id++ {
+		details = append(details, fakeRunDetail(id, "failure")) // IncludeFailures defaults to false
 	}
 
-	_, err := runService(t, f, nil)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "filtered out during preprocessing")
+	res, err := runService(t, fetcherFor(details...), nil)
+	require.NoError(t, err)
+
+	var failures []analyze.FailureDetail
+	for _, f := range res.Findings {
+		if d, ok := f.Detail.(analyze.FailureDetail); ok {
+			failures = append(failures, d)
+		}
+	}
+	require.Len(t, failures, 1)
+	require.Equal(t, 10, failures[0].FailureCount)
+	require.InDelta(t, 1.0, failures[0].FailureRate, 0.0001)
+
+	require.Equal(t, 10, res.Meta.TotalRuns, "the report counts the runs it covers")
+	require.False(t, res.Meta.TimeRange[0].IsZero())
+	assertHasDiagnostic(t, res.Diagnostics, diag.KindPreprocess, "duration analysis is empty")
 }
 
 func TestRun_CacheLoadErrorFallsBackToFetch(t *testing.T) {
