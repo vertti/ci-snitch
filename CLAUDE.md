@@ -8,9 +8,9 @@
 
 ## Smoke testing
 
-- Before opening or updating a PR, always run the smoke test against a real repo: `go run ./cmd/smoke`
+- Before opening or updating a PR, always run the smoke test against a real repo: `mise run smoke`
 - Update `cmd/smoke/main.go` to exercise any new functionality added in the PR.
-- The smoke test defaults to `cli/cli` (public). You can pass any `owner/repo` as an argument.
+- The smoke test defaults to `cli/cli` (public). You can pass any `owner/repo` as an argument: `mise run smoke owner/repo`.
 
 ## Releases
 

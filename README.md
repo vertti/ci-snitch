@@ -115,5 +115,5 @@ Exit codes: `0` clean, `1` operational error, `2` a `--fail-on` condition matche
 ```bash
 mise install              # toolchain pinned in mise.toml
 mise run check            # format + lint + test
-go run ./cmd/smoke        # smoke test against cli/cli
+mise run smoke            # smoke test against cli/cli
 ```

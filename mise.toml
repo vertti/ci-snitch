@@ -17,6 +17,12 @@ run = "go test ./..."
 description = "Run all tests with the race detector"
 run = "go test -race ./..."
 
+[tasks.smoke]
+description = "Run the smoke test against a real repo (default cli/cli)"
+# A fixed binary path keeps one application-firewall rule valid across
+# rebuilds; `go run` executes from a cache path that changes with the code.
+run = "go build -o bin/smoke ./cmd/smoke && bin/smoke"
+
 [tasks.vuln]
 description = "Scan dependencies for known vulnerabilities"
 run = "go run golang.org/x/vuln/cmd/govulncheck@latest ./..."
