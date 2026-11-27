@@ -364,7 +364,7 @@ Each finding was checked against the raw API, job logs or the cache. Filling the
 - `-q` does not silence the client's `slog` lines: "GraphQL batch failed, falling back to REST" still reaches stderr, because the client logger is wired to stderr at INFO whatever the flag says.
 - `cmd/smoke` passes vacuously when its workflow has no runs in the last 3 days ("No runs to hydrate", exit 0).
 - When every run of one `--branch-category` failed to hydrate and other categories did not, the error still reads "no runs found for --branch-category".
-- The rate-limit warning does not say when to retry. Neither the primary limit's reset time nor a secondary limit's `Retry-After` is read, so a caller that waits (R4) has to guess or ask the API itself.
+- ✅ The rate-limit warning did not say when to retry. It now ends with the time GitHub named (`Retry-After` on a secondary limit, the reset when the primary pool is empty); the partial-data notice repeats it and JSON carries it as `retry_at` on the diagnostic and as `meta.retry_at`. Nothing sleeps: the caller that waits (R4) reads the time.
 
 Order: R1, R2, R4, R7 (trust) → R3, R5, R6 (fetch cost) → R8–R10 → R11–R13.
 
