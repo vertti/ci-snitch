@@ -179,6 +179,7 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 	result.Meta.Workflow = opts.Workflow
 	result.Meta.Since = opts.Since
 	result.Meta.Incomplete = incomplete
+	result.Meta.RetryAt = latestRetryTime(pipelineDiags)
 	result.Diagnostics = append(result.Diagnostics, pipelineDiags...)
 
 	// Summarize any jobs missing runner labels (GraphQL doesn't expose them).
@@ -285,6 +286,16 @@ func unknownWorkflowError(workflows []model.Workflow, filter string) error {
 		names = append(names[:15], "…")
 	}
 	return fmt.Errorf("workflow %q not found; available workflows: %s", filter, strings.Join(names, ", "))
+}
+
+func latestRetryTime(diags []diag.Diagnostic) time.Time {
+	var latest time.Time
+	for _, d := range diags {
+		if d.RetryAt.After(latest) {
+			latest = d.RetryAt
+		}
+	}
+	return latest
 }
 
 // nothingHydratedError carries the first warning with it: this path returns

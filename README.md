@@ -114,6 +114,8 @@ Exit codes: `0` clean, `1` operational error, `2` a `--fail-on` condition matche
 
 A scan that could not fetch every run (a rate limit, failed batches) still reports, but every format leads with a partial-data notice naming the affected workflows, and JSON lists them under `meta.incomplete`. Add `partial-data` to `--fail-on` to exit 2 instead of trusting such a report.
 
+ci-snitch does not wait for a rate limit to lift; that is the caller's call. When GitHub said when it lifts, the warning, the notice and `meta.retry_at` in JSON carry that time. Hydrated runs are cached, so a second run fetches only what is missing.
+
 ## Development
 
 ```bash

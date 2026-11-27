@@ -23,6 +23,8 @@ type ResultMeta struct {
 	Since          time.Time    `json:"since"`
 	// Incomplete lists the workflows that are missing run details, most missing first.
 	Incomplete []IncompleteWorkflow `json:"incomplete,omitempty"`
+	// RetryAt is when the rate limit that cut the scan short lifts, if GitHub said.
+	RetryAt time.Time `json:"retry_at,omitzero"`
 }
 
 // IncompleteWorkflow is a workflow whose listed runs were not all hydrated.

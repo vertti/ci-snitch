@@ -4,6 +4,7 @@ package diag
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Severity indicates how important a diagnostic is.
@@ -34,6 +35,8 @@ type Diagnostic struct {
 	Scope    string   `json:"scope"`
 	Message  string   `json:"message"`
 	Err      error    `json:"-"`
+	// RetryAt is when GitHub said a rate limit lifts; zero when it did not say.
+	RetryAt time.Time `json:"retry_at,omitzero"`
 }
 
 func (d Diagnostic) String() string {
