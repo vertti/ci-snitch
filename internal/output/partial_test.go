@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,12 +57,12 @@ func TestPartialDataNotice_NamesTheFiveWorstAndCountsTheRest(t *testing.T) {
 	for i := range 7 {
 		incomplete = append(incomplete, analyze.IncompleteWorkflow{Workflow: fmt.Sprintf("wf%d", i), Hydrated: i, Listed: 10})
 	}
-	notice := partialDataNotice(incomplete)
+	notice := partialDataNotice(&analyze.ResultMeta{Incomplete: incomplete})
 	assert.Contains(t, notice, "7 workflows are missing run details")
 	assert.Contains(t, notice, "wf4: 4 of 10 runs fetched; and 2 more)")
 	assert.NotContains(t, notice, "wf5")
 
-	assert.Empty(t, partialDataNotice(nil))
+	assert.Empty(t, partialDataNotice(&analyze.ResultMeta{}))
 }
 
 func TestJSONFormatter_ListsIncompleteWorkflowsOnlyWhenThereAreAny(t *testing.T) {
@@ -78,4 +79,39 @@ func TestJSONFormatter_ListsIncompleteWorkflowsOnlyWhenThereAreAny(t *testing.T)
 	buf.Reset()
 	require.NoError(t, JSONFormatter{}.Format(&buf, richTestResult()))
 	assert.NotContains(t, buf.String(), `"incomplete"`)
+}
+
+func TestFormatters_PartialDataNoticeSaysWhenToRunAgain(t *testing.T) {
+	result := partialTestResult()
+	result.Meta.RetryAt = time.Date(2026, 3, 1, 10, 15, 0, 0, time.UTC)
+
+	pal := plainPalette()
+	formatters := map[string]Formatter{
+		"table":    TableFormatter{pal: &pal},
+		"markdown": MarkdownFormatter{},
+		"llm":      LLMFormatter{},
+	}
+	for name, f := range formatters {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			require.NoError(t, f.Format(&buf, result))
+			assert.Contains(t, buf.String(), "Run again after 10:15:00 UTC, when GitHub's rate limit lifts.")
+		})
+	}
+
+	var buf bytes.Buffer
+	require.NoError(t, MarkdownFormatter{}.Format(&buf, partialTestResult()))
+	assert.NotContains(t, buf.String(), "Run again after", "nothing to say when GitHub named no time")
+}
+
+func TestJSONFormatter_CarriesTheRetryTimeOnlyWhenThereIsOne(t *testing.T) {
+	result := partialTestResult()
+	result.Meta.RetryAt = time.Date(2026, 3, 1, 10, 15, 0, 0, time.UTC)
+	var buf bytes.Buffer
+	require.NoError(t, JSONFormatter{}.Format(&buf, result))
+	assert.Contains(t, buf.String(), `"retry_at": "2026-03-01T10:15:00Z"`)
+
+	buf.Reset()
+	require.NoError(t, JSONFormatter{}.Format(&buf, partialTestResult()))
+	assert.NotContains(t, buf.String(), "retry_at")
 }

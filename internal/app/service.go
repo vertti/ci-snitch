@@ -179,6 +179,11 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 	result.Meta.Workflow = opts.Workflow
 	result.Meta.Since = opts.Since
 	result.Meta.Incomplete = incomplete
+	for _, d := range pipelineDiags {
+		if d.RetryAt.After(result.Meta.RetryAt) {
+			result.Meta.RetryAt = d.RetryAt
+		}
+	}
 	result.Diagnostics = append(result.Diagnostics, pipelineDiags...)
 
 	// Summarize any jobs missing runner labels (GraphQL doesn't expose them).

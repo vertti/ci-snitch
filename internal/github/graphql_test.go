@@ -444,3 +444,66 @@ func TestFetchRunDetailsGraphQL_NullNodeStillWarns(t *testing.T) {
 	require.Len(t, warnings, 1)
 	assert.Contains(t, warnings[0].Message, "failed to parse")
 }
+
+func TestFetchRunDetailsGraphQL_RateLimitWarningSaysWhenToRetry(t *testing.T) {
+	reset := time.Date(2026, 3, 1, 10, 15, 0, 0, time.UTC)
+	secondary := `{"message": "You have exceeded a secondary rate limit."}`
+	typed := `{"errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}]}`
+	cases := []struct {
+		name    string
+		status  int
+		headers map[string]string
+		body    string
+		check   func(t *testing.T, warning diag.Diagnostic)
+	}{
+		{
+			name: "secondary limit with Retry-After", status: http.StatusForbidden,
+			headers: map[string]string{"Retry-After": "60"}, body: secondary,
+			check: func(t *testing.T, warning diag.Diagnostic) {
+				assert.WithinDuration(t, time.Now().Add(time.Minute), warning.RetryAt, 5*time.Second)
+				assert.Contains(t, warning.Message, "; retry after ")
+			},
+		},
+		{
+			name: "primary limit with an empty pool", status: http.StatusOK,
+			headers: map[string]string{"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": fmt.Sprint(reset.Unix())}, body: typed,
+			check: func(t *testing.T, warning diag.Diagnostic) {
+				assert.True(t, reset.Equal(warning.RetryAt), "got %s", warning.RetryAt)
+				assert.Contains(t, warning.Message, "; retry after 10:15:00 UTC")
+			},
+		},
+		{
+			name: "secondary limit that names no time, pool not empty", status: http.StatusForbidden,
+			headers: map[string]string{"X-RateLimit-Remaining": "4000", "X-RateLimit-Reset": fmt.Sprint(reset.Unix())}, body: secondary,
+			check: func(t *testing.T, warning diag.Diagnostic) {
+				assert.True(t, warning.RetryAt.IsZero(), "the primary reset says nothing about a secondary limit")
+				assert.NotContains(t, warning.Message, "retry after")
+			},
+		},
+		{
+			name: "no headers", status: http.StatusOK, body: typed,
+			check: func(t *testing.T, warning diag.Diagnostic) {
+				assert.True(t, warning.RetryAt.IsZero())
+				assert.NotContains(t, warning.Message, "retry after")
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc("POST /graphql", func(w http.ResponseWriter, _ *http.Request) {
+				for k, v := range tc.headers {
+					w.Header().Set(k, v)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			})
+
+			_, warnings := testClient(t, mux).FetchRunDetailsGraphQL(context.Background(), graphqlTestRuns(3))
+			require.Len(t, warnings, 1)
+			require.Equal(t, diag.KindRateLimit, warnings[0].Kind)
+			tc.check(t, warnings[0])
+		})
+	}
+}
