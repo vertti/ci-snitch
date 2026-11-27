@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -443,4 +444,69 @@ func TestFetchRunDetailsGraphQL_NullNodeStillWarns(t *testing.T) {
 	assert.Empty(t, details)
 	require.Len(t, warnings, 1)
 	assert.Contains(t, warnings[0].Message, "failed to parse")
+}
+
+func TestFetchRunDetailsGraphQL_RateLimitWarningSaysWhenToRetry(t *testing.T) {
+	reset := time.Date(2026, 3, 1, 10, 15, 0, 0, time.UTC)
+	resetHeader := strconv.FormatInt(reset.Unix(), 10)
+	secondary := `{"message": "You have exceeded a secondary rate limit."}`
+	typed := `{"errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}]}`
+	cases := []struct {
+		name     string
+		status   int
+		headers  map[string]string
+		body     string
+		wantAt   time.Time     // exact, from the reset header
+		wantIn   time.Duration // from now, from Retry-After
+		wantHint string        // empty: the message names no time
+	}{
+		{
+			name: "secondary limit with Retry-After", status: http.StatusForbidden,
+			headers: map[string]string{"Retry-After": "60"}, body: secondary,
+			wantIn: time.Minute, wantHint: "; retry after ",
+		},
+		{
+			name: "primary limit with an empty pool", status: http.StatusOK,
+			headers: map[string]string{"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": resetHeader}, body: typed,
+			wantAt: reset, wantHint: "; retry after 10:15:00 UTC",
+		},
+		{
+			// The reset of a pool that still has points says nothing about a secondary limit.
+			name: "secondary limit that names no time", status: http.StatusForbidden,
+			headers: map[string]string{"X-RateLimit-Remaining": "4000", "X-RateLimit-Reset": resetHeader}, body: secondary,
+		},
+		{name: "no headers", status: http.StatusOK, body: typed},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc("POST /graphql", func(w http.ResponseWriter, _ *http.Request) {
+				for k, v := range tc.headers {
+					w.Header().Set(k, v)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			})
+
+			_, warnings := testClient(t, mux).FetchRunDetailsGraphQL(context.Background(), graphqlTestRuns(3))
+			require.Len(t, warnings, 1)
+			warning := warnings[0]
+			require.Equal(t, diag.KindRateLimit, warning.Kind)
+
+			switch {
+			case !tc.wantAt.IsZero():
+				assert.True(t, tc.wantAt.Equal(warning.RetryAt), "got %s", warning.RetryAt)
+			case tc.wantIn > 0:
+				assert.WithinDuration(t, time.Now().Add(tc.wantIn), warning.RetryAt, 5*time.Second)
+			default:
+				assert.True(t, warning.RetryAt.IsZero(), "got %s", warning.RetryAt)
+			}
+			if tc.wantHint == "" {
+				assert.NotContains(t, warning.Message, "retry after")
+			} else {
+				assert.Contains(t, warning.Message, tc.wantHint)
+			}
+		})
+	}
 }

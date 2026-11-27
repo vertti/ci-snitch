@@ -136,7 +136,8 @@ const maxIncompleteNamed = 5
 
 // partialDataNotice names the workflows that are missing run details, worst
 // first as the slice is ordered; "" when the scan is complete.
-func partialDataNotice(incomplete []analyze.IncompleteWorkflow) string {
+func partialDataNotice(meta *analyze.ResultMeta) string {
+	incomplete := meta.Incomplete
 	if len(incomplete) == 0 {
 		return ""
 	}
@@ -152,6 +153,10 @@ func partialDataNotice(incomplete []analyze.IncompleteWorkflow) string {
 	if len(incomplete) == 1 {
 		subject = "workflow is"
 	}
-	return fmt.Sprintf("%d %s missing run details (%s). Every number below covers only the fetched runs.",
+	notice := fmt.Sprintf("%d %s missing run details (%s). Every number below covers only the fetched runs.",
 		len(incomplete), subject, strings.Join(parts, "; "))
+	if !meta.RetryAt.IsZero() {
+		notice += fmt.Sprintf(" Run again after %s, when GitHub's rate limit lifts.", meta.RetryAt.UTC().Format("15:04:05 MST"))
+	}
+	return notice
 }

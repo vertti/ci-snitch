@@ -757,3 +757,25 @@ func TestRun_CacheSaveFailureSurfacesInDiagnostics(t *testing.T) {
 	require.NoError(t, err)
 	assertHasDiagnostic(t, res.Diagnostics, diag.KindCache, "failed to cache")
 }
+
+func TestRun_LatestRateLimitRetryTimeReachesMeta(t *testing.T) {
+	sooner := testBase.Add(10 * time.Minute)
+	later := testBase.Add(25 * time.Minute)
+	limited := func(retryAt time.Time) diag.Diagnostic {
+		d := diag.New(diag.Warn, diag.KindRateLimit, "graphql", "GitHub rate limit hit")
+		d.RetryAt = retryAt
+		return d
+	}
+	f := baseFetcher()
+	f.hydrateWarnings = []diag.Diagnostic{limited(later), limited(sooner)}
+
+	res, err := runService(t, f, nil)
+	require.NoError(t, err)
+	require.True(t, later.Equal(res.Meta.RetryAt), "got %s", res.Meta.RetryAt)
+}
+
+func TestRun_NoRetryTimeWithoutARateLimit(t *testing.T) {
+	res, err := runService(t, baseFetcher(), nil)
+	require.NoError(t, err)
+	require.True(t, res.Meta.RetryAt.IsZero())
+}

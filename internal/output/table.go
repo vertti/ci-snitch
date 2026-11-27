@@ -28,7 +28,7 @@ func (t TableFormatter) Format(w io.Writer, result *analyze.AnalysisResult) erro
 	out := &stickyErrWriter{w: w}
 	w = out
 
-	if notice := partialDataNotice(result.Meta.Incomplete); notice != "" {
+	if notice := partialDataNotice(&result.Meta); notice != "" {
 		_, _ = fmt.Fprintf(w, "%s%sPARTIAL DATA:%s %s\n\n", p.bold, p.yellow, p.reset, notice)
 	}
 

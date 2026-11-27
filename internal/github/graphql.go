@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -50,10 +51,13 @@ func (c *Client) FetchRunDetailsGraphQL(ctx context.Context, runs []model.Workfl
 			// Falling back to REST here would burn ~20x the core budget the
 			// pre-flight check approved. Skip the remaining hydration instead.
 			skipped := len(graphqlRuns) - start
-			warnings = append(warnings, diag.New(
-				diag.Warn, diag.KindRateLimit, "graphql",
-				fmt.Sprintf("GitHub rate limit hit (%s); skipped hydration of %d runs (not falling back to REST to protect the core pool)", limited.reason, skipped),
-			))
+			msg := fmt.Sprintf("GitHub rate limit hit (%s); skipped hydration of %d runs (not falling back to REST to protect the core pool)", limited.reason, skipped)
+			if !limited.retryAt.IsZero() {
+				msg += "; retry after " + limited.retryAt.UTC().Format("15:04:05 MST")
+			}
+			warning := diag.New(diag.Warn, diag.KindRateLimit, "graphql", msg)
+			warning.RetryAt = limited.retryAt
+			warnings = append(warnings, warning)
 			break
 		}
 		if ctx.Err() != nil {
@@ -186,7 +190,7 @@ func (c *Client) doGraphQL(ctx context.Context, query string) (json.RawMessage, 
 			reason += ": " + msg
 		}
 		if resp.StatusCode == http.StatusTooManyRequests || mentionsRateLimit(string(body)) {
-			return nil, &rateLimitError{reason}
+			return nil, &rateLimitError{reason, retryTime(resp.Header, time.Now())}
 		}
 		return nil, errors.New("graphql: " + reason)
 	}
@@ -211,7 +215,7 @@ func (c *Client) doGraphQL(ctx context.Context, query string) (json.RawMessage, 
 	if len(result.Errors) > 0 {
 		first := result.Errors[0]
 		if first.Type == "RATE_LIMITED" || mentionsRateLimit(first.Message) {
-			return nil, &rateLimitError{first.Message}
+			return nil, &rateLimitError{first.Message, retryTime(resp.Header, time.Now())}
 		}
 		return nil, fmt.Errorf("graphql: %s", first.Message)
 	}
@@ -221,9 +225,27 @@ func (c *Client) doGraphQL(ctx context.Context, query string) (json.RawMessage, 
 
 // rateLimitError is a GitHub rate limit, primary or secondary. Callers must
 // not fall back to REST on it (that multiplies core-pool spend ~20x).
-type rateLimitError struct{ reason string }
+type rateLimitError struct {
+	reason  string
+	retryAt time.Time // zero when GitHub did not say
+}
 
 func (e *rateLimitError) Error() string { return "graphql rate limited: " + e.reason }
+
+// retryTime reads when GitHub will take requests again: Retry-After on a
+// secondary limit, the reset time when the primary pool is empty. The reset
+// of a pool that still has points says nothing about a secondary limit.
+func retryTime(h http.Header, now time.Time) time.Time {
+	if secs, err := strconv.Atoi(h.Get("Retry-After")); err == nil && secs > 0 {
+		return now.Add(time.Duration(secs) * time.Second)
+	}
+	if h.Get("X-RateLimit-Remaining") == "0" {
+		if epoch, err := strconv.ParseInt(h.Get("X-RateLimit-Reset"), 10, 64); err == nil {
+			return time.Unix(epoch, 0)
+		}
+	}
+	return time.Time{}
+}
 
 // GitHub marks only some rate-limit responses with the RATE_LIMITED type;
 // the wording is the one thing every shape of them shares.
