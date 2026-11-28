@@ -330,9 +330,11 @@ Each finding was checked against the raw API, job logs or the cache. Filling the
 - ✅ Shipped: the result records each workflow whose listed runs were not all hydrated (`meta.incomplete`), derived by comparing the listed runs in the selected `--branch-category` with the runs hydrated in full, so it holds whatever the cause and a run left truncated counts as missing. Table, markdown and LLM output lead with a notice that names up to five of them, most missing first, and `--fail-on partial-data` exits 2. A scan that hydrated nothing no longer says "no runs found": it says none of the N listed runs could be fetched and gives the first warning. `cmd/smoke` now runs the service path and fails if a healthy scan reports partial data.
 - Not adopted: waiting in-process for the reset or a `Retry-After`. A command-line tool should not sleep for minutes; whatever calls it decides whether to wait. A second run fetches only the runs the cache lacks, so the caller's loop is: `--fail-on partial-data` exits 2, wait, run again.
 
-### R5. Batches of 20 time out on job-heavy workflows [S]
-- For a workflow with 6 jobs of about 50 steps each, 41 of 43 batches returned 502 or 504 and fell back to 20 REST calls apiece: 8.5 minutes for 854 runs. The first invocation logged 102 such fallbacks. Fix: on 502/504, halve the batch and retry before falling back.
+### R5. Batches of 20 time out on job-heavy workflows [S] ✅ done
+- For a workflow with 6 jobs of about 50 steps each, 41 of 43 batches returned 502 or 504 and fell back to 20 REST calls apiece: 8.5 minutes for 854 runs. The first invocation logged 102 such fallbacks.
 - Reproduces on a public repo: a 7-day `cli/cli` scan (998 runs) logged four 502 fallbacks.
+- Halving the batch was built first and measured slower: it removed every REST fallback, but the heavy workflows took about twice as long, because a batch of 10 for such a workflow needs 6 to 10 seconds where 20 REST calls in parallel need about one. A cold two-day fetch went from 60 s to 92 s.
+- Shipped instead: after two timed-out batches in a row the rest of that workflow goes straight to REST. A single timeout between successes still costs only its own batch. A 200 with an empty body, which GitHub also returns near its time limit, counts as a timeout. Ten days of the heaviest workflow (303 runs, cold): 191 s with 15 of 16 batches waiting out the limit, then 42 s with 2. Same REST calls, same results.
 
 ### R6. Skipped runs are hydrated [S] ✅ done
 - 3.2k of the 10.8k listed runs (30%) had conclusion `skipped`: comment- and label-triggered workflows whose job `if:` was false. They have no timed jobs, yet each one costs hydration points. Fix: keep them for counts, skip hydration.
