@@ -779,3 +779,28 @@ func TestRun_NoRetryTimeWithoutARateLimit(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, res.Meta.RetryAt.IsZero())
 }
+
+func TestRun_SkippedRunsAreNotHydrated(t *testing.T) {
+	f := fetcherFor(
+		fakeRunDetail(1, "success"), fakeRunDetail(2, "success"),
+		fakeRunDetail(3, "skipped"), fakeRunDetail(4, "skipped"),
+	)
+
+	res, err := runService(t, f, nil)
+	require.NoError(t, err)
+
+	slices.Sort(f.hydratedIDs)
+	require.Equal(t, []int64{1, 2}, f.hydratedIDs, "a skipped run has no timed jobs to fetch")
+	require.Empty(t, res.Meta.Incomplete, "a run that never ran is not missing run details")
+}
+
+func TestCountRuns_SkippedRunsNeedNoFetch(t *testing.T) {
+	wfRuns := []workflowRuns{{
+		wf:   model.Workflow{ID: 1, Name: "CI"},
+		runs: []model.WorkflowRun{fakeRunDetail(1, "success").Run, fakeRunDetail(2, "skipped").Run},
+	}}
+	total, uncached := countRuns(wfRuns, nil)
+
+	require.Equal(t, 2, total)
+	require.Equal(t, 1, uncached, "the rate budget must not pay for runs that are never fetched")
+}
