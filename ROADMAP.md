@@ -354,8 +354,9 @@ Each finding was checked against the raw API, job logs or the cache. Filling the
 ### R9. Step-level hotspots and regressions are invisible [M]
 - Steps are reported as the top three per job by median, on successful runs only. Two regressions sat below that: an artifact upload that went from 12 s to 98 s, and a failure-only upload step that went from 2 s to 175 s (it runs only in failed jobs, which the duration series excludes). The widest single target, one test step summing to 14% of all runner time across two workflows, appears nowhere as a total. Fix: rank steps by total time across workflows and conclusions, and run change-point detection on step series.
 
-### R10. Queue time is always zero [S]
+### R10. Queue time is always zero [S] ✅ done
 - `run_started_at` equalled `created_at` on all 10,756 first attempts, so the Queue column never renders. Real waits exist: runs held by a concurrency group started their first job a mean 6.1 minutes after creation. Fix: queue = first job start minus run creation.
+- Shipped: queue time is the wait from a run's creation to the first of its jobs that ran. In the cache behind this scan the two run fields were equal on all 8,985 first attempts, while 87 runs waited more than five minutes for their first job. The table tag and the LLM column now show the p95 beside the median and stay quiet below a minute, because a 5 to 7 second median is a runner picking the job up on every workflow. The deploy workflow reads median 7s, p95 27m34s.
 
 ### R11. Wording batch [XS–S]
 - `[FLAKY]` on a pull-request workflow whose top failing steps were lint and compile. Call it flaky only when the same SHA later passed, or on the default branch.

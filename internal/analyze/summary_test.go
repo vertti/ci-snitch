@@ -311,8 +311,9 @@ func TestSummaryAnalyzer_QueueTime(t *testing.T) {
 		details[i] = model.RunDetail{
 			Run: model.WorkflowRun{
 				WorkflowID: 100, WorkflowName: "CI",
-				CreatedAt: created, StartedAt: started, UpdatedAt: started.Add(5 * time.Minute),
+				CreatedAt: created, StartedAt: created, UpdatedAt: started.Add(5 * time.Minute),
 			},
+			Jobs: []model.Job{{Name: "build", Conclusion: "success", StartedAt: started, CompletedAt: started.Add(5 * time.Minute)}},
 		}
 	}
 
@@ -339,14 +340,17 @@ func TestSummaryAnalyzer_QueueTimeSkipsRerunAttempts(t *testing.T) {
 		details[i] = model.RunDetail{
 			Run: model.WorkflowRun{
 				WorkflowID: 100, WorkflowName: "CI", RunAttempt: 1,
-				CreatedAt: created, StartedAt: started, UpdatedAt: started.Add(5 * time.Minute),
+				CreatedAt: created, StartedAt: created, UpdatedAt: started.Add(5 * time.Minute),
 			},
+			Jobs: []model.Job{{Name: "build", Conclusion: "success", StartedAt: started, CompletedAt: started.Add(5 * time.Minute)}},
 		}
 	}
 	// Re-run the next morning: attempt 2 starts 12h after creation.
 	details[9].Run.RunAttempt = 2
 	details[9].Run.StartedAt = details[9].Run.CreatedAt.Add(12 * time.Hour)
 	details[9].Run.UpdatedAt = details[9].Run.StartedAt.Add(5 * time.Minute)
+	details[9].Jobs[0].StartedAt = details[9].Run.StartedAt
+	details[9].Jobs[0].CompletedAt = details[9].Run.UpdatedAt
 
 	analyzer := SummaryAnalyzer{}
 	findings, err := analyzer.Analyze(context.Background(), &AnalysisContext{Details: details})
@@ -362,4 +366,35 @@ func TestSummaryAnalyzer_QueueTimeSkipsRerunAttempts(t *testing.T) {
 func TestSummaryDetail_Type(t *testing.T) {
 	d := SummaryDetail{}
 	assert.Equal(t, "summary", d.DetailType())
+}
+
+func TestSummaryAnalyzer_QueueTimeIsTheWaitForTheFirstJob(t *testing.T) {
+	// GitHub reports run_started_at equal to created_at on a first attempt,
+	// even when the run sat in a concurrency group. The wait shows in the jobs.
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	details := make([]model.RunDetail, 10)
+	for i := range details {
+		created := base.Add(time.Duration(i) * time.Hour)
+		firstJob := created.Add(90 * time.Second)
+		details[i] = model.RunDetail{
+			Run: model.WorkflowRun{
+				WorkflowID: 100, WorkflowName: "CI", RunAttempt: 1,
+				CreatedAt: created, StartedAt: created, UpdatedAt: firstJob.Add(5 * time.Minute),
+			},
+			Jobs: []model.Job{
+				{Name: "optional", Conclusion: "skipped", StartedAt: created, CompletedAt: created},
+				{Name: "test", Conclusion: "success", StartedAt: firstJob.Add(time.Minute), CompletedAt: firstJob.Add(5 * time.Minute)},
+				{Name: "build", Conclusion: "success", StartedAt: firstJob, CompletedAt: firstJob.Add(time.Minute)},
+			},
+		}
+	}
+
+	findings, err := SummaryAnalyzer{}.Analyze(context.Background(), &AnalysisContext{Details: details})
+	require.NoError(t, err)
+	require.NotEmpty(t, findings)
+
+	d, ok := findings[0].Detail.(SummaryDetail)
+	require.True(t, ok)
+	assert.Equal(t, Duration(90*time.Second), d.Queue.Median)
+	assert.Equal(t, Duration(90*time.Second), d.Queue.P95)
 }

@@ -177,6 +177,9 @@ func llmWriteSummaryTable(w io.Writer, summaries []analyze.Finding) {
 		queueStr := "-"
 		if d.Queue.Median.Std() > 0 {
 			queueStr = fmtDur(d.Queue.Median)
+			if notableQueue(&d.Queue) {
+				queueStr += fmt.Sprintf(" (p95 %s)", fmtDur(d.Queue.P95))
+			}
 		}
 		_, _ = fmt.Fprintf(w, "| %s | %d | %s | %s | %s | %s | %s |\n",
 			escMD(d.Workflow), d.Stats.TotalRuns,

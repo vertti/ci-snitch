@@ -284,11 +284,10 @@ func (p *palette) fmtVolatility(label string) string {
 }
 
 func (p *palette) fmtQueueTime(q analyze.QueueStats) string {
-	// Only show queue time when median is notable (> 5 seconds)
-	if q.Median.Std() <= 5*time.Second {
+	if !notableQueue(&q) {
 		return ""
 	}
-	return fmt.Sprintf(" %s[queue %s]%s", p.yellow, fmtDur(q.Median), p.reset)
+	return fmt.Sprintf(" %s[queue %s, p95 %s]%s", p.yellow, fmtDur(q.Median), fmtDur(q.P95), p.reset)
 }
 
 func (p *palette) writeStepTable(w io.Writer, findings []analyze.Finding, verbose bool) {

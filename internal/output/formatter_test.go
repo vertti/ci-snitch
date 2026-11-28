@@ -789,3 +789,34 @@ func TestFormatters_SayWhenARegressionSpansSeveralSlowdowns(t *testing.T) {
 		})
 	}
 }
+
+func queueTestResult(median, p95 time.Duration) *analyze.AnalysisResult {
+	return &analyze.AnalysisResult{
+		Findings: []analyze.Finding{{
+			Type: analyze.TypeSummary, Severity: analyze.SeverityInfo,
+			Detail: analyze.SummaryDetail{
+				Workflow: "Deploy",
+				Stats:    analyze.SummaryStats{TotalRuns: 50, Median: dur(10 * time.Minute), P95: dur(12 * time.Minute), TotalTime: dur(500 * time.Minute)},
+				Queue:    analyze.QueueStats{Median: dur(median), P95: dur(p95)},
+			},
+		}},
+		Meta: analyze.ResultMeta{TotalRuns: 50, TimeRange: [2]time.Time{time.Now(), time.Now()}},
+	}
+}
+
+func TestFormatters_QueueTimeShowsTheTailAndIgnoresRunnerPickup(t *testing.T) {
+	pal := plainPalette()
+	render := func(f Formatter, median, p95 time.Duration) string {
+		var buf bytes.Buffer
+		require.NoError(t, f.Format(&buf, queueTestResult(median, p95)))
+		return buf.String()
+	}
+
+	// A few seconds is a runner picking the job up, on every workflow.
+	assert.NotContains(t, render(TableFormatter{pal: &pal}, 6*time.Second, 38*time.Second), "queue")
+
+	// A short median can hide runs that waited half an hour for a concurrency group.
+	assert.Contains(t, render(TableFormatter{pal: &pal}, 7*time.Second, 27*time.Minute+34*time.Second), "[queue 7s, p95 27m34s]")
+	assert.Contains(t, render(LLMFormatter{}, 7*time.Second, 27*time.Minute+34*time.Second), "| 7s (p95 27m34s) |")
+	assert.Contains(t, render(LLMFormatter{}, 6*time.Second, 38*time.Second), "| 6s |")
+}
