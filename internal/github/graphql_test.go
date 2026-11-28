@@ -515,14 +515,16 @@ func TestFetchRunDetailsGraphQL_RateLimitWarningSaysWhenToRetry(t *testing.T) {
 // timingOutGraphQL answers the batches for which tooHeavy returns true the
 // way GitHub answers a query it cannot finish, and the rest normally. It
 // records the size of every batch it was asked for.
-func timingOutGraphQL(t *testing.T, mux *http.ServeMux, tooHeavy func(request int) bool, fail func(http.ResponseWriter)) *[]int {
-	t.Helper()
+func timingOutGraphQL(mux *http.ServeMux, tooHeavy func(request int) bool, fail func(http.ResponseWriter)) *[]int {
 	var sizes []int
 	mux.HandleFunc("POST /graphql", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Query string `json:"query"`
 		}
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		n := strings.Count(req.Query, ":node(id:")
 		sizes = append(sizes, n)
 		if tooHeavy(len(sizes)) {
@@ -544,7 +546,8 @@ func countingRESTJobs(mux *http.ServeMux) *atomic.Int32 {
 	mux.HandleFunc("GET /repos/test-owner/test-repo/actions/runs/{id}/jobs", func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{"total_count": 1, "jobs": [{"id": 1, "run_id": %s, "name": "build", "status": "completed", "conclusion": "success"}]}`, r.PathValue("id"))
+		runID, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		_, _ = fmt.Fprintf(w, `{"total_count": 1, "jobs": [{"id": 1, "run_id": %d, "name": "build", "status": "completed", "conclusion": "success"}]}`, runID)
 	})
 	return &calls
 }
@@ -560,7 +563,7 @@ func TestFetchRunDetailsGraphQL_WorkflowThatKeepsTimingOutGoesToRESTAfterTwoBatc
 	for name, fail := range shapes {
 		t.Run(name, func(t *testing.T) {
 			mux := http.NewServeMux()
-			sizes := timingOutGraphQL(t, mux, func(int) bool { return true }, fail)
+			sizes := timingOutGraphQL(mux, func(int) bool { return true }, fail)
 			restCalls := countingRESTJobs(mux)
 
 			details, _ := testClient(t, mux).FetchRunDetailsGraphQL(context.Background(), graphqlTestRuns(100))
@@ -574,7 +577,7 @@ func TestFetchRunDetailsGraphQL_WorkflowThatKeepsTimingOutGoesToRESTAfterTwoBatc
 
 func TestFetchRunDetailsGraphQL_OneTimedOutBatchDoesNotGiveUpOnGraphQL(t *testing.T) {
 	mux := http.NewServeMux()
-	sizes := timingOutGraphQL(t, mux, func(request int) bool { return request == 2 || request == 4 }, badGateway)
+	sizes := timingOutGraphQL(mux, func(request int) bool { return request == 2 || request == 4 }, badGateway)
 	restCalls := countingRESTJobs(mux)
 
 	details, _ := testClient(t, mux).FetchRunDetailsGraphQL(context.Background(), graphqlTestRuns(100))

@@ -70,7 +70,8 @@ func (c *Client) FetchRunDetailsGraphQL(ctx context.Context, runs []model.Workfl
 			timeouts = 0
 			continue
 		}
-		if timeouts++; timeouts == maxConsecutiveTimeouts {
+		timeouts++
+		if timeouts == maxConsecutiveTimeouts {
 			remaining := graphqlRuns[end:]
 			c.log("GraphQL keeps timing out on this workflow, fetching its remaining runs via REST", "runs", len(remaining))
 			restRuns = append(restRuns, remaining...)
