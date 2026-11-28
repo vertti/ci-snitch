@@ -160,3 +160,10 @@ func partialDataNotice(meta *analyze.ResultMeta) string {
 	}
 	return notice
 }
+
+// notableQueue reports a wait worth pointing at. A few seconds between a
+// run's creation and its first job is a runner picking it up, on every
+// workflow; a minute, typical or in the tail, is a queue.
+func notableQueue(q *analyze.QueueStats) bool {
+	return q.Median.Std() >= time.Minute || q.P95.Std() >= time.Minute
+}
