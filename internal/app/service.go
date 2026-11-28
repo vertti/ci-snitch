@@ -100,10 +100,10 @@ func (s *Service) Run(ctx context.Context, opts *Options) (analyze.AnalysisResul
 	// Cache state is read once and shared by the budget and hydration
 	// phases — they previously each rebuilt it with repeated store queries.
 	cache := s.buildCacheIndex(allWfRuns, opts.Since)
-	totalRuns, uncachedRuns := countRuns(allWfRuns, cache)
+	totalRuns, uncachedRuns, points := countRuns(allWfRuns, cache)
 
 	// Estimate API cost and check rate limit budget
-	if err := s.checkRateBudget(ctx, totalRuns, uncachedRuns, opts); err != nil {
+	if err := s.checkRateBudget(ctx, totalRuns, uncachedRuns, points, opts); err != nil {
 		return analyze.AnalysisResult{}, err
 	}
 
@@ -456,18 +456,25 @@ func neverRan(run *model.WorkflowRun) bool {
 	return run.Conclusion == "skipped"
 }
 
-func countRuns(allWfRuns []workflowRuns, cache *cacheIndex) (total, uncached int) {
+// countRuns also prices the fetch in GraphQL points. Each workflow is batched
+// on its own, and a batch costs at least a point, so the price is summed per
+// workflow and not derived from the total.
+func countRuns(allWfRuns []workflowRuns, cache *cacheIndex) (total, uncached, points int) {
 	for i := range allWfRuns {
 		wfID := allWfRuns[i].wf.ID
 		runs := allWfRuns[i].runs
 		total += len(runs)
+		toFetch := 0
 		for j := range runs {
 			if !neverRan(&runs[j]) && !cache.servable(wfID, &runs[j]) {
-				uncached++
+				toFetch++
 			}
 		}
+		uncached += toFetch
+		points += toFetch / github.GraphQLBatchSize * github.BatchPoints(github.GraphQLBatchSize)
+		points += github.BatchPoints(toFetch % github.GraphQLBatchSize)
 	}
-	return total, uncached
+	return total, uncached, points
 }
 
 // cachedUpdatedAt returns run ID → cached UpdatedAt for a workflow's cached
@@ -497,9 +504,9 @@ func servableFromCache(cachedAt map[int64]time.Time, incomplete map[int64]bool, 
 	return ok && !incomplete[run.ID] && !run.UpdatedAt.After(at)
 }
 
-// checkRateBudget estimates API cost and verifies sufficient rate limit remains.
-// Cost accounts for GraphQL batching: ~1 query per graphqlBatchSize uncached runs.
-func (s *Service) checkRateBudget(ctx context.Context, totalRuns, uncachedRuns int, opts *Options) error {
+// checkRateBudget verifies that the GraphQL points the fetch will cost fit
+// in what remains of the rate limit.
+func (s *Service) checkRateBudget(ctx context.Context, totalRuns, uncachedRuns, points int, opts *Options) error {
 	rl, err := s.Client.RateLimit(ctx)
 	if err != nil {
 		// Non-fatal: proceed without check if we can't read the rate limit
@@ -508,13 +515,6 @@ func (s *Service) checkRateBudget(ctx context.Context, totalRuns, uncachedRuns i
 		}
 		return nil
 	}
-
-	// GraphQL batches ~20 runs per query. Add 10% overhead for job/step pagination.
-	estimatedCalls := uncachedRuns / github.GraphQLBatchSize
-	if uncachedRuns%github.GraphQLBatchSize != 0 {
-		estimatedCalls++
-	}
-	estimatedCalls += estimatedCalls / 10
 
 	// Hydration runs on the GraphQL pool, which GitHub meters separately from
 	// core REST (already spent on listing by the time this check runs). Fall
@@ -526,17 +526,17 @@ func (s *Service) checkRateBudget(ctx context.Context, totalRuns, uncachedRuns i
 	budget := int(float64(pool.Remaining) * rateLimitSafetyMargin)
 
 	if opts.Verbose {
-		s.Prog.Log("Rate limit (%s pool): %d/%d remaining (resets %s). %d runs (%d cached, %d to fetch), estimated calls: ~%d",
+		s.Prog.Log("Rate limit (%s pool): %d/%d remaining (resets %s). %d runs (%d cached, %d to fetch), estimated cost: ~%d points",
 			poolName, pool.Remaining, pool.Limit, pool.ResetAt.Format("15:04:05"),
-			totalRuns, totalRuns-uncachedRuns, uncachedRuns, estimatedCalls)
+			totalRuns, totalRuns-uncachedRuns, uncachedRuns, points)
 	}
 
-	if estimatedCalls > budget {
+	if points > budget {
 		return fmt.Errorf(
-			"aborting: estimated ~%d GraphQL calls for %d uncached runs (of %d total) would exceed the %s rate limit budget "+
+			"aborting: fetching %d uncached runs (of %d total) costs ~%d GraphQL points and would exceed the %s rate limit budget "+
 				"(%d of %d remaining, resets %s). "+
 				"Try a shorter window (--since 7d) or filter to one workflow (--workflow <name>)",
-			estimatedCalls, uncachedRuns, totalRuns, poolName, pool.Remaining, pool.Limit,
+			uncachedRuns, totalRuns, points, poolName, pool.Remaining, pool.Limit,
 			time.Until(pool.ResetAt).Round(time.Minute))
 	}
 

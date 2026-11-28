@@ -397,8 +397,8 @@ func manyRunsFetcher(n int) *fakeFetcher {
 }
 
 func TestRun_RateBudgetAbortsBeforeHydration(t *testing.T) {
-	f := manyRunsFetcher(25) // ~2 estimated GraphQL calls
-	f.gqlRemaining = 1       // hydration is GraphQL: budget floor 0.8 * 1 = 0 allowed calls
+	f := manyRunsFetcher(25) // 13 points: a full batch and a batch of five
+	f.gqlRemaining = 1       // hydration is GraphQL: 0.8 * 1 leaves no points to spend
 
 	svc := &Service{Client: f, Store: nil, Prog: output.NewProgress()}
 	_, err := svc.Run(context.Background(), &Options{
@@ -743,7 +743,7 @@ func TestCountRuns_CountsStaleRunsAsUncached(t *testing.T) {
 	wfRuns := []workflowRuns{
 		{wf: model.Workflow{ID: 1, Name: "CI"}, runs: []model.WorkflowRun{fresh, staleListed}},
 	}
-	total, uncached := countRuns(wfRuns, svc.buildCacheIndex(wfRuns, testBase.Add(-24*time.Hour)))
+	total, uncached, _ := countRuns(wfRuns, svc.buildCacheIndex(wfRuns, testBase.Add(-24*time.Hour)))
 
 	require.Equal(t, 2, total)
 	require.Equal(t, 1, uncached, "the re-run run must be counted as needing a fetch")
@@ -799,8 +799,38 @@ func TestCountRuns_SkippedRunsNeedNoFetch(t *testing.T) {
 		wf:   model.Workflow{ID: 1, Name: "CI"},
 		runs: []model.WorkflowRun{fakeRunDetail(1, "success").Run, fakeRunDetail(2, "skipped").Run},
 	}}
-	total, uncached := countRuns(wfRuns, nil)
+	total, uncached, _ := countRuns(wfRuns, nil)
 
 	require.Equal(t, 2, total)
 	require.Equal(t, 1, uncached, "the rate budget must not pay for runs that are never fetched")
+}
+
+func TestRun_BudgetCountsPointsNotBatches(t *testing.T) {
+	// 400 uncached runs are 20 batches, and GitHub charges 10 points for each.
+	f := manyRunsFetcher(400)
+	f.gqlRemaining = 150
+
+	_, err := runService(t, f, nil)
+	require.ErrorContains(t, err, "~200 GraphQL points")
+	require.ErrorContains(t, err, "rate limit budget")
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	require.Empty(t, f.hydratedIDs)
+}
+
+func TestCountRuns_PricesEachWorkflowsBatchesSeparately(t *testing.T) {
+	one := func(wfID, runID int64) workflowRuns {
+		run := fakeRunDetail(runID, "success").Run
+		run.WorkflowID = wfID
+		return workflowRuns{wf: model.Workflow{ID: wfID}, runs: []model.WorkflowRun{run}}
+	}
+	var thirtyWorkflows []workflowRuns
+	for i := int64(1); i <= 30; i++ {
+		thirtyWorkflows = append(thirtyWorkflows, one(i, i))
+	}
+	_, uncached, points := countRuns(thirtyWorkflows, nil)
+
+	require.Equal(t, 30, uncached)
+	require.Equal(t, 30, points, "a batch costs at least one point, however small")
 }

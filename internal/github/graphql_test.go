@@ -586,3 +586,11 @@ func TestFetchRunDetailsGraphQL_OneTimedOutBatchDoesNotGiveUpOnGraphQL(t *testin
 	assert.Equal(t, []int{20, 20, 20, 20, 20}, *sizes, "a timeout between successes is a hiccup, not a heavy workflow")
 	assert.EqualValues(t, 40, restCalls.Load(), "only the two failed batches go to REST")
 }
+
+func TestBatchPoints_MatchesWhatGitHubCharges(t *testing.T) {
+	// Measured with rateLimit{cost} on the query buildBatchQuery produces.
+	charged := map[int]int{0: 0, 1: 1, 2: 1, 3: 2, 5: 3, 10: 5, 19: 10, 20: 10}
+	for runs, points := range charged {
+		assert.Equal(t, points, BatchPoints(runs), "%d runs", runs)
+	}
+}
