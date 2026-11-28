@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -15,6 +16,17 @@ import (
 	"github.com/vertti/ci-snitch/internal/diag"
 	"github.com/vertti/ci-snitch/internal/model"
 )
+
+// BatchPoints is what GitHub charges against the GraphQL rate limit for one
+// batch query of that many runs: each run asks for 51 connections, a point
+// buys 100, and a query costs at least one point. Measured with
+// rateLimit{cost}: 1, 2, 3, 5, 10, 19 and 20 runs cost 1, 1, 2, 3, 5, 10 and 10.
+func BatchPoints(runs int) int {
+	if runs <= 0 {
+		return 0
+	}
+	return max(1, int(math.Round(0.51*float64(runs))))
+}
 
 // GraphQLBatchSize is the max number of runs fetched per GraphQL query.
 // Each run with jobs+steps costs ~1-4 rate limit points.
