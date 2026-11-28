@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/vertti/ci-snitch/internal/model"
 	"github.com/vertti/ci-snitch/internal/preprocess"
 )
 
@@ -24,7 +25,7 @@ type SummaryStats struct {
 	VolatilityLabel string   `json:"volatility_label"`
 }
 
-// QueueStats holds queue/wait time statistics (CreatedAt to StartedAt gap).
+// QueueStats holds queue/wait time statistics: run creation to first job start.
 type QueueStats struct {
 	Median Duration `json:"median"`
 	P95    Duration `json:"p95"`
@@ -74,14 +75,11 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 		if dur > 0 {
 			wfDurations[wfID] = append(wfDurations[wfID], dur)
 		}
-		// Queue time: how long the run waited before starting. Only valid
-		// for first attempts — GitHub resets run_started_at on re-run while
-		// created_at stays at original creation, so attempt >1 gaps measure
-		// "time until someone clicked re-run", not queue wait.
-		if ac.Details[i].Run.RunAttempt <= 1 &&
-			!ac.Details[i].Run.CreatedAt.IsZero() && !ac.Details[i].Run.StartedAt.IsZero() {
-			qt := ac.Details[i].Run.StartedAt.Sub(ac.Details[i].Run.CreatedAt)
-			if qt >= 0 {
+		// Queue time is only valid for first attempts: on a re-run created_at
+		// stays at the original creation, so the gap would measure "time
+		// until someone clicked re-run".
+		if ac.Details[i].Run.RunAttempt <= 1 {
+			if qt, ok := queueTime(&ac.Details[i]); ok {
 				wfQueueTimes[wfID] = append(wfQueueTimes[wfID], qt)
 			}
 		}
@@ -204,6 +202,27 @@ func groupMatrixJobs(jobs []JobSummary, jobDurations map[JobKey][]time.Duration,
 		}
 	}
 	return result
+}
+
+// queueTime is how long a run waited between its creation and the start of
+// its first job that ran. GitHub reports run_started_at equal to created_at
+// on a first attempt, so the wait for a runner or a concurrency group only
+// shows in the jobs.
+func queueTime(d *model.RunDetail) (time.Duration, bool) {
+	var first time.Time
+	for j := range d.Jobs {
+		job := &d.Jobs[j]
+		if job.Conclusion == "skipped" || job.StartedAt.IsZero() {
+			continue
+		}
+		if first.IsZero() || job.StartedAt.Before(first) {
+			first = job.StartedAt
+		}
+	}
+	if first.IsZero() || d.Run.CreatedAt.IsZero() || first.Before(d.Run.CreatedAt) {
+		return 0, false
+	}
+	return first.Sub(d.Run.CreatedAt), true
 }
 
 func computeStats(durations []time.Duration) SummaryStats {
