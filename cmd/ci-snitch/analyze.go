@@ -75,8 +75,7 @@ If no repository is specified, detects the GitHub remote from the current direct
 
 			// The logger surfaces rare client events (rate-limit sleeps,
 			// REST fallbacks) that would otherwise be silent hangs.
-			clientLog := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-			client, err := github.NewClient(token, repo, github.WithLogger(clientLog))
+			client, err := github.NewClient(token, repo, github.WithLogger(clientLogger(os.Stderr, quiet)))
 			if err != nil {
 				return err
 			}
@@ -257,6 +256,15 @@ func validateSincePast(t, now time.Time) error {
 		return fmt.Errorf("--since must be in the past, got %s", t.Format("2006-01-02"))
 	}
 	return nil
+}
+
+// clientLogger carries the GitHub client's notices (a batch refetched over
+// REST, a workflow given up on) to w, and nowhere under -q.
+func clientLogger(w io.Writer, quiet bool) *slog.Logger {
+	if quiet {
+		w = io.Discard
+	}
+	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelInfo}))
 }
 
 // applyFailOnGate prints tripped-condition reasons to w (stderr in
