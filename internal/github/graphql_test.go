@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -509,4 +510,76 @@ func TestFetchRunDetailsGraphQL_RateLimitWarningSaysWhenToRetry(t *testing.T) {
 			}
 		})
 	}
+}
+
+// timingOutGraphQL answers the batches for which tooHeavy returns true the
+// way GitHub answers a query it cannot finish, and the rest normally. It
+// records the size of every batch it was asked for.
+func timingOutGraphQL(t *testing.T, mux *http.ServeMux, tooHeavy func(request int) bool, fail func(http.ResponseWriter)) *[]int {
+	t.Helper()
+	var sizes []int
+	mux.HandleFunc("POST /graphql", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Query string `json:"query"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		n := strings.Count(req.Query, ":node(id:")
+		sizes = append(sizes, n)
+		if tooHeavy(len(sizes)) {
+			fail(w)
+			return
+		}
+		nodes := make([]string, n)
+		for i := range nodes {
+			nodes[i] = fmt.Sprintf(`"r%d": {"checkSuite": {"checkRuns": {"pageInfo": {"hasNextPage": false}, "nodes": [{"name": "build", "databaseId": %d, "status": "COMPLETED", "conclusion": "SUCCESS", "steps": {"nodes": []}}]}}}`, i, 1000+i)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"data": {%s}}`, strings.Join(nodes, ","))
+	})
+	return &sizes
+}
+
+func countingRESTJobs(mux *http.ServeMux) *atomic.Int32 {
+	var calls atomic.Int32
+	mux.HandleFunc("GET /repos/test-owner/test-repo/actions/runs/{id}/jobs", func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"total_count": 1, "jobs": [{"id": 1, "run_id": %s, "name": "build", "status": "completed", "conclusion": "success"}]}`, r.PathValue("id"))
+	})
+	return &calls
+}
+
+func badGateway(w http.ResponseWriter) { w.WriteHeader(http.StatusBadGateway) }
+
+func TestFetchRunDetailsGraphQL_WorkflowThatKeepsTimingOutGoesToRESTAfterTwoBatches(t *testing.T) {
+	shapes := map[string]func(http.ResponseWriter){
+		"502":                    badGateway,
+		"504":                    func(w http.ResponseWriter) { w.WriteHeader(http.StatusGatewayTimeout) },
+		"200 with an empty body": func(w http.ResponseWriter) { w.WriteHeader(http.StatusOK) },
+	}
+	for name, fail := range shapes {
+		t.Run(name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			sizes := timingOutGraphQL(t, mux, func(int) bool { return true }, fail)
+			restCalls := countingRESTJobs(mux)
+
+			details, _ := testClient(t, mux).FetchRunDetailsGraphQL(context.Background(), graphqlTestRuns(100))
+
+			assert.Len(t, details, 100)
+			assert.Equal(t, []int{20, 20}, *sizes, "two timeouts in a row: this workflow is too heavy for GraphQL")
+			assert.EqualValues(t, 100, restCalls.Load())
+		})
+	}
+}
+
+func TestFetchRunDetailsGraphQL_OneTimedOutBatchDoesNotGiveUpOnGraphQL(t *testing.T) {
+	mux := http.NewServeMux()
+	sizes := timingOutGraphQL(t, mux, func(request int) bool { return request == 2 || request == 4 }, badGateway)
+	restCalls := countingRESTJobs(mux)
+
+	details, _ := testClient(t, mux).FetchRunDetailsGraphQL(context.Background(), graphqlTestRuns(100))
+
+	assert.Len(t, details, 100)
+	assert.Equal(t, []int{20, 20, 20, 20, 20}, *sizes, "a timeout between successes is a hiccup, not a heavy workflow")
+	assert.EqualValues(t, 40, restCalls.Load(), "only the two failed batches go to REST")
 }

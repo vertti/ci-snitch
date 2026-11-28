@@ -40,6 +40,7 @@ func (c *Client) FetchRunDetailsGraphQL(ctx context.Context, runs []model.Workfl
 	}
 
 	// Batch GraphQL fetches
+	timeouts := 0
 	for start := 0; start < len(graphqlRuns); start += GraphQLBatchSize {
 		end := min(start+GraphQLBatchSize, len(graphqlRuns))
 		batch := graphqlRuns[start:end]
@@ -64,6 +65,16 @@ func (c *Client) FetchRunDetailsGraphQL(ctx context.Context, runs []model.Workfl
 			// Cancellation is not a data problem: no warnings, no fallback —
 			// the caller observes ctx.Err() and aborts the run.
 			return details, warnings
+		}
+		if _, timedOut := errors.AsType[*tooHeavyError](err); !timedOut {
+			timeouts = 0
+			continue
+		}
+		if timeouts++; timeouts == maxConsecutiveTimeouts {
+			remaining := graphqlRuns[end:]
+			c.log("GraphQL keeps timing out on this workflow, fetching its remaining runs via REST", "runs", len(remaining))
+			restRuns = append(restRuns, remaining...)
+			break
 		}
 	}
 
@@ -131,10 +142,11 @@ func (c *Client) completeTruncated(ctx context.Context, details []model.RunDetai
 	return outDetails, outWarnings
 }
 
-// fetchBatchGraphQL hydrates one batch. A non-nil error is returned only for
-// rate limiting, which the caller must handle by stopping — other failures
-// fall back to REST internally.
-func (c *Client) fetchBatchGraphQL(ctx context.Context, runs []model.WorkflowRun) (details []model.RunDetail, warnings []diag.Diagnostic, fatal error) {
+// fetchBatchGraphQL hydrates one batch. A rate limit or a cancelled context
+// comes back as an error with nothing fetched. A tooHeavyError comes back
+// together with the details already refetched over REST, so the caller can
+// count it.
+func (c *Client) fetchBatchGraphQL(ctx context.Context, runs []model.WorkflowRun) (details []model.RunDetail, warnings []diag.Diagnostic, err error) {
 	query := buildBatchQuery(runs)
 
 	raw, err := c.doGraphQL(ctx, query)
@@ -144,6 +156,9 @@ func (c *Client) fetchBatchGraphQL(ctx context.Context, runs []model.WorkflowRun
 		}
 		c.log("GraphQL batch failed, falling back to REST", "error", err, "batch_size", len(runs))
 		details, warnings = c.FetchRunDetails(ctx, runs)
+		if _, timedOut := errors.AsType[*tooHeavyError](err); timedOut {
+			return details, warnings, err
+		}
 		return details, warnings, nil
 	}
 
@@ -192,6 +207,9 @@ func (c *Client) doGraphQL(ctx context.Context, query string) (json.RawMessage, 
 		if resp.StatusCode == http.StatusTooManyRequests || mentionsRateLimit(string(body)) {
 			return nil, &rateLimitError{reason, retryTime(resp.Header, time.Now())}
 		}
+		if resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusGatewayTimeout {
+			return nil, &tooHeavyError{reason}
+		}
 		return nil, errors.New("graphql: " + reason)
 	}
 
@@ -210,7 +228,7 @@ func (c *Client) doGraphQL(ctx context.Context, query string) (json.RawMessage, 
 		} `json:"errors"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("graphql: parse response: %w", err)
+		return nil, &tooHeavyError{fmt.Sprintf("HTTP 200 with a body that does not parse (%d bytes): %v", len(respBody), err)}
 	}
 	if len(result.Errors) > 0 {
 		first := result.Errors[0]
@@ -231,6 +249,17 @@ type rateLimitError struct {
 }
 
 func (e *rateLimitError) Error() string { return "graphql rate limited: " + e.reason }
+
+// A workflow whose batches time out twice in a row is too heavy for GraphQL:
+// every further batch would wait out GitHub's time limit and then be fetched
+// over REST anyway. One timeout between successes is a hiccup.
+const maxConsecutiveTimeouts = 2
+
+// tooHeavyError is GitHub giving up on a query it could not finish in time:
+// a 502 or 504, or a 200 with an empty or cut-short body.
+type tooHeavyError struct{ reason string }
+
+func (e *tooHeavyError) Error() string { return "graphql: " + e.reason }
 
 // retryTime reads when GitHub will take requests again: Retry-After on a
 // secondary limit, the reset time when the primary pool is empty. The reset
