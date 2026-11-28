@@ -367,7 +367,7 @@ Each finding was checked against the raw API, job logs or the cache. Filling the
 - An icicle of workflow → job → step, sized by runner time, answered "where does the time go" faster than any table in this scan. Candidate `--format html`.
 
 ### R13. Paper cuts found while fixing [XS]
-- `-q` does not silence the client's `slog` lines: "GraphQL batch failed, falling back to REST" still reaches stderr, because the client logger is wired to stderr at INFO whatever the flag says.
+- ✅ `-q` did not silence the client's `slog` lines: "GraphQL batch failed, falling back to REST" still reached stderr, because the client logger was wired to stderr whatever the flag said. Under `-q` it now writes nowhere.
 - `cmd/smoke` passes vacuously when its workflow has no runs in the last 3 days ("No runs to hydrate", exit 0).
 - When every run of one `--branch-category` failed to hydrate and other categories did not, the error still reads "no runs found for --branch-category".
 - ✅ The rate-limit warning did not say when to retry. It now ends with the time GitHub named (`Retry-After` on a secondary limit, the reset when the primary pool is empty); the partial-data notice repeats it and JSON carries it as `retry_at` on the diagnostic and as `meta.retry_at`. Nothing sleeps: the caller that waits (R4) reads the time.

@@ -303,3 +303,12 @@ func TestServiceRun_WorkflowFilter(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.Meta.TotalRuns)
 }
+
+func TestClientLogger_QuietSilencesTheClientsNotices(t *testing.T) {
+	var loud, quiet bytes.Buffer
+	clientLogger(&loud, false).Info("GraphQL batch failed, falling back to REST")
+	clientLogger(&quiet, true).Info("GraphQL batch failed, falling back to REST")
+
+	assert.Contains(t, loud.String(), "falling back to REST")
+	assert.Empty(t, quiet.String(), "-q promises no progress or diagnostic output on stderr")
+}
