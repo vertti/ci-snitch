@@ -89,7 +89,7 @@ func (PipelineAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findi
 	slices.SortFunc(findings, func(a, b Finding) int {
 		ad, _ := a.Detail.(PipelineDetail)
 		bd, _ := b.Detail.(PipelineDetail)
-		return cmp.Compare(bd.MedianWallClock, ad.MedianWallClock)
+		return cmp.Or(cmp.Compare(bd.MedianWallClock, ad.MedianWallClock), byTitle(&a, &b))
 	})
 
 	return findings, nil
@@ -269,7 +269,7 @@ func detectStages(jobs []model.Job) []rawStage {
 
 	// Sort by start time
 	slices.SortFunc(timed, func(a, b timedJob) int {
-		return a.start.Compare(b.start)
+		return cmp.Or(a.start.Compare(b.start), cmp.Compare(a.name, b.name))
 	})
 
 	// Group into stages by temporal overlap: a job that starts while the

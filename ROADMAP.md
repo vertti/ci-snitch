@@ -366,6 +366,7 @@ Each finding was checked against the raw API, job logs or the cache. Filling the
 - `cmd/smoke` passes vacuously when its workflow has no runs in the last 3 days ("No runs to hydrate", exit 0).
 - When every run of one `--branch-category` failed to hydrate and other categories did not, the error still reads "no runs found for --branch-category".
 - ✅ The rate-limit warning did not say when to retry. It now ends with the time GitHub named (`Retry-After` on a secondary limit, the reset when the primary pool is empty); the partial-data notice repeats it and JSON carries it as `retry_at` on the diagnostic and as `meta.retry_at`. Nothing sleeps: the caller that waits (R4) reads the time.
+- ✅ Two runs over the same data gave different reports wherever values tied: rankings had no tie-break, and the change-point and outlier analyzers emitted findings in map order. On the scan above about 25 of 550 findings differed between identical runs, including which steps made a job's top three. Every ranking now breaks ties by name and those analyzers walk their jobs in a fixed order; two back-to-back reports are byte-identical.
 
 Order: R1, R2, R4, R7 (trust) → R3, R5, R6 (fetch cost) → R8–R10 → R11–R13.
 

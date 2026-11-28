@@ -84,7 +84,9 @@ func (c ChangePointAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]
 
 	// Per-(workflow, job) change-point detection over the shared
 	// chronological series (see AnalysisContext.JobSeries).
-	for jk, js := range ac.JobSeries() {
+	series := ac.JobSeries()
+	for _, jk := range sortedJobKeys(series) {
+		js := series[jk]
 		wfName := ac.WorkflowName(jk.WorkflowID)
 		if len(js.Durations) < 2*minSeg {
 			continue
