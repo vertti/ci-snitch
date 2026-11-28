@@ -120,7 +120,7 @@ func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 
 		// Sort by median descending (slowest first)
 		slices.SortFunc(summaries, func(a, b StepSummary) int {
-			return cmp.Compare(b.Median, a.Median)
+			return cmp.Or(cmp.Compare(b.Median, a.Median), cmp.Compare(a.Name, b.Name))
 		})
 
 		// Keep top N
@@ -154,9 +154,9 @@ func (s StepAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 	slices.SortFunc(findings, func(a, b Finding) int {
 		ad, _ := a.Detail.(StepTimingDetail)
 		bd, _ := b.Detail.(StepTimingDetail)
-		return cmp.Compare(
+		return cmp.Or(cmp.Compare(
 			medianByJob[wfJobName{bd.WorkflowName, bd.JobName}],
-			medianByJob[wfJobName{ad.WorkflowName, ad.JobName}])
+			medianByJob[wfJobName{ad.WorkflowName, ad.JobName}]), byTitle(&a, &b))
 	})
 
 	return findings, nil

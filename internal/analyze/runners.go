@@ -1,6 +1,7 @@
 package analyze
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -144,7 +145,7 @@ func (RunnerAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding
 			}
 			return 1
 		}
-		return bd.Cores - ad.Cores
+		return cmp.Or(cmp.Compare(bd.Cores, ad.Cores), byTitle(&a, &b))
 	})
 
 	return findings, nil

@@ -1,6 +1,7 @@
 package analyze
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -160,13 +161,7 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 
 		// Sort jobs by billable minutes descending
 		slices.SortFunc(jobs, func(a, b JobCostBreakdown) int {
-			if b.BillableMinutes > a.BillableMinutes {
-				return 1
-			}
-			if b.BillableMinutes < a.BillableMinutes {
-				return -1
-			}
-			return 0
+			return cmp.Or(cmp.Compare(b.BillableMinutes, a.BillableMinutes), cmp.Compare(a.Name, b.Name))
 		})
 
 		// Priority score: daily rate × improvement potential (p95/median ratio).
@@ -208,13 +203,7 @@ func (CostAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Finding, 
 	slices.SortFunc(findings, func(a, b Finding) int {
 		ad, _ := a.Detail.(CostDetail)
 		bd, _ := b.Detail.(CostDetail)
-		if bd.PriorityScore > ad.PriorityScore {
-			return 1
-		}
-		if bd.PriorityScore < ad.PriorityScore {
-			return -1
-		}
-		return 0
+		return cmp.Or(cmp.Compare(bd.PriorityScore, ad.PriorityScore), byTitle(&a, &b))
 	})
 
 	return findings, nil

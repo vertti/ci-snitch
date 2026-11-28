@@ -3,7 +3,9 @@ package analyze
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/vertti/ci-snitch/internal/stats"
@@ -81,7 +83,8 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 		}
 	}
 
-	for wfID, durations := range wfDurations {
+	for _, wfID := range slices.Sorted(maps.Keys(wfDurations)) {
+		durations := wfDurations[wfID]
 		wfName := ac.WorkflowName(wfID)
 		idxMap := wfRuns[wfID]
 		outliers := o.detect(durations)
@@ -110,7 +113,9 @@ func (o OutlierAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 	}
 
 	// Job-level outliers over the shared per-(workflow, job) series
-	for k, js := range ac.JobSeries() {
+	series := ac.JobSeries()
+	for _, k := range sortedJobKeys(series) {
+		js := series[k]
 		wfName := ac.WorkflowName(k.WorkflowID)
 		outliers := o.detect(js.Durations)
 		minGate := effectiveMinPercentile(minPct, len(js.Durations))

@@ -2,6 +2,7 @@ package analyze
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/vertti/ci-snitch/internal/diag"
@@ -135,5 +136,6 @@ func computeMeta(details []model.RunDetail) ResultMeta {
 	for id := range wfSet {
 		meta.WorkflowIDs = append(meta.WorkflowIDs, id)
 	}
+	slices.Sort(meta.WorkflowIDs)
 	return meta
 }

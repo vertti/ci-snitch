@@ -118,7 +118,7 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 
 		// Sort jobs by median descending (slowest first)
 		slices.SortFunc(jobs, func(a, b JobSummary) int {
-			return cmp.Compare(b.Stats.Median, a.Stats.Median)
+			return cmp.Or(cmp.Compare(b.Stats.Median, a.Stats.Median), cmp.Compare(a.Name, b.Name))
 		})
 
 		var queue QueueStats
@@ -157,7 +157,7 @@ func (s SummaryAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Find
 		if !aOK || !bOK {
 			return 0
 		}
-		return cmp.Compare(bd.Stats.TotalTime, ad.Stats.TotalTime)
+		return cmp.Or(cmp.Compare(bd.Stats.TotalTime, ad.Stats.TotalTime), byTitle(&a, &b))
 	})
 
 	return findings, nil

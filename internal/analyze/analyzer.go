@@ -2,8 +2,10 @@
 package analyze
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 
@@ -193,4 +195,21 @@ type Finding struct {
 // FindingDetail is implemented by typed detail structs for each analyzer.
 type FindingDetail interface {
 	DetailType() string
+}
+
+// sortedJobKeys orders a job map's keys, so an analyzer that walks the map
+// emits its findings in the same order on every run.
+func sortedJobKeys[V any](m map[JobKey]V) []JobKey {
+	keys := slices.Collect(maps.Keys(m))
+	slices.SortFunc(keys, func(a, b JobKey) int {
+		return cmp.Or(cmp.Compare(a.WorkflowID, b.WorkflowID), cmp.Compare(a.Job, b.Job))
+	})
+	return keys
+}
+
+// byTitle breaks a tie between findings an analyzer ranks equal. Without it
+// the order follows map iteration and the report changes between two runs
+// over the same data.
+func byTitle(a, b *Finding) int {
+	return cmp.Or(cmp.Compare(a.Title, b.Title), cmp.Compare(a.Description, b.Description))
 }

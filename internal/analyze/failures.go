@@ -111,13 +111,7 @@ func (FailureAnalyzer) Analyze(_ context.Context, ac *AnalysisContext) ([]Findin
 	slices.SortFunc(findings, func(a, b Finding) int {
 		ad, _ := a.Detail.(FailureDetail)
 		bd, _ := b.Detail.(FailureDetail)
-		if bd.FailureRate > ad.FailureRate {
-			return 1
-		}
-		if bd.FailureRate < ad.FailureRate {
-			return -1
-		}
-		return 0
+		return cmp.Or(cmp.Compare(bd.FailureRate, ad.FailureRate), byTitle(&a, &b))
 	})
 
 	return findings, nil
@@ -222,7 +216,7 @@ func buildFailureFinding(ac *AnalysisContext, wfID int64, s *workflowFailureStat
 		byCategory[cat] += count
 	}
 	slices.SortFunc(failingSteps, func(a, b FailingStep) int {
-		return b.Count - a.Count
+		return cmp.Or(cmp.Compare(b.Count, a.Count), cmp.Compare(a.JobName, b.JobName), cmp.Compare(a.StepName, b.StepName))
 	})
 
 	// Without failing-step data there is no evidence for the flaky-vs-
