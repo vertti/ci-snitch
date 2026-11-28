@@ -334,8 +334,9 @@ Each finding was checked against the raw API, job logs or the cache. Filling the
 - For a workflow with 6 jobs of about 50 steps each, 41 of 43 batches returned 502 or 504 and fell back to 20 REST calls apiece: 8.5 minutes for 854 runs. The first invocation logged 102 such fallbacks. Fix: on 502/504, halve the batch and retry before falling back.
 - Reproduces on a public repo: a 7-day `cli/cli` scan (998 runs) logged four 502 fallbacks.
 
-### R6. Skipped runs are hydrated [S]
+### R6. Skipped runs are hydrated [S] ✅ done
 - 3.2k of the 10.8k listed runs (30%) had conclusion `skipped`: comment- and label-triggered workflows whose job `if:` was false. They have no timed jobs, yet each one costs hydration points. Fix: keep them for counts, skip hydration.
+- Shipped: a run whose conclusion is `skipped` is carried from the listing as it is, never fetched and never counted in the rate budget. In the cache behind this scan all 3,302 such runs had only skipped jobs, zero duration and no steps. A cold two-day fetch went from 780 hydrated runs to 555. Reports are unchanged except that a job that only ever appears skipped no longer shows as a zero-minute cost row, and the missing-labels count no longer includes skipped jobs.
 
 ### R7. The whole-series outlier clamp flattens a short genuine regime [S] ✅ done
 - A deploy job ran at a 5.3-minute median for six runs, then at 20 minutes for the remaining 230. The fence computed from the whole series (IQR 1.0 min around 22 min) clamped all six early runs up to 17.6 min. The change point landed on the right commit but was reported as "+12%, minor" instead of roughly +275%, and a later 2-minute shift took the headline.

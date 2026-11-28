@@ -450,13 +450,19 @@ func (idx *cacheIndex) servable(wfID int64, run *model.WorkflowRun) bool {
 // countRuns returns (totalRuns, uncachedRuns) across all workflows.
 // Uncached runs are those that will require an API fetch; cached completed
 // runs are served from the local SQLite store.
+// neverRan reports a run whose jobs were all skipped: it has no timed jobs or
+// steps, so there is nothing to hydrate and the listing already says it all.
+func neverRan(run *model.WorkflowRun) bool {
+	return run.Conclusion == "skipped"
+}
+
 func countRuns(allWfRuns []workflowRuns, cache *cacheIndex) (total, uncached int) {
 	for i := range allWfRuns {
 		wfID := allWfRuns[i].wf.ID
 		runs := allWfRuns[i].runs
 		total += len(runs)
 		for j := range runs {
-			if !cache.servable(wfID, &runs[j]) {
+			if !neverRan(&runs[j]) && !cache.servable(wfID, &runs[j]) {
 				uncached++
 			}
 		}
@@ -580,6 +586,17 @@ func (s *Service) hydrateWorkflow(ctx context.Context, wf model.Workflow, runs [
 	var diags []diag.Diagnostic
 	var needsFetch []model.WorkflowRun
 
+	var ran []model.WorkflowRun
+	var skipped []model.RunDetail
+	for i := range runs {
+		if neverRan(&runs[i]) {
+			skipped = append(skipped, model.RunDetail{Run: runs[i]})
+		} else {
+			ran = append(ran, runs[i])
+		}
+	}
+	runs = ran
+
 	if s.Store != nil {
 		details, needsFetch = s.partitionCached(wf, runs, cache)
 
@@ -619,5 +636,5 @@ func (s *Service) hydrateWorkflow(ctx context.Context, wf model.Workflow, runs [
 		details = append(details, fetched...)
 	}
 
-	return details, diags
+	return append(details, skipped...), diags
 }
